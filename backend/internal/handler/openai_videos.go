@@ -300,6 +300,9 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 
 	taskID := c.Param("task_id")
 	if taskID == "" {
+		taskID = c.Param("request_id")
+	}
+	if taskID == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "task_id is required")
 		return
 	}

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -38,6 +37,9 @@ func IsImageGenerationIntent(endpoint string, requestedModel string, body []byte
 		return true
 	}
 	if openAIJSONToolsContainImageGeneration(gjson.GetBytes(body, "tools")) {
+		return true
+	}
+	if openAIJSONInputContainsImageGenTool(gjson.GetBytes(body, "input")) {
 		return true
 	}
 	return openAIJSONToolChoiceSelectsImageGeneration(gjson.GetBytes(body, "tool_choice"))
@@ -91,13 +93,84 @@ func openAIJSONToolsContainImageGeneration(tools gjson.Result) bool {
 	}
 	found := false
 	tools.ForEach(func(_, item gjson.Result) bool {
-		if strings.TrimSpace(item.Get("type").String()) == "image_generation" {
+		if openAIJSONString(item.Get("type")) == "image_generation" {
+			found = true
+			return false
+		}
+		if isImageGenNamespaceTool(item) {
 			found = true
 			return false
 		}
 		return true
 	})
 	return found
+}
+
+// isImageGenNamespaceTool detects the Codex namespace-style image generation
+// tool declaration: { "type": "namespace", "name": "image_gen", ... }.
+// Codex /image uses this instead of the flat { "type": "image_generation" }.
+func isImageGenNamespaceTool(tool gjson.Result) bool {
+	return openAIJSONString(tool.Get("type")) == "namespace" &&
+		openAIJSONString(tool.Get("name")) == "image_gen"
+}
+
+// openAIJSONInputContainsImageGenTool scans Responses input items for
+// additional_tools entries that declare the image_gen namespace. This covers
+// the "Responses Lite" format where tools are embedded inside input items
+// rather than top-level tools.
+func openAIJSONInputContainsImageGenTool(input gjson.Result) bool {
+	if !input.IsArray() {
+		return false
+	}
+	found := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		if openAIJSONString(item.Get("type")) != "additional_tools" {
+			return true
+		}
+		tools := item.Get("tools")
+		if !tools.IsArray() {
+			return true
+		}
+		tools.ForEach(func(_, tool gjson.Result) bool {
+			if isImageGenNamespaceTool(tool) {
+				found = true
+				return false
+			}
+			return true
+		})
+		return !found
+	})
+	return found
+}
+
+func openAIRequestBodyHasImageGenerationTool(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	return openAIJSONToolsContainImageGeneration(gjson.GetBytes(body, "tools"))
+}
+
+func openAIRequestBodyImageGenerationToolNeedsNormalization(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return false
+	}
+	needsNormalization := false
+	tools.ForEach(func(_, item gjson.Result) bool {
+		if openAIJSONString(item.Get("type")) != "image_generation" {
+			return true
+		}
+		// 只有旧字段需要迁移时才进入 map 修改，纯计费读取保持 raw 路径。
+		if item.Get("format").Exists() || item.Get("compression").Exists() {
+			needsNormalization = true
+			return false
+		}
+		return true
+	})
+	return needsNormalization
 }
 
 func openAIJSONToolChoiceSelectsImageGeneration(choice gjson.Result) bool {
@@ -159,18 +232,13 @@ func apiKeyGroup(apiKey *APIKey) *Group {
 	return apiKey.Group
 }
 
-func cloneRequestMapForImageIntent(body []byte) map[string]any {
-	if len(body) == 0 {
-		return nil
-	}
-	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil
-	}
-	return out
+type OpenAIResponsesImageBillingConfig struct {
+	Model     string
+	SizeTier  string
+	InputSize string
 }
 
-func resolveOpenAIResponsesImageBillingConfig(reqBody map[string]any, fallbackModel string) (string, string, error) {
+func resolveOpenAIResponsesImageBillingConfigDetailed(reqBody map[string]any, fallbackModel string) (OpenAIResponsesImageBillingConfig, error) {
 	imageModel := ""
 	imageSize := ""
 	hasImageTool := false
@@ -203,12 +271,59 @@ func resolveOpenAIResponsesImageBillingConfig(reqBody map[string]any, fallbackMo
 		imageModel = strings.TrimSpace(fallbackModel)
 	}
 	sizeTier := normalizeOpenAIImageSizeTier(imageSize)
-	return imageModel, sizeTier, nil
+	return OpenAIResponsesImageBillingConfig{
+		Model:     imageModel,
+		SizeTier:  sizeTier,
+		InputSize: imageSize,
+	}, nil
 }
 
 func resolveOpenAIResponsesImageBillingConfigFromBody(body []byte, fallbackModel string) (string, string, error) {
-	reqBody := cloneRequestMapForImageIntent(body)
-	return resolveOpenAIResponsesImageBillingConfig(reqBody, fallbackModel)
+	cfg, err := resolveOpenAIResponsesImageBillingConfigDetailedFromBody(body, fallbackModel)
+	if err != nil {
+		return "", "", err
+	}
+	return cfg.Model, cfg.SizeTier, nil
+}
+
+func resolveOpenAIResponsesImageBillingConfigDetailedFromBody(body []byte, fallbackModel string) (OpenAIResponsesImageBillingConfig, error) {
+	imageModel := ""
+	imageSize := ""
+	hasImageTool := false
+	if len(body) > 0 && gjson.ValidBytes(body) {
+		tools := gjson.GetBytes(body, "tools")
+		if tools.IsArray() {
+			tools.ForEach(func(_, item gjson.Result) bool {
+				if openAIJSONString(item.Get("type")) != "image_generation" {
+					return true
+				}
+				hasImageTool = true
+				imageModel = openAIJSONString(item.Get("model"))
+				imageSize = openAIJSONString(item.Get("size"))
+				return false
+			})
+		}
+		if imageSize == "" {
+			imageSize = openAIJSONString(gjson.GetBytes(body, "size"))
+		}
+		if imageModel == "" {
+			bodyModel := openAIJSONString(gjson.GetBytes(body, "model"))
+			if isOpenAIImageBillingModelAlias(bodyModel) || !hasImageTool {
+				imageModel = bodyModel
+			}
+		}
+	}
+	if imageModel == "" && hasImageTool {
+		imageModel = "gpt-image-2"
+	}
+	if imageModel == "" {
+		imageModel = strings.TrimSpace(fallbackModel)
+	}
+	return OpenAIResponsesImageBillingConfig{
+		Model:     imageModel,
+		SizeTier:  normalizeOpenAIImageSizeTier(imageSize),
+		InputSize: imageSize,
+	}, nil
 }
 
 func isOpenAIImageBillingModelAlias(model string) bool {
@@ -217,4 +332,11 @@ func isOpenAIImageBillingModelAlias(model string) bool {
 		return false
 	}
 	return isOpenAIImageGenerationModel(normalized) || strings.Contains(normalized, "image")
+}
+
+func openAIJSONString(value gjson.Result) string {
+	if value.Type != gjson.String {
+		return ""
+	}
+	return strings.TrimSpace(value.String())
 }
