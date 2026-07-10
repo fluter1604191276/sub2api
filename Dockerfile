@@ -22,6 +22,7 @@ FROM ${NODE_IMAGE} AS frontend-builder
 ARG NPM_CONFIG_REGISTRY
 
 WORKDIR /app/frontend
+ENV NODE_OPTIONS=--max-old-space-size=4096
 
 # Install pnpm (pinned to v9 to match CI and keep builds reproducible).
 # Corepack uses its own registry variable, so reuse the optional npm mirror.
