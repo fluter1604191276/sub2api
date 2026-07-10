@@ -531,7 +531,7 @@ func TestOpenAIChatCompletions_ClaudeDispatchModelRoutesAndForwardsMappedModel(t
 		}, "\n"))),
 	}}
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
-	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg)
+	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	defer billingCacheSvc.Stop()
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
@@ -549,6 +549,8 @@ func TestOpenAIChatCompletions_ClaudeDispatchModelRoutesAndForwardsMappedModel(t
 		billingCacheSvc,
 		upstream,
 		&service.DeferredService{},
+		nil,
+		nil,
 		nil,
 		nil,
 		nil,

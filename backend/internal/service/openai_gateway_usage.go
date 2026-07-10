@@ -374,6 +374,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 	if result != nil && result.ImageCount > 0 {
 		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
+		if mediaBillingModel, resolved := s.firstOpenAIMediaChannelPricing(ctx, apiKey, billingModels, BillingModePerRequest, BillingModeImage); resolved != nil {
+			return s.calculateOpenAIImageCost(ctx, mediaBillingModel, apiKey, result, imageMultiplier), nil
+		}
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
 		}
@@ -415,6 +418,28 @@ func isGrokVideoUsageResult(result *OpenAIForwardResult, billingModels []string)
 		}
 	}
 	return false
+}
+
+func (s *OpenAIGatewayService) firstOpenAIMediaChannelPricing(ctx context.Context, apiKey *APIKey, billingModels []string, allowedModes ...BillingMode) (string, *ResolvedPricing) {
+	if len(allowedModes) == 0 {
+		return "", nil
+	}
+	for _, candidate := range billingModels {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		resolved := s.resolveOpenAIChannelPricing(ctx, candidate, apiKey)
+		if resolved == nil {
+			continue
+		}
+		for _, mode := range allowedModes {
+			if resolved.Mode == mode {
+				return candidate, resolved
+			}
+		}
+	}
+	return "", nil
 }
 
 func isUsagePricingUnavailableError(err error) bool {
