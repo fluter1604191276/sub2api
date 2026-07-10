@@ -251,6 +251,124 @@ func TestCalculateCostUnified_UsesPreResolvedPricing(t *testing.T) {
 	require.Equal(t, string(BillingModePerRequest), cost.BillingMode)
 }
 
+func TestUsageContextTokensForPricing_IncludesCacheCreation(t *testing.T) {
+	require.Equal(t, 273000, usageContextTokensForPricing(UsageTokens{
+		InputTokens:         1000,
+		CacheReadTokens:     2000,
+		CacheCreationTokens: 270000,
+	}))
+
+	require.Equal(t, 273000, usageContextTokensForPricing(UsageTokens{
+		InputTokens:           1000,
+		CacheReadTokens:       2000,
+		CacheCreation5mTokens: 100000,
+		CacheCreation1hTokens: 170000,
+	}))
+}
+
+func TestCalculateCostUnified_TokenIntervalsUseOpenAIContextBoundary(t *testing.T) {
+	bs := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, bs)
+
+	shortMax := 272000
+	resolved := &ResolvedPricing{
+		Mode: BillingModeToken,
+		BasePricing: &ModelPricing{
+			InputPricePerToken:         99e-6,
+			OutputPricePerToken:        99e-6,
+			CacheCreationPricePerToken: 99e-6,
+			CacheReadPricePerToken:     99e-6,
+		},
+		Intervals: []PricingInterval{
+			{
+				MinTokens:       0,
+				MaxTokens:       &shortMax,
+				TierLabel:       "short_context",
+				InputPrice:      testPtrFloat64(5e-6),
+				OutputPrice:     testPtrFloat64(30e-6),
+				CacheWritePrice: testPtrFloat64(6.25e-6),
+				CacheReadPrice:  testPtrFloat64(0.5e-6),
+			},
+			{
+				MinTokens:       272000,
+				MaxTokens:       nil,
+				TierLabel:       "long_context",
+				InputPrice:      testPtrFloat64(10e-6),
+				OutputPrice:     testPtrFloat64(45e-6),
+				CacheWritePrice: testPtrFloat64(12.5e-6),
+				CacheReadPrice:  testPtrFloat64(1e-6),
+			},
+		},
+	}
+
+	shortCost, err := bs.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "gpt-5.6-sol",
+		Tokens:         UsageTokens{InputTokens: 1000, CacheReadTokens: 271000},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+		Resolved:       resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 1000*5e-6, shortCost.InputCost, 1e-10)
+	require.InDelta(t, 271000*0.5e-6, shortCost.CacheReadCost, 1e-10)
+
+	longCost, err := bs.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "gpt-5.6-sol",
+		Tokens:         UsageTokens{InputTokens: 1000, CacheReadTokens: 271001},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+		Resolved:       resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 1000*10e-6, longCost.InputCost, 1e-10)
+	require.InDelta(t, 271001*1e-6, longCost.CacheReadCost, 1e-10)
+}
+
+func TestCalculateCostUnified_TokenIntervalsUseCacheCreationForContext(t *testing.T) {
+	bs := newTestBillingService()
+	resolver := NewModelPricingResolver(nil, bs)
+
+	shortMax := 272000
+	resolved := &ResolvedPricing{
+		Mode: BillingModeToken,
+		Intervals: []PricingInterval{
+			{
+				MinTokens:       0,
+				MaxTokens:       &shortMax,
+				TierLabel:       "short_context",
+				InputPrice:      testPtrFloat64(5e-6),
+				OutputPrice:     testPtrFloat64(30e-6),
+				CacheWritePrice: testPtrFloat64(6.25e-6),
+				CacheReadPrice:  testPtrFloat64(0.5e-6),
+			},
+			{
+				MinTokens:       272000,
+				MaxTokens:       nil,
+				TierLabel:       "long_context",
+				InputPrice:      testPtrFloat64(10e-6),
+				OutputPrice:     testPtrFloat64(45e-6),
+				CacheWritePrice: testPtrFloat64(12.5e-6),
+				CacheReadPrice:  testPtrFloat64(1e-6),
+			},
+		},
+	}
+
+	cost, err := bs.CalculateCostUnified(CostInput{
+		Ctx:            context.Background(),
+		Model:          "gpt-5.6-sol",
+		Tokens:         UsageTokens{InputTokens: 1000, OutputTokens: 100, CacheCreationTokens: 271001},
+		RateMultiplier: 1.0,
+		Resolver:       resolver,
+		Resolved:       resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 1000*10e-6, cost.InputCost, 1e-10)
+	require.InDelta(t, 100*45e-6, cost.OutputCost, 1e-10)
+	require.InDelta(t, 271001*12.5e-6, cost.CacheCreationCost, 1e-10)
+}
+
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
