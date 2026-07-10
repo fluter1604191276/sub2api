@@ -13,6 +13,26 @@ const EMBEDDED_UI_MODE_VALUE = 'embedded'
 const EMBEDDED_SRC_HOST_QUERY_KEY = 'src_host'
 const EMBEDDED_SRC_QUERY_KEY = 'src_url'
 
+export function isSafeRelativePath(value: string): boolean {
+  return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')
+}
+
+export function normalizeInternalAppPath(rawUrl?: string): string {
+  if (!rawUrl || typeof window === 'undefined') return ''
+  try {
+    const url = isSafeRelativePath(rawUrl)
+      ? new URL(rawUrl, window.location.origin)
+      : new URL(rawUrl)
+    if (url.origin !== window.location.origin) return ''
+    if (url.pathname === '/model-directory' || url.pathname === '/available-channels') {
+      return `/available-channels${url.search}${url.hash}`
+    }
+  } catch {
+    return ''
+  }
+  return ''
+}
+
 export function buildEmbeddedUrl(
   baseUrl: string,
   userId?: number,
@@ -22,11 +42,14 @@ export function buildEmbeddedUrl(
 ): string {
   if (!baseUrl) return baseUrl
   try {
-    const url = new URL(baseUrl)
-    if (userId) {
+    const isRelative = isSafeRelativePath(baseUrl)
+    const url = isRelative && typeof window !== 'undefined'
+      ? new URL(baseUrl, window.location.origin)
+      : new URL(baseUrl)
+    if (!isRelative && userId) {
       url.searchParams.set(EMBEDDED_USER_ID_QUERY_KEY, String(userId))
     }
-    if (authToken) {
+    if (!isRelative && authToken) {
       url.searchParams.set(EMBEDDED_AUTH_TOKEN_QUERY_KEY, authToken)
     }
     url.searchParams.set(EMBEDDED_THEME_QUERY_KEY, theme)
@@ -39,7 +62,7 @@ export function buildEmbeddedUrl(
       url.searchParams.set(EMBEDDED_SRC_HOST_QUERY_KEY, window.location.origin)
       url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, window.location.href)
     }
-    return url.toString()
+    return isRelative ? `${url.pathname}${url.search}${url.hash}` : url.toString()
   } catch {
     return baseUrl
   }

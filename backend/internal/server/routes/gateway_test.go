@@ -77,3 +77,25 @@ func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI images handler", path)
 	}
 }
+
+func TestGatewayRoutesOpenAIVideoPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/v1/video/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodGet, path: "/v1/videos/task_123", body: ""},
+		{method: http.MethodPost, path: "/video/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodGet, path: "/videos/task_123", body: ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI video handler", tc.path)
+	}
+}

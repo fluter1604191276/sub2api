@@ -93,6 +93,12 @@
           </div>
         </div>
 
+        <div v-else-if="internalAppPath" class="flex h-full items-center justify-center py-12">
+          <div
+            class="h-8 w-8 animate-spin rounded-full border-2 border-primary-500 border-t-transparent"
+          ></div>
+        </div>
+
         <!-- Iframe embed mode -->
         <div v-else class="custom-embed-shell">
           <a
@@ -117,14 +123,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { buildEmbeddedUrl, detectTheme } from '@/utils/embedded-url'
+import {
+  buildEmbeddedUrl,
+  detectTheme,
+  isSafeRelativePath,
+  normalizeInternalAppPath,
+} from '@/utils/embedded-url'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -136,6 +147,7 @@ interface TocItem {
 
 const { t, locale } = useI18n()
 const route = useRoute()
+const router = useRouter()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 const adminSettingsStore = useAdminSettingsStore()
@@ -148,6 +160,8 @@ const tocItems = ref<TocItem[]>([])
 const tocVisible = ref(typeof window !== 'undefined' ? window.innerWidth > 768 : true)
 const activeHeadingId = ref('')
 let themeObserver: MutationObserver | null = null
+
+const TOP_UP_SHOP_URL = 'https://pay.ldxp.cn/shop/IMZJ600N'
 
 const menuItemId = computed(() => route.params.id as string)
 
@@ -183,10 +197,15 @@ const embeddedUrl = computed(() => {
   )
 })
 
+const internalAppPath = computed(() => {
+  if (!menuItem.value || isMarkdownMode.value) return ''
+  return normalizeInternalAppPath(menuItem.value.url)
+})
+
 const isValidUrl = computed(() => {
   if (isMarkdownMode.value) return false
   const url = embeddedUrl.value
-  return url.startsWith('http://') || url.startsWith('https://')
+  return isSafeRelativePath(url) || url.startsWith('http://') || url.startsWith('https://')
 })
 
 function generateHeadingId(text: string, index: number): string {
@@ -220,6 +239,21 @@ function buildPageImageUrl(slug: string, src: string): string {
   return `/api/v1/pages/${encodeURIComponent(slug)}/images/${encodedPath}${suffix}`
 }
 
+function openTopUpLinksInNewTab(html: string): string {
+  if (typeof document === 'undefined') return html
+
+  const template = document.createElement('template')
+  template.innerHTML = html
+  template.content.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+    const href = anchor.getAttribute('href') || ''
+    if (href === TOP_UP_SHOP_URL) {
+      anchor.setAttribute('target', '_blank')
+      anchor.setAttribute('rel', 'noopener noreferrer')
+    }
+  })
+  return template.innerHTML
+}
+
 async function fetchAndRenderMarkdown(slug: string) {
   loading.value = true
   tocItems.value = []
@@ -242,13 +276,14 @@ async function fetchAndRenderMarkdown(slug: string) {
     const html = marked.parse(raw) as string
     const sanitized = DOMPurify.sanitize(html, {
       ADD_TAGS: ['iframe'],
-      ADD_ATTR: ['allowfullscreen', 'frameborder', 'src'],
+      ADD_ATTR: ['allowfullscreen', 'frameborder', 'src', 'target', 'rel'],
     })
+    const htmlWithLinkTargets = openTopUpLinksInNewTab(sanitized)
 
     // Inject IDs into headings and build TOC
     const toc: TocItem[] = []
     let headingIndex = 0
-    const withIds = sanitized.replace(
+    const withIds = htmlWithLinkTargets.replace(
       /<(h[1-4])[^>]*>(.*?)<\/h[1-4]>/gi,
       (_, tag: string, content: string) => {
         const level = parseInt(tag[1])
@@ -339,6 +374,12 @@ watch(markdownSlug, (slug) => {
   } else {
     renderedHtml.value = ''
     tocItems.value = []
+  }
+}, { immediate: true })
+
+watch(internalAppPath, (path) => {
+  if (path) {
+    router.replace(path)
   }
 }, { immediate: true })
 

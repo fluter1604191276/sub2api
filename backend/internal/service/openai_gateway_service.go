@@ -5259,6 +5259,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	if result.ImageCount > 0 && strings.TrimSpace(result.BillingModel) != "" {
+		billingModel = strings.TrimSpace(result.BillingModel)
+	}
 	billingModels := usageBillingModelCandidates(
 		billingModel,
 		result.BillingModel,

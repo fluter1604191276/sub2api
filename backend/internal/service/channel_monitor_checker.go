@@ -245,7 +245,90 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", status, err
 	}
-	return gjson.GetBytes(respBytes, adapter.textPath).String(), string(respBytes), status, nil
+	return extractMonitorResponseText(respBytes, adapter.textPath), string(respBytes), status, nil
+}
+
+// extractMonitorResponseText first uses the provider's canonical JSON path, then
+// falls back to common compatibility response shapes seen behind proxy services.
+func extractMonitorResponseText(respBytes []byte, primaryPath string) string {
+	if text := firstStringFromGJSON(gjson.GetBytes(respBytes, primaryPath)); text != "" {
+		return text
+	}
+	for _, path := range monitorTextFallbackPaths {
+		if path == primaryPath {
+			continue
+		}
+		if text := firstStringFromGJSON(gjson.GetBytes(respBytes, path)); text != "" {
+			return text
+		}
+	}
+	if text := extractMonitorResponseTextFromSSE(respBytes, primaryPath); text != "" {
+		return text
+	}
+	return ""
+}
+
+// monitorTextFallbackPaths intentionally stays narrow: these are output-content
+// fields only, so replace-mode does not accidentally treat ids/model names as text.
+//
+//nolint:gochecknoglobals // static path list, read-only after init.
+var monitorTextFallbackPaths = []string{
+	// Anthropic Messages.
+	"content.0.text",
+	"content.#.text",
+	"content.0.content",
+	"content.#.content",
+	"delta.text",
+	// OpenAI chat completions and older completions.
+	"choices.0.message.content",
+	"choices.#.message.content",
+	"choices.0.delta.content",
+	"choices.#.delta.content",
+	"choices.0.text",
+	"choices.#.text",
+	// OpenAI Responses style.
+	"output_text",
+	"output.0.content.0.text",
+	"output.#.content.#.text",
+	"response.output.0.content.0.text",
+	"response.output.#.content.#.text",
+	// Gemini-style fallback for mixed compatibility layers.
+	"candidates.0.content.parts.0.text",
+	"candidates.#.content.parts.#.text",
+}
+
+func firstStringFromGJSON(v gjson.Result) string {
+	if !v.Exists() {
+		return ""
+	}
+	if v.Type == gjson.String {
+		return strings.TrimSpace(v.String())
+	}
+	if v.IsArray() {
+		for _, item := range v.Array() {
+			if text := firstStringFromGJSON(item); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func extractMonitorResponseTextFromSSE(respBytes []byte, primaryPath string) string {
+	for _, line := range strings.Split(string(respBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" || !gjson.Valid(payload) {
+			continue
+		}
+		if text := extractMonitorResponseText([]byte(payload), primaryPath); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 // mergeHeaders 把用户自定义 headers 合并到 adapter 默认 headers 上。
@@ -410,7 +493,7 @@ func sanitizeErrorMessage(msg string) string {
 	for _, p := range monitorAPIKeyPatterns {
 		msg = p.pattern.ReplaceAllString(msg, p.replace)
 	}
-	return msg
+	return sanitizeClientVisibleUpstreamErrorMessage(msg)
 }
 
 // truncateMessage 把消息按 monitorMessageMaxBytes 截断，避免 DB 列溢出与日志过长。

@@ -1,7 +1,7 @@
 <template>
-  <div class="card overflow-hidden">
-    <table class="w-full table-fixed border-collapse text-sm">
-      <thead>
+  <div class="available-channels-table-wrapper">
+    <table class="available-channels-table table-fixed border-collapse text-sm">
+      <thead class="sticky top-0 z-10">
         <tr class="border-b border-gray-100 bg-gray-50/50 text-xs font-medium uppercase tracking-wide text-gray-500 dark:border-dark-700 dark:bg-dark-800/50 dark:text-gray-400">
           <th class="w-[180px] px-4 py-3 text-center">{{ columns.name }}</th>
           <th class="w-[200px] px-4 py-3 text-left">{{ columns.description }}</th>
@@ -187,3 +187,25 @@ function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[]
   return section.groups.filter((g) => !g.is_exclusive)
 }
 </script>
+
+<style scoped>
+.available-channels-table-wrapper {
+  @apply min-h-0 flex-1 overflow-auto;
+  scrollbar-gutter: stable;
+}
+
+.available-channels-table {
+  @apply w-full;
+  min-width: 1120px !important;
+}
+
+@media (max-width: 1023px) {
+  .available-channels-table-wrapper {
+    @apply overflow-x-auto overflow-y-auto;
+  }
+
+  .available-channels-table {
+    min-width: 960px !important;
+  }
+}
+</style>

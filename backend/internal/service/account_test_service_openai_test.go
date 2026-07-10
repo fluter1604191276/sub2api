@@ -59,6 +59,19 @@ func newTestContext() (*gin.Context, *httptest.ResponseRecorder) {
 	return c, rec
 }
 
+func TestAccountTestService_SendErrorAndEnd_RedactsUpstreamURL(t *testing.T) {
+	ctx, recorder := newTestContext()
+	svc := &AccountTestService{}
+
+	err := svc.sendErrorAndEnd(ctx, `Request failed: Post "https://sub2.congmingai.com/v1/responses": tls: failed to verify certificate`)
+
+	require.Error(t, err)
+	body := recorder.Body.String()
+	require.NotContains(t, body, "sub2.congmingai.com")
+	require.NotContains(t, body, "https://")
+	require.Contains(t, body, "[upstream_url]")
+}
+
 type openAIAccountTestRepo struct {
 	mockAccountRepoForGemini
 	updatedExtra       map[string]any

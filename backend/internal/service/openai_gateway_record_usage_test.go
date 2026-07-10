@@ -1564,6 +1564,61 @@ func TestOpenAIGatewayServiceRecordUsage_ChannelImageBillingUsesImageCountAndInd
 	require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_ResponsesImageBillingModelBeatsRequestedTextModel(t *testing.T) {
+	groupID := int64(128)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.resolver = newOpenAIImageChannelPricingResolverForTest(t, groupID, "gpt-image-2", 1.0)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:    "resp_image_tool_requested_text",
+			Model:        "gpt-5.5",
+			BillingModel: "gpt-image-2",
+			Usage: OpenAIUsage{
+				InputTokens:       35,
+				OutputTokens:      275,
+				ImageOutputTokens: 275,
+			},
+			ImageCount: 1,
+			ImageSize:  "4K",
+			Duration:   time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      10128,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:                   groupID,
+				RateMultiplier:       0.1,
+				ImageRateIndependent: true,
+				ImageRateMultiplier:  0.1,
+			},
+		},
+		User:    &User{ID: 20128},
+		Account: &Account{ID: 30128},
+		ChannelUsageFields: ChannelUsageFields{
+			ChannelID:          19,
+			OriginalModel:      "gpt-5.5",
+			ChannelMappedModel: "gpt-5.5",
+			BillingModelSource: BillingModelSourceRequested,
+		},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.BillingMode)
+	require.Equal(t, string(BillingModeImage), *usageRepo.lastLog.BillingMode)
+	require.Equal(t, "gpt-5.5", usageRepo.lastLog.RequestedModel)
+	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
+	require.NotNil(t, usageRepo.lastLog.ImageSize)
+	require.Equal(t, "4K", *usageRepo.lastLog.ImageSize)
+	require.InDelta(t, 1.0, usageRepo.lastLog.TotalCost, 1e-12)
+	require.InDelta(t, 0.1, usageRepo.lastLog.ActualCost, 1e-12)
+	require.InDelta(t, 0.1, usageRepo.lastLog.RateMultiplier, 1e-12)
+	require.InDelta(t, 0.0, usageRepo.lastLog.InputCost, 1e-12)
+	require.InDelta(t, 0.0, usageRepo.lastLog.OutputCost, 1e-12)
+}
+
 func newOpenAIImageChannelPricingResolverForTest(t *testing.T, groupID int64, model string, price float64) *ModelPricingResolver {
 	t.Helper()
 	cache := newEmptyChannelCache()

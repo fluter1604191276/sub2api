@@ -1684,7 +1684,12 @@ func sleepGeminiBackoff(attempt int) {
 }
 
 var (
-	sensitiveQueryParamRegex = regexp.MustCompile(`(?i)([?&](?:key|client_secret|access_token|refresh_token)=)[^&"\s]+`)
+	sensitiveQueryParamRegex = regexp.MustCompile(`(?i)([?&](?:key|api[_-]?key|client_secret|access[_-]?token|refresh_token|token|authorization|x-api-key)=)[^&"\s]+`)
+	upstreamURLRegex         = regexp.MustCompile(`(?i)\bhttps?://[^\s"')\]}<>]+`)
+	upstreamIPv4Regex        = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b`)
+	certWantedHostRegex      = regexp.MustCompile(`(?i)(wanted to match\s+)([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\.[a-z0-9-]{2,63})`)
+	lookupHostRegex          = regexp.MustCompile(`(?i)(\blookup\s+)([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\.[a-z0-9-]{2,63})`)
+	dialHostRegex            = regexp.MustCompile(`(?i)(\bdial tcp\s+)([a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\.[a-z0-9-]{2,63})(?::\d+)?`)
 	retryInRegex             = regexp.MustCompile(`Please retry in ([0-9.]+)s`)
 )
 
@@ -1693,6 +1698,22 @@ func sanitizeUpstreamErrorMessage(msg string) string {
 		return msg
 	}
 	return sensitiveQueryParamRegex.ReplaceAllString(msg, `$1***`)
+}
+
+func sanitizeClientVisibleUpstreamErrorMessage(msg string) string {
+	msg = sanitizeUpstreamErrorMessage(msg)
+	return redactUpstreamLocationReferences(msg)
+}
+
+func redactUpstreamLocationReferences(msg string) string {
+	if msg == "" {
+		return msg
+	}
+	msg = upstreamURLRegex.ReplaceAllString(msg, "[upstream_url]")
+	msg = upstreamIPv4Regex.ReplaceAllString(msg, "[upstream_ip]")
+	msg = certWantedHostRegex.ReplaceAllString(msg, `${1}[upstream_host]`)
+	msg = lookupHostRegex.ReplaceAllString(msg, `${1}[upstream_host]`)
+	return dialHostRegex.ReplaceAllString(msg, `${1}[upstream_host]`)
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, account *Account, upstreamStatus int, upstreamRequestID string, body []byte) error {
