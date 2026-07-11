@@ -140,3 +140,15 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Local Codex / browser automation state
+.omc/
+.playwright-cli/
+outputs/
+
+# Python runtime artifacts
+__pycache__/
+*.py[cod]
+
+# Upstream-rates local collectors and database snapshots
+ops/public-deploy/upstream-rates/local-snapshots/
