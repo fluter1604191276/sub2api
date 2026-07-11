@@ -2369,6 +2369,48 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     .server-metric-card span {{ display: block; color: var(--muted); font-size: 12px; font-weight: 700; }}
     .server-metric-card strong {{ display: block; margin-top: 6px; font-size: 24px; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }}
     .server-metric-card small {{ display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }}
+    .server-section {{ margin-top: 16px; }}
+    .server-section-head {{
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }}
+    .server-section-head h3 {{ margin: 0; font-size: 15px; }}
+    .server-entry-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .server-entry {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 76px;
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--green);
+      border-radius: 8px;
+      background: #fbfdfd;
+      padding: 10px 12px;
+      color: var(--text);
+      text-decoration: none;
+    }}
+    .server-entry:hover {{ border-color: var(--teal); border-left-color: var(--teal); background: #f0f8f7; }}
+    .server-entry.warn {{ border-left-color: var(--amber); background: #fffbeb; }}
+    .server-entry.risk {{ border-left-color: var(--red); background: #fef2f2; }}
+    .server-entry.info {{ border-left-color: var(--blue); background: #eff6ff; }}
+    .server-entry strong, .server-entry span {{ display: block; overflow-wrap: anywhere; }}
+    .server-entry span {{ color: var(--muted); font-size: 12px; margin-top: 3px; }}
+    .server-policy {{
+      margin-top: 10px;
+      border-left: 3px solid var(--blue);
+      padding: 8px 10px;
+      color: var(--muted);
+      background: #eff6ff;
+      font-size: 12px;
+    }}
     .server-split {{
       display: grid;
       grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
@@ -2766,6 +2808,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       .bucket-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .adapter-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .server-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .server-entry-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .server-split {{ grid-template-columns: 1fr; }}
       .audit-summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .freshness-strip, .image-cost-grid {{ grid-template-columns: 1fr; }}
@@ -2778,6 +2821,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       .actions {{ width: 100%; }}
       .grid, .health-grid, .balance-strip, .bucket-grid, .adapter-grid, .audit-summary {{ grid-template-columns: 1fr; }}
       .server-grid, .server-split {{ grid-template-columns: 1fr; }}
+      .server-entry-grid {{ grid-template-columns: 1fr; }}
       .section-title {{ align-items: flex-start; flex-direction: column; }}
       table {{ min-width: 920px; }}
     }}
@@ -2928,12 +2972,26 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       <section class="module-view section-block section-panel" id="server" data-route="server" aria-labelledby="serverTitle" hidden>
         <div class="section-title">
           <div>
-            <h2 id="serverTitle">服务器状态</h2>
-            <div class="summary-line">管理员专属半实时监控。指标接口在 Basic Auth 后面，只读系统状态，不读取密钥或生产数据库。</div>
+            <h2 id="serverTitle">基础设施与数据链路</h2>
+            <div class="summary-line">主生产节点 us-api-vps-new · 管理员只读风险总览</div>
           </div>
-          <span class="pill" id="serverUpdatedAt">等待指标…</span>
+          <div class="actions">
+            <a class="action-button" href="/admin/s2a-manager" target="_blank" rel="noopener">S2A 运行历史</a>
+            <span class="pill" id="serverUpdatedAt">等待指标…</span>
+          </div>
         </div>
-        <div class="server-grid" id="serverMetricCards" aria-label="服务器核心指标"></div>
+        <div class="server-section">
+          <div class="server-section-head">
+            <h3>服务入口</h3>
+            <span class="summary-line">health 失败为红；受保护入口返回鉴权状态视为可达</span>
+          </div>
+          <div class="server-entry-grid" id="serverServices" aria-label="服务入口健康"></div>
+          <div class="server-policy">Codex Radar 仅作外部参考，不抓取或镜像数据；外部参考不参与基础设施评分。</div>
+        </div>
+        <div class="server-section">
+          <div class="server-section-head"><h3>资源状态</h3><span class="summary-line">CPU/load、内存、根盘、/www、流量与 uptime</span></div>
+          <div class="server-grid" id="serverMetricCards" aria-label="服务器核心指标"></div>
+        </div>
         <div class="server-split">
           <div class="section-panel">
             <div class="section-title">
@@ -2949,6 +3007,14 @@ def render_dashboard_document(context: dict[str, str]) -> str:
             </div>
             <div class="container-list" id="serverContainers" aria-label="容器健康表"></div>
           </div>
+        </div>
+        <div class="server-section">
+          <div class="server-section-head"><h3>数据新鲜度</h3><span class="summary-line">超过 2 小时琥珀，超过 24 小时红</span></div>
+          <div class="server-entry-grid" id="serverFreshness" aria-label="数据新鲜度"></div>
+        </div>
+        <div class="server-section">
+          <div class="server-section-head"><h3>备份与保留</h3><span class="summary-line">timer inactive 或严重过期为红</span></div>
+          <div class="server-entry-grid" id="serverBackups" aria-label="备份状态"></div>
         </div>
       </section>
       <section class="module-view section-block section-panel" id="balance" data-route="balance" aria-labelledby="balanceTitle" hidden>
@@ -3300,8 +3366,11 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     const detailDialogBody = document.querySelector("#detailDialogBody");
     const serverMetricCards = document.querySelector("#serverMetricCards");
     const serverUpdatedAt = document.querySelector("#serverUpdatedAt");
+    const serverServices = document.querySelector("#serverServices");
     const serverContainers = document.querySelector("#serverContainers");
     const serverSparkline = document.querySelector("#serverSparkline");
+    const serverFreshness = document.querySelector("#serverFreshness");
+    const serverBackups = document.querySelector("#serverBackups");
     const siteMatrix = document.querySelector("#siteMatrix");
     const providerRows = document.querySelector("#providerRows");
     const providerSearch = document.querySelector("#providerSearch");
@@ -3323,8 +3392,8 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         subtitle: "先看风险、余额、漂移和自动化状态，再进入具体模块处理。"
       }},
       server: {{
-        title: "服务器状态",
-        subtitle: "半实时查看 VPS 负载、内存、磁盘、流量和容器状态；指标接口在 Basic Auth 后面。"
+        title: "基础设施与数据链路",
+        subtitle: "聚合服务、资源、容器、新鲜度与备份风险；采集运行细节进入 S2A manager。"
       }},
       assistant: {{
         title: "问台账 AI",
@@ -3528,6 +3597,51 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       return `${{minutes}}分钟`;
     }}
 
+    function fmtAge(ageSeconds) {{
+      if (ageSeconds === null || ageSeconds === undefined || Number.isNaN(Number(ageSeconds))) return "未记录";
+      const seconds = Math.max(0, Number(ageSeconds));
+      if (seconds >= 86400) return `${{(seconds / 86400).toFixed(1)}} 天前`;
+      if (seconds >= 3600) return `${{(seconds / 3600).toFixed(1)}} 小时前`;
+      return `${{Math.max(0, Math.floor(seconds / 60))}} 分钟前`;
+    }}
+
+    function infrastructureFreshnessTone(ageSeconds) {{
+      if (ageSeconds === null || ageSeconds === undefined || Number.isNaN(Number(ageSeconds))) return "risk";
+      if (ageSeconds > 24 * 3600) return "risk";
+      if (ageSeconds > 2 * 3600) return "warn";
+      return "ok";
+    }}
+
+    function worstInfrastructureTone(...tones) {{
+      if (tones.includes("risk")) return "risk";
+      if (tones.includes("warn")) return "warn";
+      return "ok";
+    }}
+
+    function toneBadge(tone) {{
+      if (tone === "risk") return '<span class="badge risk">RISK</span>';
+      if (tone === "warn") return '<span class="badge warn">WARN</span>';
+      return '<span class="badge ok">OK</span>';
+    }}
+
+    function updateServerServices(metrics) {{
+      if (!serverServices) return;
+      const services = Array.isArray(metrics.services) ? metrics.services : [];
+      const cards = services.map(item => `
+        <a class="server-entry ${{item.tone || "risk"}}" href="${{esc(item.url || "#")}}" target="_blank" rel="noopener">
+          <div><strong>${{esc(item.label || item.id || "服务")}}</strong><span>${{item.status_code ? `HTTP ${{esc(item.status_code)}}` : esc(item.error || "检查失败")}} · ${{esc(item.latency_ms ?? "-")}} ms</span></div>
+          ${{toneBadge(item.tone)}}
+        </a>
+      `);
+      cards.push(`
+        <a class="server-entry info" href="https://codexradar.com/" target="_blank" rel="noopener">
+          <div><strong>Codex Radar</strong><span>外部模型与生态参考</span></div>
+          <span class="badge info">参考</span>
+        </a>
+      `);
+      serverServices.innerHTML = cards.join("");
+    }}
+
     function metricTone(percentValue, warnAt = 70, riskAt = 88) {{
       const value = Number(percentValue);
       if (Number.isNaN(value)) return "";
@@ -3544,16 +3658,18 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       if (!serverMetricCards) return;
       const cpu = metrics.cpu || {{}};
       const memory = metrics.memory || {{}};
-      const disk = metrics.disk || {{}};
+      const disks = metrics.disks || {{ root: metrics.disk || {{}}, www: {{}} }};
+      const rootDisk = disks.root || metrics.disk || {{}};
+      const wwwDisk = disks.www || {{}};
       const net = metrics.net || {{}};
       const containers = metrics.containers || {{}};
       const containerItems = containers.items || [];
       const unhealthy = containerItems.filter(item => item.health !== "ok").length;
       const cards = [
         {{
-          label: "CPU 负载",
+          label: "CPU / Load",
           value: fmtPercent(cpu.load1_per_core_percent),
-          hint: `1m ${{fmtNumber(cpu.load1)}} / cores ${{cpu.cores ?? "-"}}`,
+          hint: `1m ${{fmtNumber(cpu.load1)}} · 5m ${{fmtNumber(cpu.load5)}} · 15m ${{fmtNumber(cpu.load15)}} · ${{cpu.cores ?? "-"}} cores`,
           tone: loadTone(cpu.load1_per_core_percent),
         }},
         {{
@@ -3564,9 +3680,15 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         }},
         {{
           label: "磁盘 /",
-          value: fmtPercent(disk.used_percent),
-          hint: `${{fmtBytes(disk.used_bytes)}} / ${{fmtBytes(disk.total_bytes)}}`,
-          tone: metricTone(disk.used_percent, 75, 90),
+          value: fmtPercent(rootDisk.used_percent),
+          hint: `${{fmtBytes(rootDisk.used_bytes)}} / ${{fmtBytes(rootDisk.total_bytes)}}`,
+          tone: metricTone(rootDisk.used_percent, 80, 90),
+        }},
+        {{
+          label: "数据盘 /www",
+          value: fmtPercent(wwwDisk.used_percent),
+          hint: `${{fmtBytes(wwwDisk.used_bytes)}} / ${{fmtBytes(wwwDisk.total_bytes)}}`,
+          tone: metricTone(wwwDisk.used_percent, 80, 90),
         }},
         {{
           label: "实时流量",
@@ -3584,7 +3706,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
           label: "容器",
           value: `${{containerItems.length || 0}}`,
           hint: containers.available ? `${{unhealthy}} 个异常/非 Up` : (containers.error || "docker 不可用"),
-          tone: containers.available ? (unhealthy ? "warn" : "") : "warn",
+          tone: containers.available ? (unhealthy ? "risk" : "") : "risk",
         }},
       ];
       serverMetricCards.innerHTML = cards.map(card => `
@@ -3600,7 +3722,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       if (!serverContainers) return;
       const containers = metrics.containers || {{}};
       if (!containers.available) {{
-        serverContainers.innerHTML = `<div class="container-row"><strong>docker ps 不可用</strong><span>${{esc(containers.error || "未返回容器信息")}}</span><span class="badge warn">WARN</span></div>`;
+        serverContainers.innerHTML = `<div class="container-row"><strong>docker ps 不可用</strong><span>${{esc(containers.error || "未返回容器信息")}}</span><span class="badge risk">RISK</span></div>`;
         return;
       }}
       const items = containers.items || [];
@@ -3610,11 +3732,45 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       }}
       serverContainers.innerHTML = items.map(item => `
         <div class="container-row">
-          <strong>${{esc(item.name)}}</strong>
+          <strong>${{esc(item.label || item.name)}}</strong>
           <span>${{esc(item.status)}}</span>
-          <span class="badge ${{item.health === "ok" ? "ok" : "warn"}}">${{item.health === "ok" ? "OK" : "CHECK"}}</span>
+          <span class="badge ${{item.health === "risk" ? "risk" : "ok"}}">${{item.health === "risk" ? "RISK" : "OK"}}</span>
         </div>
       `).join("");
+    }}
+
+    function updateServerFreshness(metrics) {{
+      if (!serverFreshness) return;
+      const items = Array.isArray(metrics.freshness) ? metrics.freshness : [];
+      serverFreshness.innerHTML = items.map(item => {{
+        const tone = worstInfrastructureTone(item.tone, infrastructureFreshnessTone(item.age_seconds));
+        return `
+          <div class="server-entry ${{tone}}">
+            <div><strong>${{esc(item.label || item.id)}}</strong><span>${{esc(fmtAge(item.age_seconds))}} · ${{esc(item.updated_at || "未记录")}}</span>${{item.summary ? `<span>${{esc(item.summary)}}</span>` : ""}}</div>
+            ${{toneBadge(tone)}}
+          </div>
+        `;
+      }}).join("");
+    }}
+
+    function updateServerBackups(metrics) {{
+      if (!serverBackups) return;
+      const items = Array.isArray(metrics.backups) ? metrics.backups : [];
+      serverBackups.innerHTML = items.map(item => {{
+        const timer = item.timer || {{}};
+        const latest = item.latest || {{}};
+        const tone = timer.active_state !== "active" || latest.tone === "risk" ? "risk" : (latest.tone === "warn" ? "warn" : "ok");
+        return `
+          <div class="server-entry ${{tone}}">
+            <div>
+              <strong>${{esc(item.label || item.id)}}</strong>
+              <span>${{esc(timer.unit || "timer")}}: ${{esc(timer.active_state || "unknown")}} · 最近备份 ${{esc(fmtAge(latest.age_seconds))}} · ${{esc(fmtBytes(latest.size_bytes))}}</span>
+              <span>${{esc(latest.path || "未找到备份")}} · ${{esc(item.retention || "")}}</span>
+            </div>
+            ${{toneBadge(tone)}}
+          </div>
+        `;
+      }}).join("");
     }}
 
     function renderServerSparkline() {{
@@ -3656,8 +3812,11 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         serverState.last = {{ t: nowMs, rx: net.rx_bytes, tx: net.tx_bytes }};
       }}
       if (serverUpdatedAt) serverUpdatedAt.textContent = metrics.ts ? `指标：${{metrics.ts}}` : "指标已更新";
+      updateServerServices(metrics);
       updateServerMetricCards(metrics, rates);
       updateServerContainers(metrics);
+      updateServerFreshness(metrics);
+      updateServerBackups(metrics);
       renderServerSparkline();
     }}
 

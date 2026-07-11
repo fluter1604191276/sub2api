@@ -229,6 +229,35 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         conn.close()
         return tmp.name
 
+    def test_server_dashboard_has_risk_groups_and_safe_external_links(self):
+        html = self.render_mod.render(
+            rows=[],
+            kbq_rows=[],
+            kbq_per_call_rows=[],
+            audit_summary={},
+            audit_buckets=[],
+            adapter_status=[],
+            metadata={},
+            priority_plan=[],
+        )
+
+        for section_id in (
+            "serverServices",
+            "serverMetricCards",
+            "serverContainers",
+            "serverFreshness",
+            "serverBackups",
+        ):
+            self.assertIn(f'id="{section_id}"', html)
+        self.assertIn('href="/admin/s2a-manager"', html)
+        self.assertIn('href="https://codexradar.com/"', html)
+        self.assertGreaterEqual(html.count('target="_blank" rel="noopener"'), 2)
+        self.assertIn("外部参考不参与基础设施评分", html)
+        self.assertIn("ageSeconds > 24 * 3600", html)
+        self.assertIn("ageSeconds > 2 * 3600", html)
+        self.assertIn("worstInfrastructureTone(item.tone, infrastructureFreshnessTone", html)
+        self.assertIn('item.health === "risk"', html)
+
     def test_format_beijing_time_accepts_postgres_short_utc_suffix(self):
         self.assertEqual(
             "2026-06-16 14:45:57 北京时间",

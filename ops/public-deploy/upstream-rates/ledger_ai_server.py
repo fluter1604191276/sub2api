@@ -10,6 +10,7 @@ written to browser responses, logs, or the SQLite ledger.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -17,6 +18,7 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -30,7 +32,35 @@ DEFAULT_COMPOSE_DIR = "/www/sub2api"
 DEFAULT_API_BASE = "http://127.0.0.1:8080"
 DEFAULT_MODEL = "gpt-5.4-mini"
 DEFAULT_KEY_NAME = "台账ai"
+DEFAULT_DASHBOARD = "/www/fluterapi-home/admin/upstream-rates/index.html"
 MIN_TAMPERMONKEY_SNAPSHOT_VERSION = (0, 1, 15)
+SLOW_METRICS_CACHE_SECONDS = 30
+SERVICE_CHECKS = (
+    {"id": "site", "label": "主站", "url": "https://fluterapi.top/", "protected": False},
+    {"id": "api", "label": "API", "url": "https://api.fluterapi.top/health", "protected": False},
+    {"id": "img_api", "label": "img API", "url": "https://img-api.fluterapi.top/health", "protected": False},
+    {"id": "s2a", "label": "S2A", "url": "https://fluterapi.top/admin/s2a-manager", "protected": True},
+    {"id": "upstream_rates", "label": "upstream-rates", "url": "https://fluterapi.top/admin/upstream-rates/", "protected": True},
+)
+EXPECTED_CONTAINERS = (
+    ("sub2api", "sub2api", (r"^sub2api$", r"^sub2api-(?:backend|app)(?:-|$)")),
+    ("postgres", "Postgres", (r"^sub2api-(?:postgres|db)(?:-|$)",)),
+    ("redis", "Redis", (r"^sub2api-(?:redis|cache)(?:-|$)",)),
+    ("s2a_web", "S2A web", (r"(?:^|[-_])s2a-manager-web(?:-|$)",)),
+    ("s2a_worker", "S2A worker", (r"(?:^|[-_])s2a-manager-worker(?:-|$)",)),
+    ("s2a_postgres", "S2A postgres", (r"(?:^|[-_])s2a-manager-postgres(?:-|$)",)),
+)
+FRESHNESS_FIELDS = (
+    ("kbq_pricing", "KBQ pricing", "kbq_pricing_updated_at"),
+    ("upstream_hub", "upstream-hub", "last_upstream_hub_imported_at"),
+    ("site_account", "site account", "site_account_snapshot_refreshed_at"),
+    ("kbq_true_cost", "KBQ true-cost", "kbq_true_cost_audit_updated_at"),
+)
+BACKUP_CHECKS = (
+    ("sub2api", "sub2api", "sub2api-backup.timer", "/www/sub2api/backups/sub2api-backup-*.tar.gz"),
+    ("s2a_manager", "S2A manager", "s2a-manager-backup.timer", "/www/s2a-manager/backups/s2a-manager-backup-*.tar.gz"),
+)
+_slow_metrics_cache: dict[str, Any] = {"key": None, "expires_at": 0.0, "value": None}
 
 
 def parse_args() -> argparse.Namespace:
@@ -43,6 +73,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--key-name", default=DEFAULT_KEY_NAME)
     parser.add_argument("--max-rows", type=int, default=120)
+    parser.add_argument("--dashboard-path", default=DEFAULT_DASHBOARD)
     return parser.parse_args()
 
 
@@ -217,20 +248,46 @@ def parse_docker_ps(text: str) -> list[dict[str, str]]:
         status = parts[1].strip()
         if not name:
             continue
+        lowered = status.lower()
+        healthy = lowered.startswith("up") and "unhealthy" not in lowered
         containers.append(
             {
                 "name": name[:80],
                 "status": status[:160],
-                "health": "ok" if status.lower().startswith("up") else "warn",
+                "health": "ok" if healthy else "risk",
             }
         )
     return containers
 
 
+def expected_container_inventory(items: list[dict[str, str]]) -> list[dict[str, Any]]:
+    inventory: list[dict[str, Any]] = []
+    for container_id, label, patterns in EXPECTED_CONTAINERS:
+        match = next(
+            (
+                item
+                for item in items
+                if any(re.search(pattern, str(item.get("name", "")), re.IGNORECASE) for pattern in patterns)
+            ),
+            None,
+        )
+        inventory.append(
+            {
+                "id": container_id,
+                "label": label,
+                "name": match["name"] if match else "",
+                "status": match["status"] if match else "missing",
+                "health": match["health"] if match else "risk",
+                "present": match is not None,
+            }
+        )
+    return inventory
+
+
 def collect_containers() -> dict[str, Any]:
     try:
         proc = subprocess.run(
-            ["docker", "ps", "--format", "{{.Names}}\t{{.Status}}"],
+            ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}"],
             text=True,
             capture_output=True,
             timeout=3,
@@ -240,12 +297,250 @@ def collect_containers() -> dict[str, Any]:
         return {"available": False, "error": type(exc).__name__, "items": []}
     if proc.returncode != 0:
         return {"available": False, "error": (proc.stderr or "docker ps failed")[:180], "items": []}
-    return {"available": True, "error": "", "items": parse_docker_ps(proc.stdout)[:30]}
+    observed = parse_docker_ps(proc.stdout)[:30]
+    return {
+        "available": True,
+        "error": "",
+        "items": expected_container_inventory(observed),
+        "observed_count": len(observed),
+    }
 
 
-def collect_metrics() -> dict[str, Any]:
+def iso_datetime(value: Any) -> datetime | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def age_tone(age_seconds: float | None, warn_seconds: int, risk_seconds: int) -> str:
+    if age_seconds is None or age_seconds > risk_seconds:
+        return "risk"
+    if age_seconds > warn_seconds:
+        return "warn"
+    return "ok"
+
+
+def freshness_record(
+    item_id: str,
+    label: str,
+    updated_at: Any,
+    now: datetime,
+) -> dict[str, Any]:
+    parsed = iso_datetime(updated_at)
+    age_seconds = max(0, int((now - parsed).total_seconds())) if parsed else None
+    return {
+        "id": item_id,
+        "label": label,
+        "updated_at": parsed.isoformat(timespec="seconds") if parsed else "",
+        "age_seconds": age_seconds,
+        "tone": age_tone(age_seconds, 2 * 3600, 24 * 3600),
+    }
+
+
+def collect_data_freshness(
+    db_path: str,
+    dashboard_path: str,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    metadata: dict[str, str] = {}
+    hub_login_failures = 0
+    public_pricing_ok = 0
+    try:
+        uri = Path(db_path).resolve().as_uri() + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=1)
+        try:
+            keys = [field[2] for field in FRESHNESS_FIELDS]
+            placeholders = ",".join("?" for _ in keys)
+            metadata = {
+                str(key): str(value)
+                for key, value in conn.execute(
+                    f"select key, value from metadata where key in ({placeholders})",
+                    keys,
+                )
+            }
+            tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "select name from sqlite_master where type = 'table' and name in (?, ?)",
+                    ("upstream_hub_channels", "upstream_adapter_status"),
+                )
+            }
+            if "upstream_hub_channels" in tables:
+                hub_login_failures = int(
+                    conn.execute(
+                        "select count(*) from upstream_hub_channels where trim(last_error) <> ''"
+                    ).fetchone()[0]
+                )
+            if "upstream_adapter_status" in tables:
+                public_pricing_ok = int(
+                    conn.execute(
+                        "select count(*) from upstream_adapter_status where status = 'ok'"
+                    ).fetchone()[0]
+                )
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error, ValueError):
+        metadata = {}
+    items = [freshness_record(item_id, label, metadata.get(key), current) for item_id, label, key in FRESHNESS_FIELDS]
+    if hub_login_failures and public_pricing_ok:
+        hub_item = next(item for item in items if item["id"] == "upstream_hub")
+        if hub_item["tone"] == "ok":
+            hub_item["tone"] = "warn"
+        hub_item["condition"] = "public_pricing_fallback"
+        hub_item["summary"] = "公开 pricing 可用；采集登录态需恢复"
+    try:
+        modified = datetime.fromtimestamp(Path(dashboard_path).stat().st_mtime, tz=timezone.utc)
+    except OSError:
+        modified = None
+    items.append(freshness_record("static_dashboard", "静态页面", modified, current))
+    return items
+
+
+def check_service(item: dict[str, Any]) -> dict[str, Any]:
+    started = time.monotonic()
+    status_code: int | None = None
+    error = ""
+    try:
+        request = urllib.request.Request(str(item["url"]), headers={"User-Agent": "FluterServerHealth/1.0"})
+        with urllib.request.urlopen(request, timeout=2.5) as response:
+            status_code = int(response.status)
+    except urllib.error.HTTPError as exc:
+        status_code = int(exc.code)
+        if not (item.get("protected") and status_code in (401, 403)):
+            error = f"HTTP {status_code}"
+        exc.close()
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        error = type(exc).__name__
+    ok = status_code is not None and not error and (200 <= status_code < 400 or bool(item.get("protected")))
+    return {
+        "id": item["id"],
+        "label": item["label"],
+        "url": item["url"],
+        "status_code": status_code,
+        "latency_ms": round((time.monotonic() - started) * 1000),
+        "tone": "ok" if ok else "risk",
+        "error": error,
+    }
+
+
+def collect_services() -> list[dict[str, Any]]:
+    return [check_service(dict(item)) for item in SERVICE_CHECKS]
+
+
+def parse_systemd_timer_show(text: str, unit: str) -> dict[str, Any]:
+    values = {}
+    for line in text.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+    active_state = values.get("ActiveState", "unknown")
+    return {
+        "unit": unit,
+        "active_state": active_state,
+        "sub_state": values.get("SubState", "unknown"),
+        "last_trigger": values.get("LastTriggerUSec", ""),
+        "next_trigger": values.get("NextElapseUSecRealtime", ""),
+        "tone": "ok" if active_state == "active" else "risk",
+    }
+
+
+def collect_timer(unit: str) -> dict[str, Any]:
+    try:
+        proc = subprocess.run(
+            [
+                "systemctl",
+                "show",
+                unit,
+                "--property=LoadState,ActiveState,SubState,LastTriggerUSec,NextElapseUSecRealtime",
+                "--no-pager",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"unit": unit, "active_state": "unknown", "sub_state": "unknown", "last_trigger": "", "next_trigger": "", "tone": "risk", "error": type(exc).__name__}
+    result = parse_systemd_timer_show(proc.stdout, unit)
+    if proc.returncode != 0:
+        result.update({"tone": "risk", "error": (proc.stderr or "systemctl show failed")[:180]})
+    return result
+
+
+def latest_backup_file(pattern: str, now: datetime | None = None) -> dict[str, Any]:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    candidates: list[tuple[Path, os.stat_result]] = []
+    for raw_path in glob.glob(pattern):
+        path = Path(raw_path)
+        try:
+            candidates.append((path, path.stat()))
+        except OSError:
+            continue
+    if not candidates:
+        return {"path": "", "updated_at": "", "age_seconds": None, "size_bytes": None, "tone": "risk"}
+    path, stat = max(candidates, key=lambda item: item[1].st_mtime)
+    modified = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+    age_seconds = max(0, int((current - modified).total_seconds()))
+    return {
+        "path": str(path),
+        "updated_at": modified.isoformat(timespec="seconds"),
+        "age_seconds": age_seconds,
+        "size_bytes": stat.st_size,
+        "tone": age_tone(age_seconds, 20 * 3600, 36 * 3600),
+    }
+
+
+def collect_backups() -> list[dict[str, Any]]:
+    backups = []
+    for backup_id, label, unit, pattern in BACKUP_CHECKS:
+        timer = collect_timer(unit)
+        latest = latest_backup_file(pattern)
+        tone = "risk" if "risk" in (timer["tone"], latest["tone"]) else ("warn" if latest["tone"] == "warn" else "ok")
+        backups.append(
+            {
+                "id": backup_id,
+                "label": label,
+                "tone": tone,
+                "timer": timer,
+                "latest": latest,
+                "retention": "远端当日/最新可回滚备份；本地回传保留 7 天",
+            }
+        )
+    return backups
+
+
+def collect_slow_metrics(db_path: str, dashboard_path: str) -> dict[str, Any]:
+    return {
+        "services": collect_services(),
+        "containers": collect_containers(),
+        "freshness": collect_data_freshness(db_path, dashboard_path),
+        "backups": collect_backups(),
+    }
+
+
+def cached_slow_metrics(db_path: str, dashboard_path: str) -> dict[str, Any]:
+    key = (db_path, dashboard_path)
+    now = time.monotonic()
+    if _slow_metrics_cache["key"] == key and now < float(_slow_metrics_cache["expires_at"]) and _slow_metrics_cache["value"] is not None:
+        return dict(_slow_metrics_cache["value"])
+    value = collect_slow_metrics(db_path, dashboard_path)
+    _slow_metrics_cache.update({"key": key, "expires_at": now + SLOW_METRICS_CACHE_SECONDS, "value": value})
+    return dict(value)
+
+
+def collect_metrics(db_path: str = DEFAULT_DB, dashboard_path: str = DEFAULT_DASHBOARD) -> dict[str, Any]:
     load = parse_loadavg(read_text("/proc/loadavg"))
     cpu_cores = os.cpu_count()
+    root_disk = collect_disk("/")
+    slow = cached_slow_metrics(db_path, dashboard_path)
     return {
         "status": "ok",
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -257,10 +552,11 @@ def collect_metrics() -> dict[str, Any]:
             "load1_per_core_percent": percent(load[0], cpu_cores) if load[0] is not None else None,
         },
         "memory": collect_memory(),
-        "disk": collect_disk("/"),
+        "disk": root_disk,
+        "disks": {"root": root_disk, "www": collect_disk("/www")},
         "net": parse_net_dev(read_text("/proc/net/dev")),
         "uptime_sec": collect_uptime(),
-        "containers": collect_containers(),
+        **slow,
     }
 
 
@@ -618,7 +914,8 @@ class LedgerAIHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "ok", "db_exists": Path(args.db).exists()})
             return
         if path in ("/metrics", "/admin/upstream-rates/metrics"):
-            self._send_json(200, collect_metrics())
+            args = self.server.args  # type: ignore[attr-defined]
+            self._send_json(200, collect_metrics(args.db, args.dashboard_path))
             return
         self._send_json(404, {"error": "not_found"})
 
