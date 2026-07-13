@@ -198,13 +198,27 @@ Inter-|   Receive                                                |  Transmit
             )
         )
 
-    def test_automation_scope_describes_upstream_hub_not_safari_default(self):
-        context = self.mod.automation_scope_context()
+    def test_ai_routes_are_not_exposed(self):
+        handler = object.__new__(self.mod.LedgerAIHandler)
 
-        self.assertIn("upstream-hub 脱敏快照导入", context["hourly"])
-        self.assertIn("浏览器只读快照仅作为诊断兜底", context["hourly"])
-        self.assertNotIn("Safari 已登录页面只读快照", context["hourly"])
-        self.assertIn("--create-drafts", context["drafts"])
+        for path in ("/ai", "/admin/upstream-rates/ai"):
+            with self.subTest(path=path):
+                handler.path = path
+                handler._send_json = mock.Mock()
+
+                handler.do_POST()
+
+                handler._send_json.assert_called_once_with(404, {"error": "not_found"})
+
+    def test_ai_key_and_gateway_helpers_are_removed(self):
+        for name in (
+            "load_ledger_api_key",
+            "load_ledger_context",
+            "call_sub2api",
+            "automation_scope_context",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(self.mod, name))
 
 
 if __name__ == "__main__":

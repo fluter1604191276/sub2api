@@ -158,7 +158,7 @@ class PriorityPlanPreviewTest(unittest.TestCase):
         self.assertEqual([7392], [change.account.id for change in changes])
         self.assertTrue(any('档位占位锚点账号默认跳过' in item for item in skipped))
 
-    def test_dashboard_renders_priority_preview(self):
+    def test_dashboard_does_not_render_priority_preview(self):
         rows = [
             {
                 'category': '聪明AI',
@@ -197,11 +197,11 @@ class PriorityPlanPreviewTest(unittest.TestCase):
             }
         ]
         html = self.render_mod.render(rows, [], [], None, [], [], {'last_priority_plan_preview_observed_at': '2026-06-13 10:00:00 北京时间'}, priority_plan)
-        self.assertIn('优先级预览', html)
-        self.assertIn('生产备注写入路径已废弃', html)
+        self.assertNotIn('优先级预览', html)
+        self.assertNotIn('生产备注写入路径已废弃', html)
         self.assertNotIn('--write-notes', html)
-        self.assertIn('Example codex 0.12', html)
-        self.assertIn('只读预览卡片', html)
+        self.assertNotIn('Example codex 0.12', html)
+        self.assertNotIn('只读预览卡片', html)
 
 
 if __name__ == '__main__':

@@ -6,7 +6,6 @@ admin-only upstream cost dashboard.
 - Database on VPS: `/var/lib/fluterapi-upstream-rates/upstream_rates.sqlite`
 - Rendered page: `/www/fluterapi-home/admin/upstream-rates/index.html`
 - Public URL: `https://fluterapi.top/admin/upstream-rates/`
-- Admin AI endpoint: `https://fluterapi.top/admin/upstream-rates/ai`
 
 The page is static HTML generated from SQLite. Caddy protects only the
 `/admin/upstream-rates/` path with Basic Auth. Updating the ledger does not
@@ -23,19 +22,23 @@ sudo python3 /var/lib/fluterapi-upstream-rates/emit_true_loss_alerts.py
 sudo python3 /var/lib/fluterapi-upstream-rates/render_upstream_dashboard.py
 ```
 
-Admin ledger AI service:
+Admin health and metrics service:
 
 ```bash
 sudo python3 /var/lib/fluterapi-upstream-rates/ledger_ai_server.py --host 127.0.0.1 --port 8751
 ```
 
-The browser never receives the model API key. The VPS-local service reads the
-dedicated active key named `台账ai` from production PostgreSQL at request time
-into process memory, uses it only for one local call to the sub2api gateway at
-`http://127.0.0.1:8080/v1/chat/completions`, and returns only the model answer.
-The key must not be written to browser responses, service logs, or the SQLite
-ledger. Caddy keeps the public route under the same Basic Auth path as the
-dashboard.
+The historical filename is retained for deployment compatibility. The service
+now exposes only `/health` and `/metrics`; `/ai` has been removed. It reads
+system status, allowlisted SQLite timestamps, Docker status, systemd timer
+metadata, and backup file metadata. It does not read an AI API key or call the
+sub2api model gateway. Caddy keeps the routes under the same Basic Auth path as
+the dashboard.
+
+The dashboard now focuses on five read-only modules: overview, infrastructure,
+KBQ public pricing, KBQ true-cost risk, and operation metadata. Collection
+configuration, balances, account multipliers, image-account operations, and run
+history belong to S2A Manager and are not duplicated here.
 
 Safe hourly refresh entrypoint:
 

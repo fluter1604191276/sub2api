@@ -258,6 +258,63 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         self.assertIn("worstInfrastructureTone(item.tone, infrastructureFreshnessTone", html)
         self.assertIn('item.health === "risk"', html)
 
+    def test_dashboard_navigation_only_exposes_retained_read_only_modules(self):
+        html = self.render_mod.render(
+            rows=[],
+            kbq_rows=[],
+            kbq_per_call_rows=[],
+            audit_summary={},
+            audit_buckets=[],
+            adapter_status=[],
+            metadata={},
+            priority_plan=[],
+        )
+
+        nav_routes = re.findall(
+            r'class="nav-link" href="#([^"]+)" data-route="([^"]+)"',
+            html,
+        )
+        self.assertEqual(
+            [
+                ("overview", "overview"),
+                ("server", "server"),
+                ("kbq", "kbq"),
+                ("risk", "risk"),
+                ("log", "log"),
+            ],
+            nav_routes,
+        )
+        for removed_route in (
+            "assistant",
+            "automation",
+            "providers",
+            "balance",
+            "accounts",
+            "image",
+        ):
+            self.assertNotRegex(
+                html,
+                rf'<(?:a|section)[^>]+data-route="{removed_route}"',
+            )
+        self.assertNotIn('/admin/upstream-rates/ai', html)
+        for removed_artifact in (
+            "const DATA =",
+            "const PROVIDER_OBSERVATIONS =",
+            "const PROVIDER_DIAGNOSTICS =",
+            "const BALANCE_SNAPSHOTS =",
+            "const ADAPTER_STATUS =",
+            "const PRIORITY_PLAN =",
+            "function renderProviderObservations",
+            "function renderBalanceStrip",
+            "function renderImageCosts",
+            "function renderPriorityPlan",
+            "优先级预览",
+            "余额雷达",
+            "生图成本",
+        ):
+            with self.subTest(removed_artifact=removed_artifact):
+                self.assertNotIn(removed_artifact, html)
+
     def test_format_beijing_time_accepts_postgres_short_utc_suffix(self):
         self.assertEqual(
             "2026-06-16 14:45:57 北京时间",
@@ -308,20 +365,11 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
                 provider_observations,
                 provider_diagnostics,
             )
-            payload = extract_js_const_json(html, "PROVIDER_OBSERVATIONS")
-            self.assertEqual(1, len(payload))
-            self.assertTrue(
-                all(item["sourceKind"] == "browser_account_snapshot" for item in payload)
-            )
-            provider_payload = json.dumps(payload, ensure_ascii=False)
-            self.assertNotIn("stale kingdom old account", provider_payload)
-            self.assertNotIn("过期旧组别", provider_payload)
-            self.assertNotIn("公开价格组别", provider_payload)
-            self.assertNotIn("sk-", provider_payload)
-            self.assertIn("[redacted-key]", provider_payload)
-            diagnostics_payload = extract_js_const_json(html, "PROVIDER_DIAGNOSTICS")
-            self.assertEqual(1, len(diagnostics_payload))
-            self.assertEqual(1, diagnostics_payload[0]["displayedAccountCount"])
+            self.assertNotIn("const PROVIDER_OBSERVATIONS =", html)
+            self.assertNotIn("const PROVIDER_DIAGNOSTICS =", html)
+            self.assertNotIn("kingdom current account 1.2", html)
+            self.assertNotIn("stale kingdom old account", html)
+            self.assertNotIn("[redacted-key]", html)
         finally:
             Path(db_path).unlink(missing_ok=True)
 
@@ -435,15 +483,12 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
             provider_diagnostics=[],
             balance_snapshots=snapshots,
         )
-        payload = extract_js_const_json(html, "BALANCE_SNAPSHOTS")
+        self.assertEqual(1, len(snapshots))
+        self.assertNotIn("const BALANCE_SNAPSHOTS =", html)
+        self.assertNotIn("乔燃", html)
+        self.assertNotIn("$149.95122272", html)
 
-        self.assertEqual(1, len(payload))
-        self.assertEqual("乔燃", payload[0]["provider"])
-        self.assertEqual("mdkj.lol", payload[0]["site"])
-        self.assertEqual("$149.95122272", payload[0]["balanceLabel"])
-        self.assertEqual("2026-06-16 14:45:57 北京时间", payload[0]["balanceUpdatedAt"])
-
-    def test_render_filters_retired_priority_write_command_metadata(self):
+    def test_render_only_exposes_retained_kbq_metadata(self):
         html = self.render_mod.render(
             rows=[],
             kbq_rows=[],
@@ -457,6 +502,8 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
                     '/var/lib/fluterapi-upstream-rates/plan_account_priority_buckets.py --write-notes"'
                 ),
                 "safe_note": "ok",
+                "last_upstream_hub_imported_at": "2026-06-16T06:46:00+00:00",
+                "kbq_pricing_version": "2026-06-16",
             },
             priority_plan=[],
             provider_observations=[],
@@ -464,7 +511,9 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         )
         metadata_payload = extract_js_const_json(html, "META")
         self.assertNotIn("priority_plan_manual_write_command", metadata_payload)
-        self.assertIn("safe_note", metadata_payload)
+        self.assertNotIn("safe_note", metadata_payload)
+        self.assertNotIn("last_upstream_hub_imported_at", metadata_payload)
+        self.assertEqual("2026-06-16", metadata_payload["kbq_pricing_version"])
         self.assertNotIn("--write-notes", html)
 
     def test_sensitive_text_redaction_covers_key_like_shapes(self):
@@ -2035,7 +2084,7 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         self.assertEqual(1, diagnostics[0]["rawAccountCount"])
         self.assertEqual(0, diagnostics[0]["displayedAccountCount"])
 
-    def test_provider_matrix_does_not_group_adapter_diagnostics_as_rows(self):
+    def test_dashboard_does_not_render_provider_matrix_or_diagnostics(self):
         html = self.render_mod.render(
             rows=[],
             kbq_rows=[],
@@ -2063,15 +2112,10 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
                 }
             ],
         )
-        group_fn = re.search(
-            r"function groupProviderObservationsBySite\(\) \{(?P<body>.*?)\n    \}",
-            html,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(group_fn)
-        self.assertNotIn("ADAPTER_STATUS", group_fn.group("body"))
-        self.assertIn("采集诊断", html)
-        self.assertIn("非上游账号清单", html)
+        self.assertNotIn("function groupProviderObservationsBySite", html)
+        self.assertNotIn("ADAPTER_STATUS", html)
+        self.assertNotIn("采集诊断", html)
+        self.assertNotIn("非上游账号清单", html)
 
 
 if __name__ == "__main__":
