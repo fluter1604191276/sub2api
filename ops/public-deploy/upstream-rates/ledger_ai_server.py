@@ -49,6 +49,11 @@ BACKUP_CHECKS = (
     ("sub2api", "sub2api", "sub2api-backup.timer", "/www/sub2api/backups/sub2api-backup-*.tar.gz"),
     ("s2a_manager", "S2A manager", "s2a-manager-backup.timer", "/www/s2a-manager/backups/s2a-manager-backup-*.tar.gz"),
 )
+BACKUP_POLICY = {
+    "remote_retention": "远端完整归档仅保留北京时间当天或最新 1 份",
+    "local_return": "回传 Mac mini 后校验 SHA-256，再清理远端旧归档",
+    "local_database_retention": "加密 PostgreSQL dump 本地保留 7 个自然日和 4 个更早周备份",
+}
 _slow_metrics_cache: dict[str, Any] = {"key": None, "expires_at": 0.0, "value": None}
 
 
@@ -58,6 +63,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8751)
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--dashboard-path", default=DEFAULT_DASHBOARD)
+    parser.add_argument("--node-label", default="us-api-vps-new")
+    parser.add_argument("--serve-dashboard", action="store_true")
     return parser.parse_args()
 
 
@@ -124,12 +131,32 @@ def read_text(path: str) -> str:
         return ""
 
 
+def dashboard_preview_bytes(path: str, enabled: bool, dashboard_path: str) -> bytes | None:
+    if not enabled or path not in ("/", "/index.html"):
+        return None
+    return Path(dashboard_path).read_bytes()
+
+
 def parse_loadavg(text: str) -> list[float | None]:
     parts = text.split()
     values = [safe_float(item) for item in parts[:3]]
     while len(values) < 3:
         values.append(None)
     return values
+
+
+def parse_cpu_stat(text: str) -> dict[str, int | None]:
+    first = next((line for line in text.splitlines() if line.startswith("cpu ")), "")
+    fields = first.split()[1:]
+    try:
+        values = [int(value) for value in fields]
+    except ValueError:
+        values = []
+    if len(values) < 4:
+        return {"total_ticks": None, "idle_ticks": None}
+    total = sum(values[:8])
+    idle = values[3] + (values[4] if len(values) > 4 else 0)
+    return {"total_ticks": total, "idle_ticks": idle}
 
 
 def parse_meminfo(text: str) -> dict[str, int]:
@@ -153,11 +180,17 @@ def collect_memory() -> dict[str, Any]:
     total = info.get("MemTotal")
     available = info.get("MemAvailable")
     used = total - available if total is not None and available is not None else None
+    swap_total = info.get("SwapTotal")
+    swap_free = info.get("SwapFree")
+    swap_used = swap_total - swap_free if swap_total is not None and swap_free is not None else None
     return {
         "total_bytes": total,
         "available_bytes": available,
         "used_bytes": used,
         "used_percent": percent(used, total),
+        "swap_total_bytes": swap_total,
+        "swap_used_bytes": swap_used,
+        "swap_used_percent": percent(swap_used, swap_total),
     }
 
 
@@ -195,11 +228,18 @@ def parse_net_dev(text: str) -> dict[str, Any]:
         total_rx += rx
         total_tx += tx
         interfaces.append({"name": iface, "rx_bytes": rx, "tx_bytes": tx})
-    primary = max(interfaces, key=lambda item: int(item["rx_bytes"]) + int(item["tx_bytes"]), default=None)
+    physical = [
+        item
+        for item in interfaces
+        if not re.match(r"^(?:docker|br-|veth|virbr|tun|tap)", str(item["name"]), re.IGNORECASE)
+    ]
+    primary = max(physical or interfaces, key=lambda item: int(item["rx_bytes"]) + int(item["tx_bytes"]), default=None)
     return {
         "rx_bytes": total_rx if interfaces else None,
         "tx_bytes": total_tx if interfaces else None,
         "primary_interface": primary["name"] if primary else None,
+        "primary_rx_bytes": primary["rx_bytes"] if primary else None,
+        "primary_tx_bytes": primary["tx_bytes"] if primary else None,
         "interfaces": interfaces[:12],
     }
 
@@ -255,6 +295,20 @@ def expected_container_inventory(items: list[dict[str, str]]) -> list[dict[str, 
     return inventory
 
 
+def unavailable_container_inventory(reason: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": container_id,
+            "label": label,
+            "name": "",
+            "status": reason,
+            "health": "risk",
+            "present": None,
+        }
+        for container_id, label, _patterns in EXPECTED_CONTAINERS
+    ]
+
+
 def collect_containers() -> dict[str, Any]:
     try:
         proc = subprocess.run(
@@ -265,9 +319,11 @@ def collect_containers() -> dict[str, Any]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"available": False, "error": type(exc).__name__, "items": []}
+        error = type(exc).__name__
+        return {"available": False, "error": error, "items": unavailable_container_inventory(error)}
     if proc.returncode != 0:
-        return {"available": False, "error": (proc.stderr or "docker ps failed")[:180], "items": []}
+        error = (proc.stderr or "docker ps failed")[:180]
+        return {"available": False, "error": error, "items": unavailable_container_inventory(error)}
     observed = parse_docker_ps(proc.stdout)[:30]
     return {
         "available": True,
@@ -306,13 +362,17 @@ def freshness_record(
 ) -> dict[str, Any]:
     parsed = iso_datetime(updated_at)
     age_seconds = max(0, int((now - parsed).total_seconds())) if parsed else None
-    return {
+    record = {
         "id": item_id,
         "label": label,
         "updated_at": parsed.isoformat(timespec="seconds") if parsed else "",
         "age_seconds": age_seconds,
-        "tone": age_tone(age_seconds, 2 * 3600, 24 * 3600),
+        "tone": age_tone(age_seconds, 2 * 3600, 24 * 3600) if parsed else "warn",
     }
+    if not parsed:
+        record["condition"] = "unconfirmed"
+        record["summary"] = "未确认更新时间"
+    return record
 
 
 def collect_data_freshness(
@@ -395,6 +455,7 @@ def check_service(item: dict[str, Any]) -> dict[str, Any]:
         "id": item["id"],
         "label": item["label"],
         "url": item["url"],
+        "protected": bool(item.get("protected")),
         "status_code": status_code,
         "latency_ms": round((time.monotonic() - started) * 1000),
         "tone": "ok" if ok else "risk",
@@ -413,13 +474,14 @@ def parse_systemd_timer_show(text: str, unit: str) -> dict[str, Any]:
             key, value = line.split("=", 1)
             values[key] = value
     active_state = values.get("ActiveState", "unknown")
+    tone = "ok" if active_state == "active" else ("risk" if active_state in ("inactive", "failed") else "warn")
     return {
         "unit": unit,
         "active_state": active_state,
         "sub_state": values.get("SubState", "unknown"),
         "last_trigger": values.get("LastTriggerUSec", ""),
         "next_trigger": values.get("NextElapseUSecRealtime", ""),
-        "tone": "ok" if active_state == "active" else "risk",
+        "tone": tone,
     }
 
 
@@ -439,7 +501,7 @@ def collect_timer(unit: str) -> dict[str, Any]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"unit": unit, "active_state": "unknown", "sub_state": "unknown", "last_trigger": "", "next_trigger": "", "tone": "risk", "error": type(exc).__name__}
+        return {"unit": unit, "active_state": "unknown", "sub_state": "unknown", "last_trigger": "", "next_trigger": "", "tone": "warn", "error": type(exc).__name__}
     result = parse_systemd_timer_show(proc.stdout, unit)
     if proc.returncode != 0:
         result.update({"tone": "risk", "error": (proc.stderr or "systemctl show failed")[:180]})
@@ -474,7 +536,8 @@ def collect_backups() -> list[dict[str, Any]]:
     for backup_id, label, unit, pattern in BACKUP_CHECKS:
         timer = collect_timer(unit)
         latest = latest_backup_file(pattern)
-        tone = "risk" if "risk" in (timer["tone"], latest["tone"]) else ("warn" if latest["tone"] == "warn" else "ok")
+        tones = (timer["tone"], latest["tone"])
+        tone = "risk" if "risk" in tones else ("warn" if "warn" in tones else "ok")
         backups.append(
             {
                 "id": backup_id,
@@ -482,7 +545,7 @@ def collect_backups() -> list[dict[str, Any]]:
                 "tone": tone,
                 "timer": timer,
                 "latest": latest,
-                "retention": "远端当日/最新可回滚备份；本地回传保留 7 天",
+                "retention": BACKUP_POLICY["remote_retention"],
             }
         )
     return backups
@@ -507,26 +570,36 @@ def cached_slow_metrics(db_path: str, dashboard_path: str) -> dict[str, Any]:
     return dict(value)
 
 
-def collect_metrics(db_path: str = DEFAULT_DB, dashboard_path: str = DEFAULT_DASHBOARD) -> dict[str, Any]:
+def collect_metrics(
+    db_path: str = DEFAULT_DB,
+    dashboard_path: str = DEFAULT_DASHBOARD,
+    node_label: str = "us-api-vps-new",
+) -> dict[str, Any]:
     load = parse_loadavg(read_text("/proc/loadavg"))
+    cpu_ticks = parse_cpu_stat(read_text("/proc/stat"))
     cpu_cores = os.cpu_count()
     root_disk = collect_disk("/")
     slow = cached_slow_metrics(db_path, dashboard_path)
     return {
         "status": "ok",
+        "metrics_version": 2,
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "node": {"label": str(node_label or "us-api-vps-new")[:120]},
         "cpu": {
             "cores": cpu_cores,
             "load1": load[0],
             "load5": load[1],
             "load15": load[2],
             "load1_per_core_percent": percent(load[0], cpu_cores) if load[0] is not None else None,
+            **cpu_ticks,
         },
         "memory": collect_memory(),
         "disk": root_disk,
         "disks": {"root": root_disk, "www": collect_disk("/www")},
         "net": parse_net_dev(read_text("/proc/net/dev")),
         "uptime_sec": collect_uptime(),
+        "backup_policy": dict(BACKUP_POLICY),
+        "slow_checks_cache_seconds": SLOW_METRICS_CACHE_SECONDS,
         **slow,
     }
 
@@ -544,18 +617,33 @@ class LedgerAIHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _send_html(self, status: int, raw: bytes) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
     def log_message(self, format: str, *args: Any) -> None:
         return
 
     def do_GET(self) -> None:
         path = self.path.split("?", 1)[0]
+        args = self.server.args  # type: ignore[attr-defined]
+        try:
+            preview = dashboard_preview_bytes(path, bool(args.serve_dashboard), args.dashboard_path)
+        except OSError:
+            self._send_json(404, {"error": "dashboard_not_found"})
+            return
+        if preview is not None:
+            self._send_html(200, preview)
+            return
         if path in ("/health", "/admin/upstream-rates/health"):
-            args = self.server.args  # type: ignore[attr-defined]
             self._send_json(200, {"status": "ok", "db_exists": Path(args.db).exists()})
             return
         if path in ("/metrics", "/admin/upstream-rates/metrics"):
-            args = self.server.args  # type: ignore[attr-defined]
-            self._send_json(200, collect_metrics(args.db, args.dashboard_path))
+            self._send_json(200, collect_metrics(args.db, args.dashboard_path, args.node_label))
             return
         self._send_json(404, {"error": "not_found"})
 

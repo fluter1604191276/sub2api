@@ -29,10 +29,38 @@ class LedgerAIServerMetricsTest(unittest.TestCase):
         self.mod = load_module()
 
     def test_parse_meminfo_uses_bytes(self):
-        parsed = self.mod.parse_meminfo("MemTotal:       1024 kB\nMemAvailable:    256 kB\n")
+        parsed = self.mod.parse_meminfo(
+            "MemTotal:       1024 kB\n"
+            "MemAvailable:    256 kB\n"
+            "SwapTotal:       512 kB\n"
+            "SwapFree:        128 kB\n"
+        )
 
         self.assertEqual(1024 * 1024, parsed["MemTotal"])
         self.assertEqual(256 * 1024, parsed["MemAvailable"])
+
+    def test_parse_cpu_stat_returns_total_and_idle_ticks(self):
+        parsed = self.mod.parse_cpu_stat("cpu  100 20 30 400 10 5 2 3 7 8\n")
+
+        self.assertEqual(570, parsed["total_ticks"])
+        self.assertEqual(410, parsed["idle_ticks"])
+
+    def test_collect_memory_includes_swap_pressure(self):
+        with mock.patch.object(
+            self.mod,
+            "read_text",
+            return_value=(
+                "MemTotal:       1024 kB\n"
+                "MemAvailable:    256 kB\n"
+                "SwapTotal:       512 kB\n"
+                "SwapFree:        128 kB\n"
+            ),
+        ):
+            memory = self.mod.collect_memory()
+
+        self.assertEqual(75.0, memory["used_percent"])
+        self.assertEqual(384 * 1024, memory["swap_used_bytes"])
+        self.assertEqual(75.0, memory["swap_used_percent"])
 
     def test_parse_net_dev_sums_non_loopback_interfaces(self):
         text = """
@@ -41,13 +69,16 @@ Inter-|   Receive                                                |  Transmit
     lo: 10 0 0 0 0 0 0 0 20 0 0 0 0 0 0 0
   eth0: 1000 0 0 0 0 0 0 0 2000 0 0 0 0 0 0 0
   eth1: 3000 0 0 0 0 0 0 0 4000 0 0 0 0 0 0 0
+docker0: 9000 0 0 0 0 0 0 0 9000 0 0 0 0 0 0 0
 """
 
         parsed = self.mod.parse_net_dev(text)
 
-        self.assertEqual(4000, parsed["rx_bytes"])
-        self.assertEqual(6000, parsed["tx_bytes"])
+        self.assertEqual(13000, parsed["rx_bytes"])
+        self.assertEqual(15000, parsed["tx_bytes"])
         self.assertEqual("eth1", parsed["primary_interface"])
+        self.assertEqual(3000, parsed["primary_rx_bytes"])
+        self.assertEqual(4000, parsed["primary_tx_bytes"])
 
     def test_parse_docker_ps(self):
         parsed = self.mod.parse_docker_ps(
@@ -75,6 +106,14 @@ Inter-|   Receive                                                |  Transmit
         self.assertFalse(by_id["redis"]["present"])
         self.assertEqual("risk", by_id["redis"]["health"])
 
+    def test_collect_containers_keeps_expected_inventory_when_docker_unavailable(self):
+        with mock.patch.object(self.mod.subprocess, "run", side_effect=FileNotFoundError):
+            result = self.mod.collect_containers()
+
+        self.assertFalse(result["available"])
+        self.assertEqual(6, len(result["items"]))
+        self.assertTrue(all(item["health"] == "risk" for item in result["items"]))
+
     def test_data_freshness_reads_known_metadata_only(self):
         with tempfile.NamedTemporaryFile(suffix=".sqlite") as tmp:
             conn = sqlite3.connect(tmp.name)
@@ -99,8 +138,20 @@ Inter-|   Receive                                                |  Transmit
         by_id = {item["id"]: item for item in items}
         self.assertEqual("warn", by_id["kbq_pricing"]["tone"])
         self.assertEqual("risk", by_id["upstream_hub"]["tone"])
-        self.assertEqual("risk", by_id["static_dashboard"]["tone"])
+        self.assertEqual("warn", by_id["static_dashboard"]["tone"])
+        self.assertEqual("unconfirmed", by_id["static_dashboard"]["condition"])
         self.assertNotIn("must-not-leak", repr(items))
+
+    def test_missing_freshness_timestamp_is_unconfirmed_not_red(self):
+        item = self.mod.freshness_record(
+            "site_account",
+            "site account",
+            None,
+            datetime(2026, 7, 12, 3, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual("warn", item["tone"])
+        self.assertEqual("unconfirmed", item["condition"])
 
     def test_data_freshness_warns_when_public_pricing_covers_hub_login_failure(self):
         with tempfile.NamedTemporaryFile(suffix=".sqlite") as tmp:
@@ -144,6 +195,12 @@ Inter-|   Receive                                                |  Transmit
         self.assertEqual("risk", timer["tone"])
         self.assertEqual("inactive", timer["active_state"])
 
+    def test_parse_systemd_timer_marks_unknown_as_warn(self):
+        timer = self.mod.parse_systemd_timer_show("", "sub2api-backup.timer")
+
+        self.assertEqual("warn", timer["tone"])
+        self.assertEqual("unknown", timer["active_state"])
+
     def test_latest_backup_file_reports_age_and_size(self):
         with tempfile.TemporaryDirectory() as tmp:
             backup = Path(tmp) / "sub2api-backup-20260712T000000Z.tar.gz"
@@ -160,6 +217,17 @@ Inter-|   Receive                                                |  Transmit
         self.assertEqual("warn", result["tone"])
         self.assertEqual(21 * 3600, result["age_seconds"])
 
+    def test_collect_backups_preserves_unknown_timer_warning(self):
+        timer = {"tone": "warn", "active_state": "unknown"}
+        latest = {"tone": "ok", "age_seconds": 60}
+        with (
+            mock.patch.object(self.mod, "collect_timer", return_value=timer),
+            mock.patch.object(self.mod, "latest_backup_file", return_value=latest),
+        ):
+            backups = self.mod.collect_backups()
+
+        self.assertTrue(all(item["tone"] == "warn" for item in backups))
+
     def test_collect_metrics_caches_slow_checks(self):
         slow = {"services": [], "containers": {"available": True, "items": []}, "freshness": [], "backups": []}
         with mock.patch.object(self.mod, "collect_slow_metrics", return_value=slow) as collect:
@@ -170,10 +238,12 @@ Inter-|   Receive                                                |  Transmit
         self.assertEqual(first["services"], second["services"])
 
     def test_collect_metrics_shape(self):
-        metrics = self.mod.collect_metrics()
+        metrics = self.mod.collect_metrics(node_label="Mac mini 本地预览")
 
         self.assertEqual("ok", metrics["status"])
         self.assertIn("cpu", metrics)
+        self.assertIn("total_ticks", metrics["cpu"])
+        self.assertIn("idle_ticks", metrics["cpu"])
         self.assertIn("memory", metrics)
         self.assertIn("disk", metrics)
         self.assertIn("disks", metrics)
@@ -183,6 +253,22 @@ Inter-|   Receive                                                |  Transmit
         self.assertIn("services", metrics)
         self.assertIn("freshness", metrics)
         self.assertIn("backups", metrics)
+        self.assertIn("backup_policy", metrics)
+        self.assertIn("local_return", metrics["backup_policy"])
+        self.assertIn("local_database_retention", metrics["backup_policy"])
+        self.assertEqual("Mac mini 本地预览", metrics["node"]["label"])
+
+    def test_dashboard_preview_bytes_is_explicitly_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dashboard = Path(tmp) / "index.html"
+            dashboard.write_text("<h1>preview</h1>", encoding="utf-8")
+
+            self.assertIsNone(self.mod.dashboard_preview_bytes("/", False, str(dashboard)))
+            self.assertIsNone(self.mod.dashboard_preview_bytes("/metrics", True, str(dashboard)))
+            self.assertEqual(
+                b"<h1>preview</h1>",
+                self.mod.dashboard_preview_bytes("/", True, str(dashboard)),
+            )
 
     def test_browser_status_is_current_coverage_requires_current_script(self):
         self.assertFalse(

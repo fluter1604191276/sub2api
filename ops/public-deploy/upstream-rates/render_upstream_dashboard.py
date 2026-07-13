@@ -1381,6 +1381,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex,nofollow" />
   <meta name="theme-color" content="#f6f7f9" />
+  <link rel="icon" href="data:," />
   <title>Fluter Upstream Rates</title>
   <style>
     :root {{
@@ -2355,6 +2356,27 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       gap: 10px;
       margin-top: 12px;
     }}
+    .server-status-summary {{
+      display: grid;
+      grid-template-columns: minmax(220px, 1.35fr) repeat(3, minmax(110px, 0.65fr));
+      gap: 1px;
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--line);
+    }}
+    .server-status-lead, .server-status-stat {{
+      min-width: 0;
+      background: #fbfdfd;
+      padding: 11px 12px;
+    }}
+    .server-status-lead {{ border-left: 4px solid var(--green); }}
+    .server-status-lead.warn {{ border-left-color: var(--amber); background: #fffbeb; }}
+    .server-status-lead.risk {{ border-left-color: var(--red); background: #fef2f2; }}
+    .server-status-lead strong, .server-status-stat strong {{ display: block; font-size: 14px; overflow-wrap: anywhere; }}
+    .server-status-lead span, .server-status-stat span {{ display: block; margin-top: 2px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }}
+    .server-status-stat strong {{ font-size: 20px; font-variant-numeric: tabular-nums; }}
     .server-metric-card {{
       border: 1px solid var(--line);
       border-left: 4px solid var(--green);
@@ -2410,21 +2432,40 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       background: #eff6ff;
       font-size: 12px;
     }}
+    .server-policy-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }}
+    .server-policy-item {{
+      min-width: 0;
+      border-left: 3px solid var(--blue);
+      padding: 8px 10px;
+      background: #eff6ff;
+    }}
+    .server-policy-item strong, .server-policy-item span {{ display: block; overflow-wrap: anywhere; }}
+    .server-policy-item strong {{ font-size: 12px; }}
+    .server-policy-item span {{ margin-top: 2px; color: var(--muted); font-size: 12px; }}
     .server-split {{
       display: grid;
       grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-      gap: 12px;
-      margin-top: 12px;
+      gap: 18px;
+      margin-top: 18px;
     }}
+    .server-subsection {{ min-width: 0; border-top: 1px solid var(--line); padding-top: 14px; }}
+    .server-subsection + .server-subsection {{ border-left: 1px solid var(--line); padding-left: 18px; }}
     .server-sparkline {{
       width: 100%;
-      height: 118px;
+      height: 150px;
       border: 1px solid var(--line);
       border-radius: 8px;
       background: #fbfdfd;
       padding: 10px;
     }}
     .server-sparkline svg {{ display: block; width: 100%; height: 100%; overflow: visible; }}
+    .server-traffic-legend {{ display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 8px; color: var(--muted); font-size: 12px; }}
+    .server-traffic-legend strong {{ color: var(--text); font-variant-numeric: tabular-nums; }}
     .container-list {{
       display: grid;
       gap: 8px;
@@ -2444,6 +2485,19 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       font-size: 13px;
     }}
     .container-row strong, .container-row span {{ overflow-wrap: anywhere; }}
+    .container-row small {{ display: block; margin-top: 2px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }}
+    .server-handoff {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 14px 0;
+    }}
+    .server-handoff strong, .server-handoff span {{ display: block; overflow-wrap: anywhere; }}
+    .server-handoff span {{ margin-top: 3px; color: var(--muted); font-size: 12px; }}
     .audit-summary {{
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -2795,8 +2849,11 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       .bucket-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .adapter-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .server-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .server-status-summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .server-entry-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .server-split {{ grid-template-columns: 1fr; }}
+      .server-subsection + .server-subsection {{ border-left: 0; padding-left: 0; }}
+      .server-policy-grid {{ grid-template-columns: 1fr; }}
       .audit-summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .freshness-strip, .image-cost-grid {{ grid-template-columns: 1fr; }}
       .site-matrix {{ grid-template-columns: 1fr; }}
@@ -2808,7 +2865,9 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       .actions {{ width: 100%; }}
       .grid, .health-grid, .balance-strip, .bucket-grid, .adapter-grid, .audit-summary {{ grid-template-columns: 1fr; }}
       .server-grid, .server-split {{ grid-template-columns: 1fr; }}
+      .server-status-summary {{ grid-template-columns: 1fr; }}
       .server-entry-grid {{ grid-template-columns: 1fr; }}
+      .server-handoff {{ align-items: flex-start; flex-direction: column; }}
       .section-title {{ align-items: flex-start; flex-direction: column; }}
       table {{ min-width: 920px; }}
     }}
@@ -2882,12 +2941,18 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         <div class="section-title">
           <div>
             <h2 id="serverTitle">基础设施与数据链路</h2>
-            <div class="summary-line">主生产节点 us-api-vps-new · 管理员只读风险总览</div>
+            <div class="summary-line" id="serverNodeLabel">主生产节点 us-api-vps-new · 管理员只读风险总览</div>
           </div>
           <div class="actions">
             <a class="action-button" href="/admin/s2a-manager" target="_blank" rel="noopener">S2A 运行历史</a>
             <span class="pill" id="serverUpdatedAt">等待指标…</span>
           </div>
+        </div>
+        <div class="server-status-summary" id="serverStatusSummary" aria-live="polite">
+          <div class="server-status-lead warn"><strong>正在读取服务器状态</strong><span>只读 metrics 连接建立后显示风险汇总</span></div>
+          <div class="server-status-stat"><strong>-</strong><span>服务入口</span></div>
+          <div class="server-status-stat"><strong>-</strong><span>预期容器</span></div>
+          <div class="server-status-stat"><strong>-</strong><span>风险项</span></div>
         </div>
         <div class="server-section">
           <div class="server-section-head">
@@ -2902,17 +2967,18 @@ def render_dashboard_document(context: dict[str, str]) -> str:
           <div class="server-grid" id="serverMetricCards" aria-label="服务器核心指标"></div>
         </div>
         <div class="server-split">
-          <div class="section-panel">
+          <div class="server-subsection">
             <div class="section-title">
               <h2>流量趋势</h2>
-              <div class="summary-line">前端用两次累计字节差计算，最近 60 个点只存在浏览器内存。</div>
+              <div class="summary-line">主网卡两次累计字节差，最近 60 个点只存在浏览器内存。</div>
             </div>
             <div class="server-sparkline" id="serverSparkline" aria-label="实时流量曲线"></div>
+            <div class="server-traffic-legend" id="serverTrafficLegend" aria-label="流量图例"></div>
           </div>
-          <div class="section-panel">
+          <div class="server-subsection">
             <div class="section-title">
               <h2>容器健康</h2>
-              <div class="summary-line">来自只读 docker ps，异常时只展示不可用原因。</div>
+              <div class="summary-line">固定核对 sub2api、Postgres、Redis 与 S2A web/worker/postgres。</div>
             </div>
             <div class="container-list" id="serverContainers" aria-label="容器健康表"></div>
           </div>
@@ -2924,6 +2990,11 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         <div class="server-section">
           <div class="server-section-head"><h3>备份与保留</h3><span class="summary-line">timer inactive 或严重过期为红</span></div>
           <div class="server-entry-grid" id="serverBackups" aria-label="备份状态"></div>
+          <div class="server-policy-grid" id="serverBackupPolicy" aria-label="备份与本地回传策略"></div>
+        </div>
+        <div class="server-handoff" id="serverS2aHandoff">
+          <div><strong>S2A Manager 运行历史</strong><span>采集连接、配置、模型探测和运行历史由 S2A Manager 负责；本页只汇总链路状态。</span></div>
+          <a class="action-button" href="/admin/s2a-manager" target="_blank" rel="noopener">进入运行历史</a>
         </div>
       </section>
     <section class="module-view category-detail section-block" id="categoryDetail" data-route="kbq" hidden>
@@ -3084,17 +3155,21 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     const detailDialog = document.querySelector("#detailDialog");
     const detailDialogTitle = document.querySelector("#detailDialogTitle");
     const detailDialogBody = document.querySelector("#detailDialogBody");
+    const serverStatusSummary = document.querySelector("#serverStatusSummary");
+    const serverNodeLabel = document.querySelector("#serverNodeLabel");
     const serverMetricCards = document.querySelector("#serverMetricCards");
     const serverUpdatedAt = document.querySelector("#serverUpdatedAt");
     const serverServices = document.querySelector("#serverServices");
     const serverContainers = document.querySelector("#serverContainers");
     const serverSparkline = document.querySelector("#serverSparkline");
+    const serverTrafficLegend = document.querySelector("#serverTrafficLegend");
     const serverFreshness = document.querySelector("#serverFreshness");
     const serverBackups = document.querySelector("#serverBackups");
+    const serverBackupPolicy = document.querySelector("#serverBackupPolicy");
     const moduleViews = [...document.querySelectorAll(".module-view[data-route]")];
     const kbqState = {{ category: "Claude", bucket: "" }};
     let kbqMode = "token";
-    const serverState = {{ last: null, points: [] }};
+    const serverState = {{ last: null, cpuLast: null, points: [], net: {{}}, lastGoodAt: null, loading: false }};
     const ROUTE_META = {{
       overview: {{
         title: "总览",
@@ -3209,7 +3284,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     }}
 
     function infrastructureFreshnessTone(ageSeconds) {{
-      if (ageSeconds === null || ageSeconds === undefined || Number.isNaN(Number(ageSeconds))) return "risk";
+      if (ageSeconds === null || ageSeconds === undefined || Number.isNaN(Number(ageSeconds))) return "warn";
       if (ageSeconds > 24 * 3600) return "risk";
       if (ageSeconds > 2 * 3600) return "warn";
       return "ok";
@@ -3227,12 +3302,68 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       return '<span class="badge ok">OK</span>';
     }}
 
+    const SERVER_SERVICE_FALLBACKS = [
+      ["主站", "https://fluterapi.top/"],
+      ["API", "https://api.fluterapi.top/health"],
+      ["img API", "https://img-api.fluterapi.top/health"],
+      ["S2A", "/admin/s2a-manager"],
+      ["upstream-rates", "/admin/upstream-rates/"],
+    ];
+    const SERVER_CONTAINER_FALLBACKS = ["sub2api", "Postgres", "Redis", "S2A web", "S2A worker", "S2A postgres"];
+    const SERVER_FRESHNESS_FALLBACKS = ["KBQ pricing", "upstream-hub", "site account", "KBQ true-cost", "静态页面"];
+    const SERVER_BACKUP_FALLBACKS = ["sub2api", "S2A manager"];
+
+    function backupTone(item) {{
+      const timer = item.timer || {{}};
+      const latest = item.latest || {{}};
+      const inactiveTone = timer.active_state === "inactive" || timer.active_state === "failed" ? "risk" : (timer.active_state === "active" ? "ok" : "warn");
+      return worstInfrastructureTone(item.tone, timer.tone, latest.tone, inactiveTone);
+    }}
+
+    function updateServerStatusSummary(metrics, rates = {{}}) {{
+      if (!serverStatusSummary) return;
+      const services = Array.isArray(metrics.services) ? metrics.services : [];
+      const containers = metrics.containers && Array.isArray(metrics.containers.items) ? metrics.containers.items : [];
+      const freshness = Array.isArray(metrics.freshness) ? metrics.freshness : [];
+      const backups = Array.isArray(metrics.backups) ? metrics.backups : [];
+      const cpu = metrics.cpu || {{}};
+      const memory = metrics.memory || {{}};
+      const disks = metrics.disks || {{ root: metrics.disk || {{}}, www: {{}} }};
+      const cpuTone = rates.cpu_busy_percent === null || rates.cpu_busy_percent === undefined
+        ? loadTone(cpu.load1_per_core_percent)
+        : metricTone(rates.cpu_busy_percent, 75, 92);
+      const resourceTones = [
+        cpuTone,
+        metricTone(memory.used_percent, 75, 90),
+        metricTone((disks.root || metrics.disk || {{}}).used_percent, 80, 90),
+        metricTone((disks.www || {{}}).used_percent, 80, 90),
+      ];
+      const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "us-api-vps-new";
+      const tones = [
+        ...resourceTones,
+        ...services.map(item => item.tone),
+        ...containers.map(item => item.health),
+        ...freshness.map(item => worstInfrastructureTone(item.tone, infrastructureFreshnessTone(item.age_seconds))),
+        ...backups.map(backupTone),
+      ];
+      const riskCount = tones.filter(tone => tone === "risk").length;
+      const warnCount = tones.filter(tone => tone === "warn").length;
+      const overall = riskCount ? "risk" : (warnCount ? "warn" : "ok");
+      const label = overall === "risk" ? "存在需要处理的风险" : (overall === "warn" ? "运行正常，部分项目待核对" : "基础设施链路正常");
+      serverStatusSummary.innerHTML = `
+        <div class="server-status-lead ${{overall}}"><strong>${{esc(label)}}</strong><span>${{esc(nodeLabel)}} · 慢检查缓存 ${{esc(metrics.slow_checks_cache_seconds ?? 30)}} 秒</span></div>
+        <div class="server-status-stat"><strong>${{services.length}} / 5</strong><span>服务入口已检查</span></div>
+        <div class="server-status-stat"><strong>${{containers.filter(item => item.health === "ok").length}} / 6</strong><span>容器健康</span></div>
+        <div class="server-status-stat"><strong>${{riskCount}} 红 · ${{warnCount}} 琥珀</strong><span>动态风险项</span></div>
+      `;
+    }}
+
     function updateServerServices(metrics) {{
       if (!serverServices) return;
       const services = Array.isArray(metrics.services) ? metrics.services : [];
       const cards = services.map(item => `
         <a class="server-entry ${{item.tone || "risk"}}" href="${{esc(item.url || "#")}}" target="_blank" rel="noopener">
-          <div><strong>${{esc(item.label || item.id || "服务")}}</strong><span>${{item.status_code ? `HTTP ${{esc(item.status_code)}}` : esc(item.error || "检查失败")}} · ${{esc(item.latency_ms ?? "-")}} ms</span></div>
+          <div><strong>${{esc(item.label || item.id || "服务")}}</strong><span>${{item.status_code ? `HTTP ${{esc(item.status_code)}}` : esc(item.error || "检查失败")}} · ${{esc(item.latency_ms ?? "-")}} ms${{item.protected ? " · Basic Auth 入口" : ""}}</span></div>
           ${{toneBadge(item.tone)}}
         </a>
       `);
@@ -3246,8 +3377,9 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     }}
 
     function metricTone(percentValue, warnAt = 70, riskAt = 88) {{
+      if (percentValue === null || percentValue === undefined || percentValue === "") return "warn";
       const value = Number(percentValue);
-      if (Number.isNaN(value)) return "";
+      if (Number.isNaN(value)) return "warn";
       if (value >= riskAt) return "risk";
       if (value >= warnAt) return "warn";
       return "";
@@ -3268,34 +3400,35 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       const containers = metrics.containers || {{}};
       const containerItems = containers.items || [];
       const unhealthy = containerItems.filter(item => item.health !== "ok").length;
+      const liveTraffic = rates.rx_mbps === null || rates.tx_mbps === null ? null : rates.rx_mbps + rates.tx_mbps;
       const cards = [
         {{
           label: "CPU / Load",
-          value: fmtPercent(cpu.load1_per_core_percent),
-          hint: `1m ${{fmtNumber(cpu.load1)}} · 5m ${{fmtNumber(cpu.load5)}} · 15m ${{fmtNumber(cpu.load15)}} · ${{cpu.cores ?? "-"}} cores`,
-          tone: loadTone(cpu.load1_per_core_percent),
+          value: rates.cpu_busy_percent === null ? "等待采样" : fmtPercent(rates.cpu_busy_percent),
+          hint: `Load 1m ${{fmtNumber(cpu.load1)}} · 5m ${{fmtNumber(cpu.load5)}} · 15m ${{fmtNumber(cpu.load15)}} · ${{cpu.cores ?? "-"}} cores`,
+          tone: rates.cpu_busy_percent === null ? loadTone(cpu.load1_per_core_percent) : metricTone(rates.cpu_busy_percent, 75, 92),
         }},
         {{
           label: "内存",
           value: fmtPercent(memory.used_percent),
-          hint: `${{fmtBytes(memory.used_bytes)}} / ${{fmtBytes(memory.total_bytes)}}`,
+          hint: `${{fmtBytes(memory.used_bytes)}} / ${{fmtBytes(memory.total_bytes)}} · 可用 ${{fmtBytes(memory.available_bytes)}} · Swap ${{fmtPercent(memory.swap_used_percent)}}`,
           tone: metricTone(memory.used_percent, 75, 90),
         }},
         {{
           label: "磁盘 /",
           value: fmtPercent(rootDisk.used_percent),
-          hint: `${{fmtBytes(rootDisk.used_bytes)}} / ${{fmtBytes(rootDisk.total_bytes)}}`,
+          hint: `${{fmtBytes(rootDisk.used_bytes)}} / ${{fmtBytes(rootDisk.total_bytes)}} · 可用 ${{fmtBytes(rootDisk.free_bytes)}}`,
           tone: metricTone(rootDisk.used_percent, 80, 90),
         }},
         {{
           label: "数据盘 /www",
           value: fmtPercent(wwwDisk.used_percent),
-          hint: `${{fmtBytes(wwwDisk.used_bytes)}} / ${{fmtBytes(wwwDisk.total_bytes)}}`,
+          hint: `${{fmtBytes(wwwDisk.used_bytes)}} / ${{fmtBytes(wwwDisk.total_bytes)}} · 可用 ${{fmtBytes(wwwDisk.free_bytes)}}`,
           tone: metricTone(wwwDisk.used_percent, 80, 90),
         }},
         {{
           label: "实时流量",
-          value: fmtMbps((rates.rx_mbps || 0) + (rates.tx_mbps || 0)),
+          value: liveTraffic === null ? "等待采样" : fmtMbps(liveTraffic),
           hint: `↓ ${{fmtMbps(rates.rx_mbps)}} · ↑ ${{fmtMbps(rates.tx_mbps)}} · ${{net.primary_interface || "-"}}`,
           tone: "",
         }},
@@ -3324,19 +3457,17 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     function updateServerContainers(metrics) {{
       if (!serverContainers) return;
       const containers = metrics.containers || {{}};
-      if (!containers.available) {{
-        serverContainers.innerHTML = `<div class="container-row"><strong>docker ps 不可用</strong><span>${{esc(containers.error || "未返回容器信息")}}</span><span class="badge risk">RISK</span></div>`;
-        return;
-      }}
-      const items = containers.items || [];
+      const items = Array.isArray(containers.items) ? containers.items : [];
       if (!items.length) {{
-        serverContainers.innerHTML = `<div class="container-row"><strong>无容器</strong><span>docker ps 未返回运行容器</span><span class="badge info">INFO</span></div>`;
+        serverContainers.innerHTML = SERVER_CONTAINER_FALLBACKS.map(label => `
+          <div class="container-row"><strong>${{esc(label)}}</strong><span>docker ps 未返回容器清单</span><span class="badge warn">WARN</span></div>
+        `).join("");
         return;
       }}
       serverContainers.innerHTML = items.map(item => `
         <div class="container-row">
-          <strong>${{esc(item.label || item.name)}}</strong>
-          <span>${{esc(item.status)}}</span>
+          <strong>${{esc(item.label || item.name)}}<small>${{esc(item.name || item.id || "预期容器")}}</small></strong>
+          <span>${{esc(item.status || containers.error || "状态未知")}}</span>
           <span class="badge ${{item.health === "risk" ? "risk" : "ok"}}">${{item.health === "risk" ? "RISK" : "OK"}}</span>
         </div>
       `).join("");
@@ -3345,6 +3476,12 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     function updateServerFreshness(metrics) {{
       if (!serverFreshness) return;
       const items = Array.isArray(metrics.freshness) ? metrics.freshness : [];
+      if (!items.length) {{
+        serverFreshness.innerHTML = SERVER_FRESHNESS_FALLBACKS.map(label => `
+          <div class="server-entry warn"><div><strong>${{esc(label)}}</strong><span>未确认更新时间</span></div>${{toneBadge("warn")}}</div>
+        `).join("");
+        return;
+      }}
       serverFreshness.innerHTML = items.map(item => {{
         const tone = worstInfrastructureTone(item.tone, infrastructureFreshnessTone(item.age_seconds));
         return `
@@ -3359,16 +3496,24 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     function updateServerBackups(metrics) {{
       if (!serverBackups) return;
       const items = Array.isArray(metrics.backups) ? metrics.backups : [];
+      if (!items.length) {{
+        serverBackups.innerHTML = SERVER_BACKUP_FALLBACKS.map(label => `
+          <div class="server-entry warn"><div><strong>${{esc(label)}}</strong><span>timer 与最近备份尚未确认</span></div>${{toneBadge("warn")}}</div>
+        `).join("");
+        return;
+      }}
       serverBackups.innerHTML = items.map(item => {{
         const timer = item.timer || {{}};
         const latest = item.latest || {{}};
-        const tone = timer.active_state !== "active" || latest.tone === "risk" ? "risk" : (latest.tone === "warn" ? "warn" : "ok");
+        const tone = backupTone(item);
         return `
           <div class="server-entry ${{tone}}">
             <div>
               <strong>${{esc(item.label || item.id)}}</strong>
-              <span>${{esc(timer.unit || "timer")}}: ${{esc(timer.active_state || "unknown")}} · 最近备份 ${{esc(fmtAge(latest.age_seconds))}} · ${{esc(fmtBytes(latest.size_bytes))}}</span>
-              <span>${{esc(latest.path || "未找到备份")}} · ${{esc(item.retention || "")}}</span>
+              <span>${{esc(timer.unit || "timer")}}: ${{esc(timer.active_state || "unknown")}} / ${{esc(timer.sub_state || "unknown")}}</span>
+              <span>上次触发：${{esc(timer.last_trigger || "未记录")}} · 下次触发：${{esc(timer.next_trigger || "未记录")}}</span>
+              <span>最近备份：${{esc(fmtAge(latest.age_seconds))}} · ${{esc(fmtBytes(latest.size_bytes))}} · ${{esc(latest.updated_at || "未记录")}}</span>
+              <span>${{esc(latest.path || "未找到备份")}}</span>
             </div>
             ${{toneBadge(tone)}}
           </div>
@@ -3376,9 +3521,33 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       }}).join("");
     }}
 
+    function updateServerBackupPolicy(metrics) {{
+      if (!serverBackupPolicy) return;
+      const backupPolicy = metrics.backup_policy || {{}};
+      const policies = [
+        ["远端保留", backupPolicy.remote_retention || "未确认远端保留策略"],
+        ["本地回传策略", backupPolicy.local_return || "未确认本地回传策略"],
+        ["本地数据库保留", backupPolicy.local_database_retention || "未确认本地数据库保留策略"],
+      ];
+      serverBackupPolicy.innerHTML = policies.map(([label, value]) => `
+        <div class="server-policy-item"><strong>${{esc(label)}}</strong><span>${{esc(value)}}</span></div>
+      `).join("");
+    }}
+
     function renderServerSparkline() {{
       if (!serverSparkline) return;
       const points = serverState.points.slice(-60);
+      const net = serverState.net || {{}};
+      const latest = points.length ? points[points.length - 1] : {{ rx: null, tx: null }};
+      if (serverTrafficLegend) {{
+        serverTrafficLegend.innerHTML = `
+          <span>下载 <strong>${{fmtMbps(latest.rx)}}</strong></span>
+          <span>上传 <strong>${{fmtMbps(latest.tx)}}</strong></span>
+          <span>累计下载 <strong>${{fmtBytes(net.primary_rx_bytes ?? net.rx_bytes)}}</strong></span>
+          <span>累计上传 <strong>${{fmtBytes(net.primary_tx_bytes ?? net.tx_bytes)}}</strong></span>
+          <span>网卡 <strong>${{esc(net.primary_interface || "未确认")}}</strong></span>
+        `;
+      }}
       if (points.length < 2) {{
         serverSparkline.innerHTML = `<div class="muted">等待第二次采样后显示趋势…</div>`;
         return;
@@ -3394,51 +3563,112 @@ def render_dashboard_document(context: dict[str, str]) -> str:
           <polyline points="${{line("rx")}}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
           <polyline points="${{line("tx")}}" fill="none" stroke="#0f766e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
         </svg>
-        <div class="summary-line">蓝色下载，绿色上传；峰值 ${{fmtMbps(maxValue)}}</div>
       `;
+      if (serverTrafficLegend) serverTrafficLegend.innerHTML += `<span>峰值 <strong>${{fmtMbps(maxValue)}}</strong></span>`;
     }}
 
     function applyServerMetrics(metrics) {{
       const nowMs = Date.now();
       const net = metrics.net || {{}};
-      let rates = {{ rx_mbps: null, tx_mbps: null }};
-      if (serverState.last && Number.isFinite(net.rx_bytes) && Number.isFinite(net.tx_bytes)) {{
+      const cpu = metrics.cpu || {{}};
+      const rxBytes = Number.isFinite(net.primary_rx_bytes) ? net.primary_rx_bytes : net.rx_bytes;
+      const txBytes = Number.isFinite(net.primary_tx_bytes) ? net.primary_tx_bytes : net.tx_bytes;
+      let rates = {{ rx_mbps: null, tx_mbps: null, cpu_busy_percent: null }};
+      if (serverState.last && Number.isFinite(rxBytes) && Number.isFinite(txBytes)) {{
         const seconds = Math.max((nowMs - serverState.last.t) / 1000, 1);
         rates = {{
-          rx_mbps: Math.max(0, (net.rx_bytes - serverState.last.rx) * 8 / seconds / 1000000),
-          tx_mbps: Math.max(0, (net.tx_bytes - serverState.last.tx) * 8 / seconds / 1000000),
+          ...rates,
+          rx_mbps: Math.max(0, (rxBytes - serverState.last.rx) * 8 / seconds / 1000000),
+          tx_mbps: Math.max(0, (txBytes - serverState.last.tx) * 8 / seconds / 1000000),
         }};
         serverState.points.push({{ rx: rates.rx_mbps, tx: rates.tx_mbps }});
         if (serverState.points.length > 60) serverState.points.shift();
       }}
-      if (Number.isFinite(net.rx_bytes) && Number.isFinite(net.tx_bytes)) {{
-        serverState.last = {{ t: nowMs, rx: net.rx_bytes, tx: net.tx_bytes }};
+      if (serverState.cpuLast && Number.isFinite(cpu.total_ticks) && Number.isFinite(cpu.idle_ticks)) {{
+        const totalDelta = cpu.total_ticks - serverState.cpuLast.total;
+        const idleDelta = cpu.idle_ticks - serverState.cpuLast.idle;
+        if (totalDelta > 0) rates.cpu_busy_percent = Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100));
+      }}
+      if (Number.isFinite(rxBytes) && Number.isFinite(txBytes)) {{
+        serverState.last = {{ t: nowMs, rx: rxBytes, tx: txBytes }};
+      }}
+      if (Number.isFinite(cpu.total_ticks) && Number.isFinite(cpu.idle_ticks)) {{
+        serverState.cpuLast = {{ total: cpu.total_ticks, idle: cpu.idle_ticks }};
+      }}
+      serverState.net = net;
+      serverState.lastGoodAt = nowMs;
+      if (serverNodeLabel) {{
+        const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "us-api-vps-new";
+        serverNodeLabel.textContent = `节点 ${{nodeLabel}} · 管理员只读风险总览`;
       }}
       if (serverUpdatedAt) serverUpdatedAt.textContent = metrics.ts ? `指标：${{metrics.ts}}` : "指标已更新";
+      updateServerStatusSummary(metrics, rates);
       updateServerServices(metrics);
       updateServerMetricCards(metrics, rates);
       updateServerContainers(metrics);
       updateServerFreshness(metrics);
       updateServerBackups(metrics);
+      updateServerBackupPolicy(metrics);
       renderServerSparkline();
+    }}
+
+    function renderServerUnavailableState(error) {{
+      const detail = error && error.message ? error.message : String(error || "metrics unavailable");
+      if (serverUpdatedAt) serverUpdatedAt.textContent = "指标暂不可用";
+      if (serverStatusSummary) serverStatusSummary.innerHTML = `
+        <div class="server-status-lead warn"><strong>metrics 连接暂不可用</strong><span>${{esc(detail)}} · 当前仅展示预期检查项，不代表生产故障</span></div>
+        <div class="server-status-stat"><strong>5</strong><span>预期服务入口</span></div>
+        <div class="server-status-stat"><strong>6</strong><span>预期容器</span></div>
+        <div class="server-status-stat"><strong>未确认</strong><span>动态风险项</span></div>
+      `;
+      if (serverServices) {{
+        serverServices.innerHTML = SERVER_SERVICE_FALLBACKS.map(([label, url]) => `
+          <a class="server-entry warn" href="${{esc(url)}}" target="_blank" rel="noopener"><div><strong>${{esc(label)}}</strong><span>等待 metrics 健康检查</span></div>${{toneBadge("warn")}}</a>
+        `).join("") + `
+          <a class="server-entry info" href="https://codexradar.com/" target="_blank" rel="noopener"><div><strong>Codex Radar</strong><span>外部模型与生态参考，不参与评分</span></div><span class="badge info">参考</span></a>
+        `;
+      }}
+      if (serverMetricCards) {{
+        const labels = ["CPU / Load", "内存", "磁盘 /", "数据盘 /www", "实时流量", "运行时间", "容器"];
+        serverMetricCards.innerHTML = labels.map(label => `
+          <div class="server-metric-card warn"><span>${{esc(label)}}</span><strong>未确认</strong><small>等待 Basic Auth 后的 metrics 返回</small></div>
+        `).join("");
+      }}
+      if (serverSparkline) serverSparkline.innerHTML = `<div class="muted">等待 metrics 后开始主网卡流量采样…</div>`;
+      if (serverTrafficLegend) serverTrafficLegend.innerHTML = `<span>下载 <strong>-</strong></span><span>上传 <strong>-</strong></span><span>累计下载 <strong>-</strong></span><span>累计上传 <strong>-</strong></span>`;
+      if (serverContainers) serverContainers.innerHTML = SERVER_CONTAINER_FALLBACKS.map(label => `
+        <div class="container-row"><strong>${{esc(label)}}</strong><span>容器状态未确认</span><span class="badge warn">WARN</span></div>
+      `).join("");
+      updateServerFreshness({{ freshness: [] }});
+      updateServerBackups({{ backups: [] }});
+      updateServerBackupPolicy({{}});
     }}
 
     async function refreshServerMetrics() {{
       if (!serverMetricCards) return;
+      if (serverState.loading) return;
+      serverState.loading = true;
       try {{
         const response = await fetch("/admin/upstream-rates/metrics", {{ cache: "no-store" }});
         const payload = await response.json();
         if (!response.ok || !payload || payload.status !== "ok") throw new Error(payload && payload.error ? payload.error : `HTTP ${{response.status}}`);
         applyServerMetrics(payload);
       }} catch (error) {{
-        if (serverUpdatedAt) serverUpdatedAt.textContent = "指标暂不可用";
-        serverMetricCards.innerHTML = `
-          <div class="server-metric-card warn">
-            <span>指标暂不可用</span>
-            <strong>CHECK</strong>
-            <small>${{esc(error.message || String(error))}}</small>
-          </div>
-        `;
+        if (serverState.lastGoodAt) {{
+          const staleSeconds = Math.max(0, Math.floor((Date.now() - serverState.lastGoodAt) / 1000));
+          if (serverUpdatedAt) serverUpdatedAt.textContent = `metrics 连接失败 · 保留 ${{staleSeconds}} 秒前快照`;
+          const lead = serverStatusSummary && serverStatusSummary.querySelector(".server-status-lead");
+          if (lead) {{
+            lead.classList.remove("ok", "risk");
+            lead.classList.add("warn");
+            const note = lead.querySelector("span");
+            if (note) note.textContent = `上次成功数据保留中 · ${{error.message || String(error)}}`;
+          }}
+        }} else {{
+          renderServerUnavailableState(error);
+        }}
+      }} finally {{
+        serverState.loading = false;
       }}
     }}
 

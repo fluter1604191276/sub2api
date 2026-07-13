@@ -242,11 +242,16 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         )
 
         for section_id in (
+            "serverStatusSummary",
             "serverServices",
             "serverMetricCards",
+            "serverTrafficLegend",
             "serverContainers",
             "serverFreshness",
             "serverBackups",
+            "serverBackupPolicy",
+            "serverS2aHandoff",
+            "serverNodeLabel",
         ):
             self.assertIn(f'id="{section_id}"', html)
         self.assertIn('href="/admin/s2a-manager"', html)
@@ -255,8 +260,21 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         self.assertIn("外部参考不参与基础设施评分", html)
         self.assertIn("ageSeconds > 24 * 3600", html)
         self.assertIn("ageSeconds > 2 * 3600", html)
+        self.assertIn('return "warn";', html)
         self.assertIn("worstInfrastructureTone(item.tone, infrastructureFreshnessTone", html)
         self.assertIn('item.health === "risk"', html)
+        self.assertIn('timer.active_state === "inactive"', html)
+        self.assertIn("timer.next_trigger", html)
+        self.assertIn("backupPolicy.local_return", html)
+        self.assertIn("本地回传策略", html)
+        self.assertIn("renderServerUnavailableState", html)
+        self.assertIn("累计下载", html)
+        self.assertIn("primary_rx_bytes", html)
+        self.assertIn("cpu_busy_percent", html)
+        self.assertIn("const resourceTones = [", html)
+        self.assertIn("updateServerStatusSummary(metrics, rates)", html)
+        self.assertIn("metrics.node", html)
+        self.assertIn("serverState.loading", html)
 
     def test_dashboard_navigation_only_exposes_retained_read_only_modules(self):
         html = self.render_mod.render(
