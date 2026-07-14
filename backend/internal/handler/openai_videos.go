@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -225,6 +226,14 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 		}
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+		if result != nil && strings.TrimSpace(result.VideoTaskID) != "" {
+			if err := h.gatewayService.BindOpenAIVideoTaskAccount(c.Request.Context(), apiKey.GroupID, result.VideoTaskID, account.ID); err != nil {
+				reqLog.Warn("openai.video_generations.bind_task_account_failed",
+					zap.Int64("account_id", account.ID),
+					zap.Error(err),
+				)
+			}
+		}
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
@@ -326,7 +335,7 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, []byte(taskID))
+	sessionHash := service.OpenAIVideoTaskSessionHash(taskID)
 	selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
 		c.Request.Context(),
 		apiKey.GroupID,
