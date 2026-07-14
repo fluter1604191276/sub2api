@@ -452,6 +452,92 @@ func TestRunCheckForModel_ReplaceMode_EmptyResponseIsFailed(t *testing.T) {
 	}
 }
 
+func TestSanitizeErrorMessage_RedactsUpstreamLocation(t *testing.T) {
+	got := sanitizeErrorMessage(`upstream HTTP 502: Post "https://xn--vduyey89e.com/v1/messages?beta=true": context canceled`)
+
+	if strings.Contains(got, "xn--vduyey89e.com") || strings.Contains(got, "https://") {
+		t.Fatalf("monitor error message leaked upstream location: %q", got)
+	}
+	if !strings.Contains(got, "[upstream_url]") {
+		t.Fatalf("monitor error message should retain a redacted upstream marker, got %q", got)
+	}
+}
+
+func TestExtractMonitorResponseText_Fallbacks(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		primaryPath string
+		want        string
+	}{
+		{
+			name:        "anthropic content text",
+			body:        `{"content":[{"type":"text","text":"OK"}]}`,
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name:        "openai compatible chat completion",
+			body:        `{"choices":[{"message":{"content":"OK"}}]}`,
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name:        "responses output_text",
+			body:        `{"output_text":"OK"}`,
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name:        "responses nested output",
+			body:        `{"output":[{"content":[{"type":"output_text","text":"OK"}]}]}`,
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name:        "array fallback picks first nonempty",
+			body:        `{"content":[{"type":"thinking","text":""},{"type":"text","text":"OK"}]}`,
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name:        "no output text",
+			body:        `{"id":"msg_123","model":"claude-haiku-4-5"}`,
+			primaryPath: "content.0.text",
+			want:        "",
+		},
+		{
+			name: "sse anthropic delta",
+			body: strings.Join([]string{
+				`event: content_block_delta`,
+				`data: {"delta":{"type":"text_delta","text":"OK"}}`,
+				``,
+			}, "\n"),
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+		{
+			name: "sse openai chat completion",
+			body: strings.Join([]string{
+				`data: {"choices":[{"delta":{"content":"OK"}}]}`,
+				`data: [DONE]`,
+				``,
+			}, "\n"),
+			primaryPath: "content.0.text",
+			want:        "OK",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractMonitorResponseText([]byte(tt.body), tt.primaryPath)
+			if got != tt.want {
+				t.Fatalf("extractMonitorResponseText()=%q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractAnthropicMonitorText(t *testing.T) {
 	tests := []struct {
 		name string

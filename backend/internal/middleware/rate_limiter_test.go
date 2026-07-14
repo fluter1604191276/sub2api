@@ -103,6 +103,38 @@ func TestRateLimiterDifferentIPsIndependent(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec3.Code, "第一个 IP 的第二次请求应被限流")
 }
 
+func TestRateLimiterUsesCloudflareConnectingIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var redisKeys []string
+	originalRun := rateLimitRun
+	rateLimitRun = func(ctx context.Context, client *redis.Client, key string, windowMillis int64) (int64, bool, error) {
+		redisKeys = append(redisKeys, key)
+		return 1, false, nil
+	}
+	t.Cleanup(func() {
+		rateLimitRun = originalRun
+	})
+
+	limiter := NewRateLimiter(redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}))
+
+	router := gin.New()
+	router.Use(limiter.Limit("auth-login", 20, time.Minute))
+	router.POST("/login", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/login", nil)
+	req.RemoteAddr = "172.18.0.1:1234"
+	req.Header.Set("CF-Connecting-IP", "23.94.200.103")
+	req.Header.Set("X-Forwarded-For", "23.94.200.103, 104.22.20.142")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, []string{"rate_limit:auth-login:23.94.200.103"}, redisKeys)
+}
+
 func TestRateLimiterSuccessAndLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

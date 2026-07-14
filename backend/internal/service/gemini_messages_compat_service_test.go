@@ -42,6 +42,29 @@ func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL str
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
+func TestSanitizeUpstreamErrorMessage_RedactsSecretsButKeepsOpsLocation(t *testing.T) {
+	got := sanitizeUpstreamErrorMessage(`upstream failed: https://example.com?access_token=secret-value`)
+
+	require.Contains(t, got, "https://example.com")
+	require.Contains(t, got, "access_token=***")
+	require.NotContains(t, got, "secret-value")
+}
+
+func TestSanitizeClientVisibleUpstreamErrorMessage_RedactsUpstreamLocations(t *testing.T) {
+	msg := `Post "https://xn--vduyey89e.com/v1/messages?beta=true": context canceled; x509: certificate is not valid for any names, but wanted to match sub2.congmingai.com; read tcp 156.238.250.42:35500->104.21.84.62:443: reset`
+
+	got := sanitizeClientVisibleUpstreamErrorMessage(msg)
+
+	require.NotContains(t, got, "xn--vduyey89e.com")
+	require.NotContains(t, got, "sub2.congmingai.com")
+	require.NotContains(t, got, "156.238.250.42")
+	require.NotContains(t, got, "104.21.84.62")
+	require.NotContains(t, got, "https://")
+	require.Contains(t, got, "[upstream_url]")
+	require.Contains(t, got, "[upstream_host]")
+	require.Contains(t, got, "[upstream_ip]")
+}
+
 func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

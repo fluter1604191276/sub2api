@@ -138,6 +138,31 @@ func TestGatewayRoutesAsyncImagesPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesOpenAIVideoPathsAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodPost, path: "/v1/video/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodPost, path: "/v1/videos/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodGet, path: "/v1/videos/task_123", body: ""},
+		{method: http.MethodPost, path: "/video/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodPost, path: "/videos/generations", body: `{"model":"seedance-480p-5s","prompt":"tiny test"}`},
+		{method: http.MethodGet, path: "/videos/task_123", body: ""},
+	} {
+		req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI video handler", tc.path)
+		require.NotContains(t, w.Body.String(), "Video API is not supported for this platform")
+	}
+}
+
 func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
@@ -146,7 +171,9 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 		"/v1/images/edits",
 		"/images/generations",
 		"/images/edits",
+		"/v1/video/generations",
 		"/v1/videos/generations",
+		"/video/generations",
 		"/videos/generations",
 		"/v1/videos/edits",
 		"/videos/edits",
@@ -177,8 +204,8 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
-	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
+func TestGatewayRoutesNonVideoPlatformsAreRejectedAtPlatformGate(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformAnthropic)
 
 	for _, tc := range []struct {
 		method string

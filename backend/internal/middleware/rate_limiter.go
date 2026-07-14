@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	clientip "github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 )
@@ -88,7 +90,7 @@ func (r *RateLimiter) LimitWithOptions(key string, limit int, window time.Durati
 	}
 
 	return func(c *gin.Context) {
-		ip := c.ClientIP()
+		ip := clientip.GetClientIP(c)
 		redisKey := r.prefix + key + ":" + ip
 
 		ctx := c.Request.Context()

@@ -267,6 +267,14 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/model-directory',
+    redirect: (to) => ({
+      path: '/available-channels',
+      query: to.query,
+      hash: to.hash,
+    })
+  },
+  {
     path: '/profile',
     name: 'Profile',
     component: () => import('@/views/user/ProfileView.vue'),
