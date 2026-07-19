@@ -807,6 +807,7 @@ export default {
         accounts: 'Accounts',
         capacity: 'Capacity',
         usage: 'Usage',
+        qualityStats: '24h Quality',
         status: 'Status',
         actions: 'Actions',
         billingType: 'Billing Type',
@@ -817,6 +818,10 @@ export default {
       },
       usageToday: 'Today',
       usageTotal: 'Total',
+      quality: {
+        loadFailed: 'Failed',
+        hint: 'Uses successful usage records assigned to this group in the last 24 hours and the latest 10/100 timed requests. Missing first-token values are excluded only from the TTFT average. The display-only score uses the same heuristic as account quality (TTFT 65%, total duration 35%) and never changes routing automatically. Image, video, and long-output requests can lower the total-duration score.'
+      },
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

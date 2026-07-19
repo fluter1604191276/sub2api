@@ -41,22 +41,45 @@ type accountQualityStatsReader interface {
 	GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
 }
 
+type groupQualityStatsReader interface {
+	GetGroupQualityStatsBatch(ctx context.Context, groupIDs []int64, startTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
+}
+
+func normalizeQualityIDs(ids []int64) []int64 {
+	uniqueIDs := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	return uniqueIDs
+}
+
+func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySamples) map[int64]AccountQualityStats {
+	result := make(map[int64]AccountQualityStats, len(ids))
+	for _, id := range ids {
+		sample := samples[id]
+		result[id] = AccountQualityStats{
+			Last10:       applyAccountQualityScore(sample.Last10),
+			Last100:      applyAccountQualityScore(sample.Last100),
+			WindowHours:  AccountQualityWindowHours,
+			ScoreVersion: AccountQualityScoreVersion,
+		}
+	}
+	return result
+}
+
 // GetAccountQualityStatsBatch returns display-only latency summaries for accounts.
 // It deliberately uses an optional repository interface so existing test doubles
 // and alternate repositories do not need to grow a mandatory method.
 func (s *AccountUsageService) GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, now time.Time) (map[int64]AccountQualityStats, error) {
-	uniqueIDs := make([]int64, 0, len(accountIDs))
-	seen := make(map[int64]struct{}, len(accountIDs))
-	for _, accountID := range accountIDs {
-		if accountID <= 0 {
-			continue
-		}
-		if _, exists := seen[accountID]; exists {
-			continue
-		}
-		seen[accountID] = struct{}{}
-		uniqueIDs = append(uniqueIDs, accountID)
-	}
+	uniqueIDs := normalizeQualityIDs(accountIDs)
 
 	result := make(map[int64]AccountQualityStats, len(uniqueIDs))
 	if len(uniqueIDs) == 0 {
@@ -71,16 +94,27 @@ func (s *AccountUsageService) GetAccountQualityStatsBatch(ctx context.Context, a
 	if err != nil {
 		return nil, fmt.Errorf("get account quality stats failed: %w", err)
 	}
-	for _, accountID := range uniqueIDs {
-		sample := samples[accountID]
-		result[accountID] = AccountQualityStats{
-			Last10:       applyAccountQualityScore(sample.Last10),
-			Last100:      applyAccountQualityScore(sample.Last100),
-			WindowHours:  AccountQualityWindowHours,
-			ScoreVersion: AccountQualityScoreVersion,
-		}
+	return buildAccountQualityStats(uniqueIDs, samples), nil
+}
+
+// GetGroupQualityStatsBatch returns the same display-only quality summary as
+// account quality, but aggregates successful timed requests by group.
+func (s *DashboardService) GetGroupQualityStatsBatch(ctx context.Context, groupIDs []int64, now time.Time) (map[int64]AccountQualityStats, error) {
+	uniqueIDs := normalizeQualityIDs(groupIDs)
+	result := make(map[int64]AccountQualityStats, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return result, nil
 	}
-	return result, nil
+	reader, ok := s.usageRepo.(groupQualityStatsReader)
+	if !ok {
+		return nil, fmt.Errorf("group quality statistics are not supported by the usage repository")
+	}
+	endTime := now.UTC()
+	samples, err := reader.GetGroupQualityStatsBatch(ctx, uniqueIDs, endTime.Add(-AccountQualityWindowHours*time.Hour), endTime)
+	if err != nil {
+		return nil, fmt.Errorf("get group quality stats failed: %w", err)
+	}
+	return buildAccountQualityStats(uniqueIDs, samples), nil
 }
 
 func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow {

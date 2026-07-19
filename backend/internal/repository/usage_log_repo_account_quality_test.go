@@ -60,3 +60,32 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatchEmpty(t *testing.T) {
 	require.Empty(t, stats)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	start := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	groupIDs := []int64{7, 9}
+	rows := sqlmock.NewRows([]string{
+		"group_id",
+		"last_10_count", "last_10_first_count", "last_10_first_avg", "last_10_duration_avg",
+		"last_100_count", "last_100_first_count", "last_100_first_avg", "last_100_duration_avg",
+	}).AddRow(7, int64(10), int64(9), 640.0, 6100.0, int64(84), int64(70), 920.0, 7300.0)
+
+	mock.ExpectQuery("PARTITION BY ul.group_id").
+		WithArgs(pq.Array(groupIDs), start, end).
+		WillReturnRows(rows)
+
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	stats, err := repo.GetGroupQualityStatsBatch(context.Background(), groupIDs, start, end)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	require.Equal(t, int64(10), stats[7].Last10.SampleCount)
+	require.Equal(t, int64(9), stats[7].Last10.FirstTokenSampleCount)
+	require.NotNil(t, stats[7].Last100.AverageDurationMs)
+	require.InDelta(t, 7300, *stats[7].Last100.AverageDurationMs, 0.001)
+}

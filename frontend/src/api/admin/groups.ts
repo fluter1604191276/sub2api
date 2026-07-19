@@ -6,6 +6,7 @@
 import { apiClient } from '../client'
 import type {
   AdminGroup,
+  AccountQualityStats,
   GroupPlatform,
   CreateGroupRequest,
   UpdateGroupRequest,
@@ -409,6 +410,23 @@ export async function getCapacitySummary(): Promise<
   return data
 }
 
+export interface BatchGroupQualityStatsResponse {
+  stats: Record<string, AccountQualityStats>
+}
+
+/**
+ * Get 24-hour quality summaries for the current group page.
+ */
+export async function getBatchQualityStats(
+  groupIds: number[]
+): Promise<BatchGroupQualityStatsResponse> {
+  const { data } = await apiClient.post<BatchGroupQualityStatsResponse>(
+    '/admin/groups/quality-stats/batch',
+    { group_ids: groupIds }
+  )
+  return data
+}
+
 export const groupsAPI = {
   list,
   getAll,
@@ -431,7 +449,8 @@ export const groupsAPI = {
   batchSetGroupRPMOverrides,
   updateSortOrder,
   getUsageSummary,
-  getCapacitySummary
+  getCapacitySummary,
+  getBatchQualityStats
 }
 
 export default groupsAPI

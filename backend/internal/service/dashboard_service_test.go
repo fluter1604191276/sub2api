@@ -16,15 +16,26 @@ import (
 
 type usageRepoStub struct {
 	UsageLogRepository
-	stats      *usagestats.DashboardStats
-	rangeStats *usagestats.DashboardStats
-	err        error
-	rangeErr   error
-	calls      int32
-	rangeCalls int32
-	rangeStart time.Time
-	rangeEnd   time.Time
-	onCall     chan struct{}
+	stats               *usagestats.DashboardStats
+	rangeStats          *usagestats.DashboardStats
+	err                 error
+	rangeErr            error
+	calls               int32
+	rangeCalls          int32
+	rangeStart          time.Time
+	rangeEnd            time.Time
+	onCall              chan struct{}
+	groupQualitySamples map[int64]AccountQualitySamples
+	groupQualityIDs     []int64
+	groupQualityStart   time.Time
+	groupQualityEnd     time.Time
+}
+
+func (s *usageRepoStub) GetGroupQualityStatsBatch(_ context.Context, groupIDs []int64, start, end time.Time) (map[int64]AccountQualitySamples, error) {
+	s.groupQualityIDs = append([]int64(nil), groupIDs...)
+	s.groupQualityStart = start
+	s.groupQualityEnd = end
+	return s.groupQualitySamples, s.err
 }
 
 func (s *usageRepoStub) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
@@ -142,6 +153,34 @@ func (c *dashboardCacheStub) readLastEntry(t *testing.T) dashboardStatsCacheEntr
 	err := json.Unmarshal([]byte(data), &entry)
 	require.NoError(t, err)
 	return entry
+}
+
+func TestDashboardService_GetGroupQualityStatsBatch(t *testing.T) {
+	firstToken := 900.0
+	duration := 7000.0
+	repo := &usageRepoStub{
+		groupQualitySamples: map[int64]AccountQualitySamples{
+			7: {
+				Last10: AccountQualityWindow{
+					SampleCount:         10,
+					AverageFirstTokenMs: &firstToken,
+					AverageDurationMs:   &duration,
+				},
+			},
+		},
+	}
+	now := time.Date(2026, 7, 19, 13, 0, 0, 0, time.FixedZone("CST", 8*60*60))
+	svc := NewDashboardService(repo, nil, nil, nil)
+
+	stats, err := svc.GetGroupQualityStatsBatch(context.Background(), []int64{7, 7, -1}, now)
+	require.NoError(t, err)
+	require.Equal(t, []int64{7}, repo.groupQualityIDs)
+	require.Equal(t, now.UTC(), repo.groupQualityEnd)
+	require.Equal(t, now.UTC().Add(-24*time.Hour), repo.groupQualityStart)
+	require.Equal(t, 24, stats[7].WindowHours)
+	require.Equal(t, 1, stats[7].ScoreVersion)
+	require.NotNil(t, stats[7].Last10.QualityScore)
+	require.Nil(t, stats[7].Last100.QualityScore)
 }
 
 func TestDashboardService_CacheHitFresh(t *testing.T) {

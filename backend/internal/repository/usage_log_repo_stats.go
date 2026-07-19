@@ -17,34 +17,37 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// GetAccountQualityStatsBatch returns the latest 10 and 100 successful, timed
-// requests per account in one query. The account/created_at index bounds the
-// candidate set before the window function ranks each account's requests.
-func (r *usageLogRepository) GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.AccountQualitySamples, error) {
-	result := make(map[int64]service.AccountQualitySamples, len(accountIDs))
-	if len(accountIDs) == 0 {
+// getQualityStatsBatch returns the latest 10 and 100 successful, timed
+// requests per account or group in one query. The scope is restricted to the
+// two trusted usage_logs columns so it cannot become SQL input.
+func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int64, startTime, endTime time.Time, scope string) (map[int64]service.AccountQualitySamples, error) {
+	result := make(map[int64]service.AccountQualitySamples, len(ids))
+	if len(ids) == 0 {
 		return result, nil
 	}
+	if scope != "account_id" && scope != "group_id" {
+		return nil, fmt.Errorf("unsupported quality stats scope %q", scope)
+	}
 
-	query := `
+	query := fmt.Sprintf(`
 		WITH ranked AS (
 			SELECT
-				ul.account_id,
+				ul.%s,
 				ul.duration_ms,
 				ul.first_token_ms,
 				ROW_NUMBER() OVER (
-					PARTITION BY ul.account_id
+					PARTITION BY ul.%s
 					ORDER BY ul.created_at DESC, ul.id DESC
 				) AS request_rank
 			FROM usage_logs ul
-			WHERE ul.account_id = ANY($1)
+			WHERE ul.%s = ANY($1)
 				AND ul.created_at >= $2
 				AND ul.created_at < $3
 				AND ul.actual_cost > 0
 				AND ul.duration_ms IS NOT NULL
 		)
 		SELECT
-			account_id,
+			%s,
 			COUNT(*) FILTER (WHERE request_rank <= 10),
 			COUNT(first_token_ms) FILTER (WHERE request_rank <= 10),
 			AVG(first_token_ms) FILTER (WHERE request_rank <= 10),
@@ -54,9 +57,9 @@ func (r *usageLogRepository) GetAccountQualityStatsBatch(ctx context.Context, ac
 			AVG(first_token_ms) FILTER (WHERE request_rank <= 100),
 			AVG(duration_ms) FILTER (WHERE request_rank <= 100)
 		FROM ranked
-		GROUP BY account_id
-	`
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime)
+		GROUP BY %s
+	`, scope, scope, scope, scope, scope)
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(ids), startTime, endTime)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +101,16 @@ func (r *usageLogRepository) GetAccountQualityStatsBatch(ctx context.Context, ac
 		return nil, err
 	}
 	return result, nil
+}
+
+// GetAccountQualityStatsBatch returns quality samples grouped by account.
+func (r *usageLogRepository) GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.AccountQualitySamples, error) {
+	return r.getQualityStatsBatch(ctx, accountIDs, startTime, endTime, "account_id")
+}
+
+// GetGroupQualityStatsBatch returns quality samples grouped by group.
+func (r *usageLogRepository) GetGroupQualityStatsBatch(ctx context.Context, groupIDs []int64, startTime, endTime time.Time) (map[int64]service.AccountQualitySamples, error) {
+	return r.getQualityStatsBatch(ctx, groupIDs, startTime, endTime, "group_id")
 }
 
 func nullableFloat64(value sql.NullFloat64) *float64 {

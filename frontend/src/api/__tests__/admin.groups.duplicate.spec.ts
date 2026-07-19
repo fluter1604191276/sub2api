@@ -8,7 +8,7 @@ vi.mock('@/api/client', () => ({
   apiClient: { post }
 }))
 
-import { duplicate } from '@/api/admin/groups'
+import { duplicate, getBatchQualityStats } from '@/api/admin/groups'
 
 describe('admin group duplicate API', () => {
   beforeEach(() => {
@@ -34,6 +34,17 @@ describe('admin group duplicate API', () => {
     })
     expect(group).toEqual({ id: 43, name: 'primary (Copy)', status: 'inactive' })
     expect(sessionStorage.length).toBe(0)
+  })
+
+  it('requests batch group quality stats by group id', async () => {
+    post.mockResolvedValueOnce({ data: { stats: { '7': { last_10: {}, last_100: {} } } } })
+
+    const result = await getBatchQualityStats([7, 9])
+
+    expect(post).toHaveBeenCalledWith('/admin/groups/quality-stats/batch', {
+      group_ids: [7, 9]
+    })
+    expect(result.stats['7']).toBeDefined()
   })
 
   it('reuses the operation key after an ambiguous failed request', async () => {
