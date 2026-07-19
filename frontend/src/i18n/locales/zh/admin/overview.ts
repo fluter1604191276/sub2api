@@ -800,6 +800,7 @@ export default {
         accounts: '账号数',
         capacity: '容量',
         usage: '用量',
+        qualityStats: '24h质量',
         status: '状态',
         actions: '操作',
         billingType: '计费类型',
@@ -810,6 +811,10 @@ export default {
       },
       usageToday: '今日',
       usageTotal: '累计',
+      quality: {
+        loadFailed: '加载失败',
+        hint: '基于最近 24 小时归属于该分组的真实成功流水，分别取最新 10 次和 100 次有耗时记录。首字为空只排除首字平均，总耗时仍计入；评分与账号质量口径一致（首字 65%、总耗时 35%），仅供人工调度参考，不会自动改变分组路由。生图、视频和长输出会拉低总耗时分。'
+      },
       accountsAvailable: '可用:',
       accountsRateLimited: '限流:',
       accountsTotal: '总量:',
