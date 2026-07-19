@@ -17,6 +17,97 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// GetAccountQualityStatsBatch returns the latest 10 and 100 successful, timed
+// requests per account in one query. The account/created_at index bounds the
+// candidate set before the window function ranks each account's requests.
+func (r *usageLogRepository) GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.AccountQualitySamples, error) {
+	result := make(map[int64]service.AccountQualitySamples, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+
+	query := `
+		WITH ranked AS (
+			SELECT
+				ul.account_id,
+				ul.duration_ms,
+				ul.first_token_ms,
+				ROW_NUMBER() OVER (
+					PARTITION BY ul.account_id
+					ORDER BY ul.created_at DESC, ul.id DESC
+				) AS request_rank
+			FROM usage_logs ul
+			WHERE ul.account_id = ANY($1)
+				AND ul.created_at >= $2
+				AND ul.created_at < $3
+				AND ul.actual_cost > 0
+				AND ul.duration_ms IS NOT NULL
+		)
+		SELECT
+			account_id,
+			COUNT(*) FILTER (WHERE request_rank <= 10),
+			COUNT(first_token_ms) FILTER (WHERE request_rank <= 10),
+			AVG(first_token_ms) FILTER (WHERE request_rank <= 10),
+			AVG(duration_ms) FILTER (WHERE request_rank <= 10),
+			COUNT(*) FILTER (WHERE request_rank <= 100),
+			COUNT(first_token_ms) FILTER (WHERE request_rank <= 100),
+			AVG(first_token_ms) FILTER (WHERE request_rank <= 100),
+			AVG(duration_ms) FILTER (WHERE request_rank <= 100)
+		FROM ranked
+		GROUP BY account_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		var last10, last10First, last100, last100First int64
+		var last10FirstAvg, last10DurationAvg, last100FirstAvg, last100DurationAvg sql.NullFloat64
+		if err := rows.Scan(
+			&accountID,
+			&last10,
+			&last10First,
+			&last10FirstAvg,
+			&last10DurationAvg,
+			&last100,
+			&last100First,
+			&last100FirstAvg,
+			&last100DurationAvg,
+		); err != nil {
+			return nil, err
+		}
+		result[accountID] = service.AccountQualitySamples{
+			Last10: service.AccountQualityWindow{
+				SampleCount:           last10,
+				FirstTokenSampleCount: last10First,
+				AverageFirstTokenMs:   nullableFloat64(last10FirstAvg),
+				AverageDurationMs:     nullableFloat64(last10DurationAvg),
+			},
+			Last100: service.AccountQualityWindow{
+				SampleCount:           last100,
+				FirstTokenSampleCount: last100First,
+				AverageFirstTokenMs:   nullableFloat64(last100FirstAvg),
+				AverageDurationMs:     nullableFloat64(last100DurationAvg),
+			},
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func nullableFloat64(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Float64
+	return &result
+}
+
 // GetUserStatsAggregated returns aggregated usage statistics for a user using database-level aggregation
 func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
 	query := `

@@ -22,7 +22,8 @@ import type {
   CheckMixedChannelRequest,
   CheckMixedChannelResponse,
   UpstreamBillingProbeResult,
-  UpstreamBillingProbeSettings
+  UpstreamBillingProbeSettings,
+  AccountQualityStats
 } from '@/types'
 
 /**
@@ -499,6 +500,17 @@ export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTod
   return data
 }
 
+export interface BatchAccountQualityStatsResponse {
+  stats: Record<string, AccountQualityStats>
+}
+
+export async function getBatchQualityStats(accountIds: number[]): Promise<BatchAccountQualityStatsResponse> {
+  const { data } = await apiClient.post<BatchAccountQualityStatsResponse>('/admin/accounts/quality-stats/batch', {
+    account_ids: accountIds
+  })
+  return data
+}
+
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -900,6 +912,7 @@ export const accountsAPI = {
   getUsage,
   getTodayStats,
   getBatchTodayStats,
+  getBatchQualityStats,
   clearRateLimit,
   recoverState,
   resetAccountQuota,

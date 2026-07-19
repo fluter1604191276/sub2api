@@ -1059,6 +1059,21 @@ export interface WindowStats {
   user_cost?: number
 }
 
+export interface AccountQualityWindow {
+  sample_count: number
+  first_token_sample_count: number
+  average_first_token_ms: number | null
+  average_duration_ms: number | null
+  quality_score: number | null
+}
+
+export interface AccountQualityStats {
+  last_10: AccountQualityWindow
+  last_100: AccountQualityWindow
+  window_hours: number
+  score_version: number
+}
+
 export interface UsageProgress {
   utilization: number // Percentage (0-100+, 100 = 100%)
   resets_at: string | null
