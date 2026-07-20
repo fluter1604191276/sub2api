@@ -8,10 +8,47 @@ import (
 )
 
 const (
-	AccountQualityWindowHours  = 24
-	AccountQualityScoreVersion = 1
-	accountQualityMinSamples   = 3
+	AccountQualityWindowHours     = 24
+	AccountQualityScoreVersion    = 2
+	accountQualityMinSamples      = 3
+	accountQualityMinTTFTSamples  = 3
+	accountQualityTTFTWeight      = 0.85
+	accountQualityDurationWeight  = 0.15
+	accountQualityDurationOnlyMax = 69
+
+	accountQualityBasisTTFTDuration = "ttft_duration"
+	accountQualityBasisTTFTOnly     = "ttft_only"
+	accountQualityBasisDurationOnly = "duration_only"
 )
+
+type accountQualityCurvePoint struct {
+	LatencyMs float64
+	Score     float64
+}
+
+var accountQualityTTFTCurve = []accountQualityCurvePoint{
+	{LatencyMs: 800, Score: 100},
+	{LatencyMs: 2000, Score: 95},
+	{LatencyMs: 4000, Score: 85},
+	{LatencyMs: 8000, Score: 72},
+	{LatencyMs: 12000, Score: 62},
+	{LatencyMs: 20000, Score: 48},
+	{LatencyMs: 30000, Score: 35},
+	{LatencyMs: 45000, Score: 20},
+	{LatencyMs: 60000, Score: 10},
+	{LatencyMs: 90000, Score: 0},
+}
+
+var accountQualityDurationCurve = []accountQualityCurvePoint{
+	{LatencyMs: 5000, Score: 100},
+	{LatencyMs: 10000, Score: 90},
+	{LatencyMs: 20000, Score: 75},
+	{LatencyMs: 40000, Score: 55},
+	{LatencyMs: 60000, Score: 40},
+	{LatencyMs: 90000, Score: 25},
+	{LatencyMs: 120000, Score: 12},
+	{LatencyMs: 180000, Score: 0},
+}
 
 // AccountQualityWindow contains the latency summary for one recent-request window.
 // A nil score means there is not enough evidence to make a useful judgement.
@@ -21,6 +58,8 @@ type AccountQualityWindow struct {
 	AverageFirstTokenMs   *float64 `json:"average_first_token_ms"`
 	AverageDurationMs     *float64 `json:"average_duration_ms"`
 	QualityScore          *int     `json:"quality_score"`
+	QualityGrade          string   `json:"quality_grade,omitempty"`
+	ScoreBasis            string   `json:"score_basis,omitempty"`
 }
 
 type AccountQualityStats struct {
@@ -122,32 +161,74 @@ func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow 
 		return window
 	}
 
-	// TTFT is weighted more heavily than total duration. Total duration is kept
-	// as a broad signal because it varies with output length and media requests.
-	ttftScore, hasTTFT := latencyScore(window.AverageFirstTokenMs, 800, 8000)
-	durationScore, hasDuration := latencyScore(window.AverageDurationMs, 5000, 120000)
-	if hasTTFT && hasDuration {
-		score := int(math.Round(ttftScore*0.65 + durationScore*0.35))
-		window.QualityScore = &score
-	} else if hasTTFT {
-		score := int(math.Round(ttftScore))
-		window.QualityScore = &score
-	} else if hasDuration {
-		score := int(math.Round(durationScore))
-		window.QualityScore = &score
+	ttftScore, hasTTFT := qualityCurveScore(window.AverageFirstTokenMs, accountQualityTTFTCurve)
+	if window.FirstTokenSampleCount < accountQualityMinTTFTSamples {
+		hasTTFT = false
 	}
+	durationScore, hasDuration := qualityCurveScore(window.AverageDurationMs, accountQualityDurationCurve)
+
+	var score float64
+	var basis string
+	if hasTTFT && hasDuration {
+		score = ttftScore*accountQualityTTFTWeight + durationScore*accountQualityDurationWeight
+		basis = accountQualityBasisTTFTDuration
+	} else if hasTTFT {
+		score = ttftScore
+		basis = accountQualityBasisTTFTOnly
+	} else if hasDuration {
+		score = math.Min(durationScore, accountQualityDurationOnlyMax)
+		basis = accountQualityBasisDurationOnly
+	} else {
+		return window
+	}
+
+	rounded := int(math.Round(math.Max(0, math.Min(100, score))))
+	window.QualityScore = &rounded
+	window.QualityGrade = accountQualityGrade(rounded)
+	window.ScoreBasis = basis
 	return window
 }
 
-func latencyScore(value *float64, excellent, poor float64) (float64, bool) {
-	if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) {
+func qualityCurveScore(value *float64, curve []accountQualityCurvePoint) (float64, bool) {
+	if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) || len(curve) == 0 {
 		return 0, false
 	}
-	if *value <= excellent {
-		return 100, true
+	if *value <= curve[0].LatencyMs {
+		return curve[0].Score, true
 	}
-	if *value >= poor {
-		return 0, true
+	for i := 1; i < len(curve); i++ {
+		current := curve[i]
+		if *value > current.LatencyMs {
+			continue
+		}
+		previous := curve[i-1]
+		ratio := (*value - previous.LatencyMs) / (current.LatencyMs - previous.LatencyMs)
+		return previous.Score + ratio*(current.Score-previous.Score), true
 	}
-	return 100 * (poor - *value) / (poor - excellent), true
+	return curve[len(curve)-1].Score, true
+}
+
+func accountQualityGrade(score int) string {
+	switch {
+	case score >= 95:
+		return "S+"
+	case score >= 90:
+		return "S"
+	case score >= 85:
+		return "S-"
+	case score >= 80:
+		return "A+"
+	case score >= 75:
+		return "A"
+	case score >= 70:
+		return "A-"
+	case score >= 65:
+		return "B+"
+	case score >= 60:
+		return "B"
+	case score >= 50:
+		return "B-"
+	default:
+		return "C"
+	}
 }

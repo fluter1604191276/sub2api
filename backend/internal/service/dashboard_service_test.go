@@ -178,7 +178,7 @@ func TestDashboardService_GetGroupQualityStatsBatch(t *testing.T) {
 	require.Equal(t, now.UTC(), repo.groupQualityEnd)
 	require.Equal(t, now.UTC().Add(-24*time.Hour), repo.groupQualityStart)
 	require.Equal(t, 24, stats[7].WindowHours)
-	require.Equal(t, 1, stats[7].ScoreVersion)
+	require.Equal(t, 2, stats[7].ScoreVersion)
 	require.NotNil(t, stats[7].Last10.QualityScore)
 	require.Nil(t, stats[7].Last100.QualityScore)
 }

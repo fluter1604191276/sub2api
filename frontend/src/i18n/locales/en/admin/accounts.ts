@@ -179,8 +179,10 @@ export default {
         firstTokenShort: 'TTFT',
         totalShort: 'Total',
         insufficientSamples: '{count} valid sample(s); at least 3 are required for a score',
-        scoreTitle: 'Quality score {score}, based on {count} valid sample(s)',
-        hint: 'Uses successful usage records from the last 24 hours and the latest 10/100 timed requests. Missing first-token values are excluded only from the TTFT average. The display-only heuristic weights TTFT at 65% and total duration at 35%; it never changes account priority automatically. Image, video, and long-output requests can lower the total-duration score.'
+        scoreTitle: 'Grade {grade} / score {score}, {count} valid sample(s), {firstCount} TTFT sample(s)',
+        durationOnly: 'Insufficient TTFT evidence; duration-only score capped at 69',
+        ttftOnly: 'Scored from TTFT only',
+        hint: 'Uses successful usage records from the last 24 hours and the latest 10/100 timed requests. Score v2 uses a piecewise-linear curve calibrated from this site\'s historical usage: TTFT weighs 85% and total duration 15%. With fewer than 3 TTFT samples, duration-only scoring is capped at 69. S+/S/S-/A+/A/A-/B+/B/B-/C is shown beside the numeric score for scheduling review only and never changes account priority automatically.'
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       upstreamBilling: {

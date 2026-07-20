@@ -132,8 +132,10 @@ export default {
         firstTokenShort: '首字',
         totalShort: '总',
         insufficientSamples: '有效样本 {count} 条，少于 3 条，暂不评分',
-        scoreTitle: '质量分 {score}，有效样本 {count} 条',
-        hint: '基于最近 24 小时真实成功流水，分别取最新 10 次和 100 次。首字为空不计入首字平均，总耗时仍计入。质量分为延迟启发式（首字 65%、总耗时 35%），仅供人工调度参考，不会自动改变账号优先级；生图、视频和长输出会拉低总耗时分。'
+        scoreTitle: '{grade} 级 / {score} 分，有效样本 {count} 条，首字样本 {firstCount} 条',
+        durationOnly: '首字样本不足，仅按总耗时评分，最高 69 分',
+        ttftOnly: '仅按首字评分',
+        hint: '基于最近 24 小时真实成功流水，分别取最新 10 次和 100 次。评分 v2 按本站历史流水分布使用分段线性曲线：首字权重 85%，总耗时权重 15%；首字样本少于 3 条时仅按总耗时评分且最高 69 分。S+/S/S-/A+/A/A-/B+/B/B-/C 与百分制同时展示，仅供人工调度参考，不会自动改变账号优先级。'
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       upstreamBilling: {
