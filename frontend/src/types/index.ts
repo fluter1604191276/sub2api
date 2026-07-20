@@ -1065,6 +1065,8 @@ export interface AccountQualityWindow {
   average_first_token_ms: number | null
   average_duration_ms: number | null
   quality_score: number | null
+  quality_grade?: string
+  score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
 }
 
 export interface AccountQualityStats {

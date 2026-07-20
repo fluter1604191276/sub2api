@@ -820,7 +820,7 @@ export default {
       usageTotal: 'Total',
       quality: {
         loadFailed: 'Failed',
-        hint: 'Uses successful usage records assigned to this group in the last 24 hours and the latest 10/100 timed requests. Missing first-token values are excluded only from the TTFT average. The display-only score uses the same heuristic as account quality (TTFT 65%, total duration 35%) and never changes routing automatically. Image, video, and long-output requests can lower the total-duration score.'
+        hint: 'Uses successful usage records assigned to this group in the last 24 hours and the latest 10/100 timed requests. Score v2 matches account quality: TTFT weighs 85% and total duration 15%; with fewer than 3 TTFT samples, duration-only scoring is capped at 69. Letter grade and numeric score are display-only and never change group routing automatically.'
       },
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
