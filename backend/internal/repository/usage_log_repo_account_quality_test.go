@@ -31,7 +31,7 @@ func TestUsageLogRepositoryGetAccountQualityStatsBatch(t *testing.T) {
 	}).AddRow(int64(11), int64(10), int64(8), 825.5, 4200.0, int64(72), int64(60), 930.25, 5100.0).
 		AddRow(int64(22), int64(4), int64(0), nil, 7000.0, int64(4), int64(0), nil, 7000.0)
 
-	mock.ExpectQuery("WITH ranked AS").
+	mock.ExpectQuery(`(?s)WITH ranked AS.*AND ul\.stream = TRUE`).
 		WithArgs(pq.Array(accountIDs), start, end).
 		WillReturnRows(rows)
 
@@ -75,7 +75,7 @@ func TestUsageLogRepositoryGetGroupQualityStatsBatch(t *testing.T) {
 		"last_100_count", "last_100_first_count", "last_100_first_avg", "last_100_duration_avg",
 	}).AddRow(7, int64(10), int64(9), 640.0, 6100.0, int64(84), int64(70), 920.0, 7300.0)
 
-	mock.ExpectQuery("PARTITION BY ul.group_id").
+	mock.ExpectQuery(`(?s)PARTITION BY ul\.group_id.*AND ul\.stream = TRUE`).
 		WithArgs(pq.Array(groupIDs), start, end).
 		WillReturnRows(rows)
 

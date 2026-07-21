@@ -17,9 +17,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// getQualityStatsBatch returns the latest 10 and 100 successful, timed
-// requests per account or group in one query. The scope is restricted to the
-// two trusted usage_logs columns so it cannot become SQL input.
+// getQualityStatsBatch returns the latest 10 and 100 successful, timed,
+// streaming requests per account or group in one query. The scope is
+// restricted to the two trusted usage_logs columns so it cannot become SQL
+// input.
 func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int64, startTime, endTime time.Time, scope string) (map[int64]service.AccountQualitySamples, error) {
 	result := make(map[int64]service.AccountQualitySamples, len(ids))
 	if len(ids) == 0 {
@@ -44,6 +45,7 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				AND ul.created_at >= $2
 				AND ul.created_at < $3
 				AND ul.actual_cost > 0
+				AND ul.stream = TRUE
 				AND ul.duration_ms IS NOT NULL
 		)
 		SELECT
