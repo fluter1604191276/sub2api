@@ -1069,10 +1069,30 @@ export interface AccountQualityWindow {
   score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
 }
 
-export interface AccountQualityStats {
+export interface AccountQualityPeriod {
   last_10: AccountQualityWindow
   last_100: AccountQualityWindow
   window_hours: number
+}
+
+export type AccountQualityActivityState =
+  | 'active'
+  | 'low_sample'
+  | 'degraded'
+  | 'failing'
+  | 'idle'
+
+export interface AccountQualityActivity {
+  state: AccountQualityActivityState
+  successful_request_count: number
+  failed_request_count: number
+  last_success_at: string | null
+  last_error_at: string | null
+}
+
+export interface AccountQualityStats extends AccountQualityPeriod {
+  recent_1h: AccountQualityPeriod
+  activity: AccountQualityActivity
   score_version: number
 }
 

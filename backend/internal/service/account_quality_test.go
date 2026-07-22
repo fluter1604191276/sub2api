@@ -2,6 +2,7 @@ package service
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestApplyAccountQualityScore(t *testing.T) {
 		require.Empty(t, window.ScoreBasis)
 	})
 
-	t.Run("nonstreaming requests use duration only", func(t *testing.T) {
+	t.Run("requests without first token timing use duration only", func(t *testing.T) {
 		duration := 62500.0
 		window := applyAccountQualityScore(AccountQualityWindow{
 			SampleCount:       10,
@@ -92,6 +93,70 @@ func TestApplyAccountQualityScore(t *testing.T) {
 		require.Equal(t, 73, *window.QualityScore)
 		require.Equal(t, "A-", window.QualityGrade)
 	})
+}
+
+func TestBuildAccountQualityStatsIncludesRealtimeWindowAndActivity(t *testing.T) {
+	ttft := 1200.0
+	duration := 8000.0
+	lastSuccess := time.Date(2026, 7, 22, 4, 10, 0, 0, time.UTC)
+	lastError := lastSuccess.Add(-2 * time.Minute)
+
+	stats := buildAccountQualityStats([]int64{7}, map[int64]AccountQualitySamples{
+		7: {
+			Recent1h: AccountQualityPeriodSamples{
+				Last10: AccountQualityWindow{
+					SampleCount:           10,
+					FirstTokenSampleCount: 10,
+					AverageFirstTokenMs:   &ttft,
+					AverageDurationMs:     &duration,
+				},
+			},
+			Last24h: AccountQualityPeriodSamples{
+				Last100: AccountQualityWindow{
+					SampleCount:           100,
+					FirstTokenSampleCount: 100,
+					AverageFirstTokenMs:   &ttft,
+					AverageDurationMs:     &duration,
+				},
+			},
+			SuccessfulRequests1h: 10,
+			FailedRequests1h:     1,
+			LastSuccessAt:        &lastSuccess,
+			LastErrorAt:          &lastError,
+		},
+	})[7]
+
+	require.Equal(t, 1, stats.Recent1h.WindowHours)
+	require.NotNil(t, stats.Recent1h.Last10.QualityScore)
+	require.Equal(t, 24, stats.WindowHours)
+	require.NotNil(t, stats.Last100.QualityScore)
+	require.Equal(t, accountQualityActivityActive, stats.Activity.State)
+	require.Equal(t, int64(10), stats.Activity.SuccessfulRequestCount)
+	require.Equal(t, int64(1), stats.Activity.FailedRequestCount)
+	require.Equal(t, &lastSuccess, stats.Activity.LastSuccessAt)
+	require.Equal(t, &lastError, stats.Activity.LastErrorAt)
+}
+
+func TestClassifyAccountQualityActivity(t *testing.T) {
+	tests := []struct {
+		name      string
+		successes int64
+		failures  int64
+		want      string
+	}{
+		{name: "idle without attempts", want: accountQualityActivityIdle},
+		{name: "low sample success", successes: 2, want: accountQualityActivityLowSample},
+		{name: "low sample failure", failures: 2, want: accountQualityActivityLowSample},
+		{name: "failing without success", failures: 3, want: accountQualityActivityFailing},
+		{name: "active with enough success", successes: 8, failures: 1, want: accountQualityActivityActive},
+		{name: "degraded at twenty percent failures", successes: 8, failures: 2, want: accountQualityActivityDegraded},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, classifyAccountQualityActivity(tt.successes, tt.failures))
+		})
+	}
 }
 
 func TestQualityCurveScore(t *testing.T) {

@@ -41,6 +41,7 @@ const messages: Record<string, string> = {
   'admin.groups.columns.accounts': 'Accounts',
   'admin.groups.columns.capacity': 'Capacity',
   'admin.groups.columns.usage': 'Usage',
+  'admin.groups.columns.realtimeQualityStats': '1h Quality',
   'admin.groups.columns.qualityStats': '24h Quality',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
@@ -270,6 +271,7 @@ describe('admin GroupsView column settings', () => {
       'account_count',
       'capacity',
       'usage',
+      'quality_stats_1h',
       'quality_stats',
       'status',
       'actions',
@@ -295,6 +297,7 @@ describe('admin GroupsView column settings', () => {
       'rate_multiplier',
       'is_exclusive',
       'account_count',
+      'quality_stats_1h',
       'quality_stats',
       'status',
       'actions',
@@ -315,6 +318,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'quality_stats_1h',
       'quality_stats',
       'status',
       'actions',
@@ -339,6 +343,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'quality_stats_1h',
       'quality_stats',
       'status',
       'actions',
@@ -364,6 +369,7 @@ describe('admin GroupsView column settings', () => {
       'account_count',
       'capacity',
       'usage',
+      'quality_stats_1h',
       'quality_stats',
       'status',
       'actions',
@@ -374,7 +380,13 @@ describe('admin GroupsView column settings', () => {
   it('skips usage, capacity, and quality fetches until consuming columns are shown', async () => {
     localStorage.setItem(
       'group-hidden-columns',
-      JSON.stringify(['billing_type', 'usage', 'capacity', 'quality_stats']),
+      JSON.stringify([
+        'billing_type',
+        'usage',
+        'capacity',
+        'quality_stats_1h',
+        'quality_stats',
+      ]),
     )
 
     const wrapper = await mountView()
@@ -394,7 +406,10 @@ describe('admin GroupsView column settings', () => {
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
     expect(getBatchQualityStats).not.toHaveBeenCalled()
 
-    await clickColumnToggle(wrapper, '24h Quality')
+    await clickColumnToggle(wrapper, '1h Quality')
     expect(getBatchQualityStats).toHaveBeenCalledWith([1])
+
+    await clickColumnToggle(wrapper, '24h Quality')
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
   })
 })

@@ -8,17 +8,27 @@ import (
 )
 
 const (
-	AccountQualityWindowHours     = 24
-	AccountQualityScoreVersion    = 2
-	accountQualityMinSamples      = 3
-	accountQualityMinTTFTSamples  = 3
-	accountQualityTTFTWeight      = 0.85
-	accountQualityDurationWeight  = 0.15
-	accountQualityDurationOnlyMax = 69
+	AccountQualityRealtimeWindowHours  = 1
+	AccountQualityWindowHours          = 24
+	AccountQualityScoreVersion         = 2
+	accountQualityMinSamples           = 3
+	accountQualityMinTTFTSamples       = 3
+	accountQualityTTFTWeight           = 0.85
+	accountQualityDurationWeight       = 0.15
+	accountQualityDurationOnlyMax      = 69
+	accountQualityFailingMinErrors     = 3
+	accountQualityDegradedMinAttempts  = 5
+	accountQualityDegradedFailureRatio = 0.20
 
 	accountQualityBasisTTFTDuration = "ttft_duration"
 	accountQualityBasisTTFTOnly     = "ttft_only"
 	accountQualityBasisDurationOnly = "duration_only"
+
+	accountQualityActivityActive    = "active"
+	accountQualityActivityLowSample = "low_sample"
+	accountQualityActivityDegraded  = "degraded"
+	accountQualityActivityFailing   = "failing"
+	accountQualityActivityIdle      = "idle"
 )
 
 type accountQualityCurvePoint struct {
@@ -62,26 +72,51 @@ type AccountQualityWindow struct {
 	ScoreBasis            string   `json:"score_basis,omitempty"`
 }
 
+type AccountQualityPeriod struct {
+	Last10      AccountQualityWindow `json:"last_10"`
+	Last100     AccountQualityWindow `json:"last_100"`
+	WindowHours int                  `json:"window_hours"`
+}
+
+type AccountQualityActivity struct {
+	State                  string     `json:"state"`
+	SuccessfulRequestCount int64      `json:"successful_request_count"`
+	FailedRequestCount     int64      `json:"failed_request_count"`
+	LastSuccessAt          *time.Time `json:"last_success_at"`
+	LastErrorAt            *time.Time `json:"last_error_at"`
+}
+
 type AccountQualityStats struct {
-	Last10       AccountQualityWindow `json:"last_10"`
-	Last100      AccountQualityWindow `json:"last_100"`
-	WindowHours  int                  `json:"window_hours"`
-	ScoreVersion int                  `json:"score_version"`
+	Last10       AccountQualityWindow   `json:"last_10"`
+	Last100      AccountQualityWindow   `json:"last_100"`
+	WindowHours  int                    `json:"window_hours"`
+	Recent1h     AccountQualityPeriod   `json:"recent_1h"`
+	Activity     AccountQualityActivity `json:"activity"`
+	ScoreVersion int                    `json:"score_version"`
+}
+
+type AccountQualityPeriodSamples struct {
+	Last10  AccountQualityWindow
+	Last100 AccountQualityWindow
 }
 
 // AccountQualitySamples is the repository result before the service applies the
 // display-only scoring policy.
 type AccountQualitySamples struct {
-	Last10  AccountQualityWindow
-	Last100 AccountQualityWindow
+	Recent1h             AccountQualityPeriodSamples
+	Last24h              AccountQualityPeriodSamples
+	SuccessfulRequests1h int64
+	FailedRequests1h     int64
+	LastSuccessAt        *time.Time
+	LastErrorAt          *time.Time
 }
 
 type accountQualityStatsReader interface {
-	GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
+	GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, startTime, realtimeStartTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
 }
 
 type groupQualityStatsReader interface {
-	GetGroupQualityStatsBatch(ctx context.Context, groupIDs []int64, startTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
+	GetGroupQualityStatsBatch(ctx context.Context, groupIDs []int64, startTime, realtimeStartTime, endTime time.Time) (map[int64]AccountQualitySamples, error)
 }
 
 func normalizeQualityIDs(ids []int64) []int64 {
@@ -104,10 +139,23 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 	result := make(map[int64]AccountQualityStats, len(ids))
 	for _, id := range ids {
 		sample := samples[id]
+		recent := AccountQualityPeriod{
+			Last10:      applyAccountQualityScore(sample.Recent1h.Last10),
+			Last100:     applyAccountQualityScore(sample.Recent1h.Last100),
+			WindowHours: AccountQualityRealtimeWindowHours,
+		}
 		result[id] = AccountQualityStats{
-			Last10:       applyAccountQualityScore(sample.Last10),
-			Last100:      applyAccountQualityScore(sample.Last100),
-			WindowHours:  AccountQualityWindowHours,
+			Last10:      applyAccountQualityScore(sample.Last24h.Last10),
+			Last100:     applyAccountQualityScore(sample.Last24h.Last100),
+			WindowHours: AccountQualityWindowHours,
+			Recent1h:    recent,
+			Activity: AccountQualityActivity{
+				State:                  classifyAccountQualityActivity(sample.SuccessfulRequests1h, sample.FailedRequests1h),
+				SuccessfulRequestCount: sample.SuccessfulRequests1h,
+				FailedRequestCount:     sample.FailedRequests1h,
+				LastSuccessAt:          sample.LastSuccessAt,
+				LastErrorAt:            sample.LastErrorAt,
+			},
 			ScoreVersion: AccountQualityScoreVersion,
 		}
 	}
@@ -129,7 +177,13 @@ func (s *AccountUsageService) GetAccountQualityStatsBatch(ctx context.Context, a
 		return nil, fmt.Errorf("account quality statistics are not supported by the usage repository")
 	}
 	endTime := now.UTC()
-	samples, err := reader.GetAccountQualityStatsBatch(ctx, uniqueIDs, endTime.Add(-AccountQualityWindowHours*time.Hour), endTime)
+	samples, err := reader.GetAccountQualityStatsBatch(
+		ctx,
+		uniqueIDs,
+		endTime.Add(-AccountQualityWindowHours*time.Hour),
+		endTime.Add(-AccountQualityRealtimeWindowHours*time.Hour),
+		endTime,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get account quality stats failed: %w", err)
 	}
@@ -149,11 +203,34 @@ func (s *DashboardService) GetGroupQualityStatsBatch(ctx context.Context, groupI
 		return nil, fmt.Errorf("group quality statistics are not supported by the usage repository")
 	}
 	endTime := now.UTC()
-	samples, err := reader.GetGroupQualityStatsBatch(ctx, uniqueIDs, endTime.Add(-AccountQualityWindowHours*time.Hour), endTime)
+	samples, err := reader.GetGroupQualityStatsBatch(
+		ctx,
+		uniqueIDs,
+		endTime.Add(-AccountQualityWindowHours*time.Hour),
+		endTime.Add(-AccountQualityRealtimeWindowHours*time.Hour),
+		endTime,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("get group quality stats failed: %w", err)
 	}
 	return buildAccountQualityStats(uniqueIDs, samples), nil
+}
+
+func classifyAccountQualityActivity(successfulRequests, failedRequests int64) string {
+	if successfulRequests == 0 && failedRequests >= accountQualityFailingMinErrors {
+		return accountQualityActivityFailing
+	}
+	attempts := successfulRequests + failedRequests
+	if attempts >= accountQualityDegradedMinAttempts && float64(failedRequests)/float64(attempts) >= accountQualityDegradedFailureRatio {
+		return accountQualityActivityDegraded
+	}
+	if successfulRequests >= accountQualityMinSamples {
+		return accountQualityActivityActive
+	}
+	if attempts > 0 {
+		return accountQualityActivityLowSample
+	}
+	return accountQualityActivityIdle
 }
 
 func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow {

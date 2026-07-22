@@ -6,6 +6,23 @@
     </div>
     <div v-else-if="error && !stats" class="text-xs text-red-500">{{ error }}</div>
     <div v-else-if="stats" class="space-y-1 text-xs">
+      <div v-if="showActivity" class="flex items-center gap-1 whitespace-nowrap">
+        <span
+          :class="`inline-flex rounded px-1.5 py-0.5 font-semibold ${activityClass(resolvedActivityState)}`"
+          :data-quality-activity="resolvedActivityState"
+        >
+          {{ t(`admin.accounts.quality.activity.${resolvedActivityState}`) }}
+        </span>
+        <span v-if="activity" class="text-gray-500 dark:text-gray-400">
+          {{
+            t('admin.accounts.quality.activity.counts', {
+              success: activity.successful_request_count,
+              failed: activity.failed_request_count,
+            })
+          }}
+        </span>
+        <span class="text-gray-400 dark:text-gray-500">{{ lastSuccessLabel }}</span>
+      </div>
       <QualityRow :label="t('admin.accounts.quality.last10')" :window="stats.last_10" />
       <QualityRow :label="t('admin.accounts.quality.last100')" :window="stats.last_100" />
     </div>
@@ -14,16 +31,30 @@
 </template>
 
 <script setup lang="ts">
-import { defineComponent, h, type PropType } from 'vue'
+import { computed, defineComponent, h, type PropType } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { AccountQualityStats, AccountQualityWindow } from '@/types'
+import type {
+  AccountQualityActivity,
+  AccountQualityPeriod,
+  AccountQualityWindow,
+} from '@/types'
 
-withDefaults(defineProps<{
-  stats?: AccountQualityStats | null
+type ActivityStateOverride = 'unassigned' | 'paused'
+
+const props = withDefaults(defineProps<{
+  stats?: AccountQualityPeriod | null
+  activity?: AccountQualityActivity | null
+  activityStateOverride?: ActivityStateOverride | null
+  showActivity?: boolean
+  muted?: boolean
   loading?: boolean
   error?: string | null
 }>(), {
   stats: null,
+  activity: null,
+  activityStateOverride: null,
+  showActivity: false,
+  muted: false,
   loading: false,
   error: null
 })
@@ -38,12 +69,44 @@ const formatLatency = (value: number | null): string => {
 }
 
 const gradeClass = (grade: string | undefined): string => {
+  if (props.muted) return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'
   if (!grade) return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'
   if (grade.startsWith('S')) return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300'
   if (grade.startsWith('A')) return 'bg-blue-100 text-blue-700 dark:bg-blue-900/35 dark:text-blue-300'
   if (grade.startsWith('B')) return 'bg-amber-100 text-amber-700 dark:bg-amber-900/35 dark:text-amber-300'
   return 'bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300'
 }
+
+const resolvedActivityState = computed(() => props.activityStateOverride || props.activity?.state || 'idle')
+
+const activityClass = (state: string): string => {
+  if (state === 'active') return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300'
+  if (state === 'degraded' || state === 'low_sample') {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/35 dark:text-amber-300'
+  }
+  if (state === 'failing') return 'bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300'
+  return 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-300'
+}
+
+const lastSuccessLabel = computed(() => {
+  const raw = props.activity?.last_success_at
+  if (!raw) return t('admin.accounts.quality.activity.noSuccess24h')
+  const timestamp = new Date(raw).getTime()
+  if (!Number.isFinite(timestamp)) return t('admin.accounts.quality.activity.noSuccess24h')
+  const elapsedMs = Math.max(0, Date.now() - timestamp)
+  if (elapsedMs < 60_000) return t('admin.accounts.quality.activity.lastSuccessNow')
+  if (elapsedMs < 60 * 60_000) {
+    return t('admin.accounts.quality.activity.lastSuccessMinutes', {
+      count: Math.max(1, Math.floor(elapsedMs / 60_000)),
+    })
+  }
+  if (elapsedMs < 24 * 60 * 60_000) {
+    return t('admin.accounts.quality.activity.lastSuccessHours', {
+      count: Math.max(1, Math.floor(elapsedMs / (60 * 60_000))),
+    })
+  }
+  return t('admin.accounts.quality.activity.noSuccess24h')
+})
 
 const scoreLabel = (window: AccountQualityWindow): string => {
   if (window.quality_score == null) return '-'
@@ -74,18 +137,18 @@ const QualityRow = defineComponent({
     label: { type: String, required: true },
     window: { type: Object as PropType<AccountQualityWindow>, required: true }
   },
-  setup(props) {
+  setup(rowProps) {
     return () => h('div', { class: 'flex items-center gap-1 whitespace-nowrap' }, [
-      h('span', { class: 'w-9 text-gray-500 dark:text-gray-400' }, `${props.label} `),
+      h('span', { class: 'w-9 text-gray-500 dark:text-gray-400' }, `${rowProps.label} `),
       h('span', {
-        class: `inline-flex min-w-[3.1rem] justify-center rounded px-1 py-0.5 font-semibold ${gradeClass(props.window.quality_grade)}`,
-        'data-quality-grade': props.window.quality_grade || undefined,
-        title: scoreTitle(props.window),
-      }, scoreLabel(props.window)),
+        class: `inline-flex min-w-[3.1rem] justify-center rounded px-1 py-0.5 font-semibold ${gradeClass(rowProps.window.quality_grade)}`,
+        'data-quality-grade': rowProps.window.quality_grade || undefined,
+        title: scoreTitle(rowProps.window),
+      }, scoreLabel(rowProps.window)),
       h('span', { class: 'text-gray-500 dark:text-gray-400' }, `${t('admin.accounts.quality.firstTokenShort')} `),
-      h('span', { class: 'font-medium text-gray-700 dark:text-gray-200' }, formatLatency(props.window.average_first_token_ms)),
+      h('span', { class: 'font-medium text-gray-700 dark:text-gray-200' }, formatLatency(rowProps.window.average_first_token_ms)),
       h('span', { class: 'text-gray-500 dark:text-gray-400' }, `${t('admin.accounts.quality.totalShort')} `),
-      h('span', { class: 'font-medium text-gray-700 dark:text-gray-200' }, formatLatency(props.window.average_duration_ms))
+      h('span', { class: 'font-medium text-gray-700 dark:text-gray-200' }, formatLatency(rowProps.window.average_duration_ms))
     ])
   }
 })

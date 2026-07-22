@@ -111,6 +111,7 @@ export default {
         status: '状态',
         schedulable: '调度',
         todayStats: '今日统计',
+        realtimeQualityStats: '1h质量',
         qualityStats: '24h质量',
         groups: '分组',
         usageWindows: '用量窗口',
@@ -135,7 +136,22 @@ export default {
         scoreTitle: '{grade} 级 / {score} 分，有效样本 {count} 条，首字样本 {firstCount} 条',
         durationOnly: '首字样本不足，仅按总耗时评分，最高 69 分',
         ttftOnly: '仅按首字评分',
-        hint: '基于最近 24 小时真实成功流水，分别取最新 10 次和 100 次。评分 v2 按本站历史流水分布使用分段线性曲线：首字权重 85%，总耗时权重 15%；首字样本少于 3 条时仅按总耗时评分且最高 69 分。S+/S/S-/A+/A/A-/B+/B/B-/C 与百分制同时展示，仅供人工调度参考，不会自动改变账号优先级。'
+        hint: '基于最近 24 小时真实成功流式流水，分别取最新 10 次和 100 次。评分 v2 按本站历史流水分布使用分段线性曲线：首字权重 85%，总耗时权重 15%；首字样本少于 3 条时仅按总耗时评分且最高 69 分。S+/S/S-/A+/A/A-/B+/B/B-/C 与百分制同时展示，仅供人工调度参考，不会自动改变账号优先级。',
+        realtimeHint: '仅统计最近 1 小时的流式请求。参与状态结合成功与失败次数判断；“未参与”表示该账号最近 1 小时没有真实流量，不代表账号已故障。1 小时没有成功请求时，24 小时历史评分会弱化为灰色基线，方便区分当前活跃质量与历史表现。',
+        activity: {
+          active: '活跃',
+          low_sample: '样本少',
+          degraded: '波动',
+          failing: '失败中',
+          idle: '未参与',
+          unassigned: '未分组',
+          paused: '暂停调度',
+          counts: '{success}成/{failed}败',
+          lastSuccessNow: '刚刚成功',
+          lastSuccessMinutes: '最近成功 {count} 分钟前',
+          lastSuccessHours: '最近成功 {count} 小时前',
+          noSuccess24h: '24h无成功'
+        }
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       upstreamBilling: {

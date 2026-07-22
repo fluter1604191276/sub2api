@@ -346,6 +346,27 @@
             </div>
           </template>
 
+          <template #header-quality_stats_1h="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip
+                :content="t('admin.groups.quality.realtimeHint')"
+                width-class="w-80"
+              />
+            </div>
+          </template>
+
+          <template #cell-quality_stats_1h="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByGroupId[String(row.id)]?.recent_1h ?? null"
+              :activity="qualityStatsByGroupId[String(row.id)]?.activity ?? null"
+              :activity-state-override="row.status !== 'active' ? 'paused' : null"
+              show-activity
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
+
           <template #header-quality_stats="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -359,6 +380,7 @@
           <template #cell-quality_stats="{ row }">
             <AccountQualityCell
               :stats="qualityStatsByGroupId[String(row.id)] ?? null"
+              :muted="isGroupQualityBaselineMuted(row)"
               :loading="qualityStatsLoading"
               :error="qualityStatsError"
             />
@@ -3732,6 +3754,11 @@ const allColumns = computed<Column[]>(() => [
   },
   { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
   {
+    key: "quality_stats_1h",
+    label: t("admin.groups.columns.realtimeQualityStats"),
+    sortable: false,
+  },
+  {
     key: "quality_stats",
     label: t("admin.groups.columns.qualityStats"),
     sortable: false,
@@ -3821,14 +3848,16 @@ const hasVisibleUsageSummaryConsumer = computed(
   () => isColumnVisible("usage") || isColumnVisible("billing_type"),
 );
 const hasVisibleCapacityColumn = computed(() => isColumnVisible("capacity"));
-const hasVisibleQualityColumn = computed(() =>
-  isColumnVisible("quality_stats"),
+const hasVisibleQualityColumn = computed(
+  () =>
+    isColumnVisible("quality_stats_1h") || isColumnVisible("quality_stats"),
 );
 
 const toggleColumn = (key: string) => {
   const validKeys = getValidHiddenColumnKeys();
   if (!validKeys.has(key)) return;
 
+  const hadVisibleQualityColumn = hasVisibleQualityColumn.value;
   const wasHidden = hiddenColumns.has(key);
   if (wasHidden) {
     hiddenColumns.delete(key);
@@ -3843,7 +3872,11 @@ const toggleColumn = (key: string) => {
   if (wasHidden && key === "capacity") {
     loadCapacitySummary();
   }
-  if (wasHidden && key === "quality_stats") {
+  if (
+    wasHidden &&
+    (key === "quality_stats_1h" || key === "quality_stats") &&
+    !hadVisibleQualityColumn
+  ) {
     loadGroupQualityBatch();
   }
 };
@@ -4011,6 +4044,14 @@ const qualityStatsByGroupId = ref<Record<string, AccountQualityStats>>({});
 const qualityStatsLoading = ref(false);
 const qualityStatsError = ref<string | null>(null);
 const qualityStatsReqSeq = ref(0);
+
+const isGroupQualityBaselineMuted = (group: AdminGroup): boolean => {
+  if (group.status !== "active") return true;
+  return (
+    qualityStatsByGroupId.value[String(group.id)]?.activity
+      .successful_request_count ?? 0
+  ) === 0;
+};
 const capacityMap = ref<
   Map<
     number,
