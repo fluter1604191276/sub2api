@@ -16,24 +16,26 @@ import (
 
 type usageRepoStub struct {
 	UsageLogRepository
-	stats               *usagestats.DashboardStats
-	rangeStats          *usagestats.DashboardStats
-	err                 error
-	rangeErr            error
-	calls               int32
-	rangeCalls          int32
-	rangeStart          time.Time
-	rangeEnd            time.Time
-	onCall              chan struct{}
-	groupQualitySamples map[int64]AccountQualitySamples
-	groupQualityIDs     []int64
-	groupQualityStart   time.Time
-	groupQualityEnd     time.Time
+	stats                     *usagestats.DashboardStats
+	rangeStats                *usagestats.DashboardStats
+	err                       error
+	rangeErr                  error
+	calls                     int32
+	rangeCalls                int32
+	rangeStart                time.Time
+	rangeEnd                  time.Time
+	onCall                    chan struct{}
+	groupQualitySamples       map[int64]AccountQualitySamples
+	groupQualityIDs           []int64
+	groupQualityStart         time.Time
+	groupQualityRealtimeStart time.Time
+	groupQualityEnd           time.Time
 }
 
-func (s *usageRepoStub) GetGroupQualityStatsBatch(_ context.Context, groupIDs []int64, start, end time.Time) (map[int64]AccountQualitySamples, error) {
+func (s *usageRepoStub) GetGroupQualityStatsBatch(_ context.Context, groupIDs []int64, start, realtimeStart, end time.Time) (map[int64]AccountQualitySamples, error) {
 	s.groupQualityIDs = append([]int64(nil), groupIDs...)
 	s.groupQualityStart = start
+	s.groupQualityRealtimeStart = realtimeStart
 	s.groupQualityEnd = end
 	return s.groupQualitySamples, s.err
 }
@@ -161,11 +163,23 @@ func TestDashboardService_GetGroupQualityStatsBatch(t *testing.T) {
 	repo := &usageRepoStub{
 		groupQualitySamples: map[int64]AccountQualitySamples{
 			7: {
-				Last10: AccountQualityWindow{
-					SampleCount:         10,
-					AverageFirstTokenMs: &firstToken,
-					AverageDurationMs:   &duration,
+				Recent1h: AccountQualityPeriodSamples{
+					Last10: AccountQualityWindow{
+						SampleCount:           10,
+						FirstTokenSampleCount: 10,
+						AverageFirstTokenMs:   &firstToken,
+						AverageDurationMs:     &duration,
+					},
 				},
+				Last24h: AccountQualityPeriodSamples{
+					Last10: AccountQualityWindow{
+						SampleCount:           10,
+						FirstTokenSampleCount: 10,
+						AverageFirstTokenMs:   &firstToken,
+						AverageDurationMs:     &duration,
+					},
+				},
+				SuccessfulRequests1h: 10,
 			},
 		},
 	}
@@ -177,7 +191,10 @@ func TestDashboardService_GetGroupQualityStatsBatch(t *testing.T) {
 	require.Equal(t, []int64{7}, repo.groupQualityIDs)
 	require.Equal(t, now.UTC(), repo.groupQualityEnd)
 	require.Equal(t, now.UTC().Add(-24*time.Hour), repo.groupQualityStart)
+	require.Equal(t, now.UTC().Add(-time.Hour), repo.groupQualityRealtimeStart)
 	require.Equal(t, 24, stats[7].WindowHours)
+	require.Equal(t, 1, stats[7].Recent1h.WindowHours)
+	require.Equal(t, accountQualityActivityActive, stats[7].Activity.State)
 	require.Equal(t, 2, stats[7].ScoreVersion)
 	require.NotNil(t, stats[7].Last10.QualityScore)
 	require.Nil(t, stats[7].Last100.QualityScore)
