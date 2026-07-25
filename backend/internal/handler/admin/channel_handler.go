@@ -538,3 +538,24 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 	models := h.pricingService.ListModelNamesByProvider(provider)
 	response.Success(c, gin.H{"models": models})
 }
+
+// PreviewModelCalibration compares channel pricing model lists with active,
+// schedulable account mappings without changing production data.
+func (h *ChannelHandler) PreviewModelCalibration(c *gin.Context) {
+	preview, err := h.channelService.PreviewModelCalibration(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
+
+// ApplyModelCalibration transactionally applies all safe pricing-row model changes.
+func (h *ChannelHandler) ApplyModelCalibration(c *gin.Context) {
+	preview, err := h.channelService.ApplyModelCalibration(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
