@@ -23,8 +23,7 @@ func resolveAccountStatsCost(
 	accountID int64,
 	groupID int64,
 	upstreamModel string,
-	tokens UsageTokens,
-	requestCount int,
+	usage AccountStatsUsageContext,
 	totalCost float64,
 ) *float64 {
 	if channelService == nil || upstreamModel == "" {
@@ -38,7 +37,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount); cost != nil {
+	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, usage); cost != nil {
 		return cost
 	}
 
@@ -53,7 +52,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens)
+		return tryModelFilePricing(billingService, upstreamModel, usage.Tokens)
 	}
 
 	return nil
@@ -86,20 +85,77 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
-	platform, model string, tokens UsageTokens, requestCount int,
+	platform, model string, usage AccountStatsUsageContext,
 ) *float64 {
 	modelLower := strings.ToLower(model)
+	imageOperation := deriveAccountStatsImageOperation(usage.ImageCount, usage.InboundEndpoint)
 	for _, rule := range channel.AccountStatsPricingRules {
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
 			continue
 		}
-		pricing := findPricingForModel(rule.Pricing, platform, modelLower)
+		pricing := findAccountStatsPricingForUsage(rule.Pricing, platform, modelLower, imageOperation, usage)
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount)
+		return calculateStatsCost(pricing, usage)
 	}
 	return nil
+}
+
+func findAccountStatsPricingForUsage(
+	pricingList []ChannelModelPricing,
+	platform, modelLower string,
+	imageOperation AccountStatsImageOperation,
+	usage AccountStatsUsageContext,
+) *ChannelModelPricing {
+	if usage.ImageCount > 0 {
+		if pricing := findImagePricingForModel(pricingList, platform, modelLower, imageOperation, usage); pricing != nil {
+			return pricing
+		}
+		return findLegacyImagePricingForModel(pricingList, platform, modelLower, usage)
+	}
+	return findNonImagePricingForModel(pricingList, platform, modelLower)
+}
+
+func findLegacyImagePricingForModel(
+	pricingList []ChannelModelPricing,
+	platform, modelLower string,
+	usage AccountStatsUsageContext,
+) *ChannelModelPricing {
+	for _, exact := range []bool{true, false} {
+		for i := range pricingList {
+			p := &pricingList[i]
+			if p.BillingMode != BillingModePerRequest ||
+				p.ImageOperation != AccountStatsImageOperationAny ||
+				!isPlatformMatch(platform, p.Platform) ||
+				!modelMatches(p.Models, modelLower, exact) {
+				continue
+			}
+			if calculatePerRequestStatsCost(p, usage.RequestCount()) != nil {
+				return p
+			}
+		}
+	}
+	return nil
+}
+
+func findNonImagePricingForModel(pricingList []ChannelModelPricing, platform, modelLower string) *ChannelModelPricing {
+	for _, exact := range []bool{true, false} {
+		for i := range pricingList {
+			p := &pricingList[i]
+			if !isAccountStatsNonImageBillingMode(p.BillingMode) ||
+				!isPlatformMatch(platform, p.Platform) ||
+				!modelMatches(p.Models, modelLower, exact) {
+				continue
+			}
+			return p
+		}
+	}
+	return nil
+}
+
+func isAccountStatsNonImageBillingMode(mode BillingMode) bool {
+	return mode == BillingModeToken || mode == BillingModePerRequest || mode == ""
 }
 
 // matchAccountStatsRule 检查规则是否匹配指定的 accountID 和 groupID。
@@ -166,15 +222,20 @@ func isPlatformMatch(queryPlatform, pricingPlatform string) bool {
 }
 
 // calculateStatsCost 使用给定的定价计算费用（不含任何倍率，原始费用）。
-func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
+func calculateStatsCost(pricing *ChannelModelPricing, usage AccountStatsUsageContext) *float64 {
 	if pricing == nil {
 		return nil
 	}
 	switch pricing.BillingMode {
-	case BillingModePerRequest, BillingModeImage:
-		return calculatePerRequestStatsCost(pricing, requestCount)
+	case BillingModeImage:
+		if usage.ImageCount > 0 {
+			return calculateAccountStatsImageCost(pricing, usage)
+		}
+		return nil
+	case BillingModePerRequest:
+		return calculatePerRequestStatsCost(pricing, usage.RequestCount())
 	default:
-		return calculateTokenStatsCost(pricing, tokens)
+		return calculateTokenStatsCost(pricing, usage.Tokens)
 	}
 }
 
@@ -237,11 +298,15 @@ func applyAccountStatsCost(
 	if model == "" {
 		model = requestedModel
 	}
-	requestCount := 1
-	if usageLog != nil && usageLog.ImageCount > 0 {
-		requestCount = usageLog.ImageCount
+	usage := AccountStatsUsageContext{Tokens: tokens}
+	if usageLog != nil {
+		usage.ImageCount = usageLog.ImageCount
+		if usageLog.ImageSize != nil {
+			usage.ImageSize = *usageLog.ImageSize
+		}
+		usage.ImageSizeBreakdown = usageLog.ImageSizeBreakdown
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost,
+		ctx, cs, bs, accountID, groupID, model, usage, totalCost,
 	)
 }
