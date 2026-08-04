@@ -96,6 +96,7 @@ export default {
           billing_mode_mismatch: '模型类型与该定价行的计费模式不一致，已跳过避免错误计费'
         }
       },
+      accountStatsPricingConflict: "账号统计定价组合中的模型模式 '{model1}' 和 '{model2}' 冲突。请仅为不重叠模型或不同图片操作配置多行。",
       intervalValidation: {
         negativeMin: '区间 #{index}：最小 token 数（{value}）不能为负数',
         maxPositive: '区间 #{index}：最大 token 数（{value}）必须大于 0',
@@ -182,6 +183,15 @@ export default {
         restrictModelsHint: '开启后，仅允许模型定价列表中的模型。不在列表中的模型请求将被拒绝。',
         defaultPerRequestPrice: '默认单次价格（未命中层级时使用）',
         defaultImagePrice: '默认图片价格（未命中层级时使用）',
+        defaultUpstreamImageCost: '上游单张成本',
+        imageOperation: '图片操作',
+        imageOperationAny: '任意操作',
+        imageOperationGeneration: '原生生图',
+        imageOperationResponses: 'Responses 生图桥接',
+        imageOperationEdit: '图生图/编辑',
+        accountStatsImageCostRequired: '账号统计图片定价必须至少配置一个大于 0 的默认或层级上游成本',
+        accountStatsImageCostPositive: '已配置的账号统计图片上游成本必须大于 0',
+        accountStatsImageTierInvalid: '账号统计图片成本层级仅支持 1K、2K 或 4K',
         platformConfig: '平台配置',
         webSearchEmulation: 'Web Search 模拟',
         webSearchEmulationHint: '⚠️ 开启后该渠道下所有 Anthropic 分组的账号将自动拦截 web_search 请求，请谨慎操作',

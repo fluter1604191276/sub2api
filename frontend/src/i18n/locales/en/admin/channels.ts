@@ -96,6 +96,7 @@ export default {
           billing_mode_mismatch: 'The model type does not match this pricing row billing mode and was skipped to prevent incorrect billing'
         }
       },
+      accountStatsPricingConflict: "Account stats pricing combination for model patterns '{model1}' and '{model2}' conflicts. Use separate rows only for non-overlapping models or different image operations.",
       intervalValidation: {
         negativeMin: 'Interval #{index}: minimum token count ({value}) cannot be negative',
         maxPositive: 'Interval #{index}: maximum token count ({value}) must be greater than 0',
@@ -182,6 +183,15 @@ export default {
         restrictModelsHint: 'When enabled, only models in the pricing list are allowed. Others will be rejected.',
         defaultPerRequestPrice: 'Default per-request price (fallback when no tier matches)',
         defaultImagePrice: 'Default image price (fallback when no tier matches)',
+        defaultUpstreamImageCost: 'Upstream per-image cost',
+        imageOperation: 'Image Operation',
+        imageOperationAny: 'Any Operation',
+        imageOperationGeneration: 'Native Image Generation',
+        imageOperationResponses: 'Responses Image Bridge',
+        imageOperationEdit: 'Image-to-image/Edit',
+        accountStatsImageCostRequired: 'Account stats image pricing requires at least one positive default or tier upstream cost',
+        accountStatsImageCostPositive: 'Configured account stats image upstream costs must be greater than 0',
+        accountStatsImageTierInvalid: 'Account stats image cost tiers must be 1K, 2K, or 4K',
         platformConfig: 'Platform Configuration',
         webSearchEmulation: 'Web Search Emulation',
         webSearchEmulationHint: '⚠️ When enabled, all accounts in this channel\'s Anthropic groups will intercept web_search requests. Use with caution.',

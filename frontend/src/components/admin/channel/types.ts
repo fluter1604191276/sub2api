@@ -1,4 +1,4 @@
-import type { BillingMode, PricingInterval } from '@/api/admin/channels'
+import type { AccountStatsImageOperation, BillingMode, PricingInterval } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -24,6 +24,7 @@ export interface PricingFormEntry {
   image_input_price: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
+  image_operation?: AccountStatsImageOperation | null
   intervals: IntervalFormEntry[]
 }
 

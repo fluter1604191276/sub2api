@@ -707,6 +707,7 @@
                       :key="pIdx"
                       :entry="entry"
                       :platform="section.platform"
+                      :account-stats="true"
                       @update="rule.pricing.splice(pIdx, 1, $event)"
                       @remove="removeRulePricingEntry(sIdx, ruleIndex, pIdx)"
                     />
@@ -771,6 +772,7 @@ import type {
 } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
+import { findAccountStatsPricingConflict, isAccountStatsImageTierLabel } from '@/components/admin/channel/accountStatsImageCost'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -1049,6 +1051,7 @@ function addPricingEntry(sectionIdx: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
+    image_operation: null,
     intervals: []
   })
 }
@@ -1082,6 +1085,7 @@ async function syncLatestModels(sectionIdx: number) {
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
+      image_operation: null,
       intervals: []
     })
     appStore.showSuccess(t('admin.channels.form.syncModelsSuccess', { count: newModels.length }))
@@ -1147,6 +1151,7 @@ function addRulePricingEntry(sectionIdx: number, ruleIndex: number) {
     image_input_price: null,
     image_output_price: null,
     per_request_price: null,
+    image_operation: null,
     intervals: []
   })
 }
@@ -1246,13 +1251,10 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
   for (const section of form.platforms) {
     if (!section.enabled) continue
     for (const rule of section.account_stats_pricing_rules) {
-      rules.push({
-        name: rule.name,
-        group_ids: rule.group_ids,
-        account_ids: rule.account_ids,
-        pricing: rule.pricing
-          .filter(p => p.models.length > 0)
-          .map(p => ({
+      const pricing: ChannelModelPricing[] = rule.pricing
+        .filter(p => p.models.length > 0)
+        .map(p => {
+          const item: ChannelModelPricing = {
             platform: section.platform,
             models: p.models,
             billing_mode: p.billing_mode,
@@ -1264,11 +1266,53 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
             image_output_price: mTokToPerToken(p.image_output_price),
             per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
             intervals: formIntervalsToAPI(p.intervals || [])
-          }))
+          }
+          if (p.billing_mode === 'image') {
+            item.image_operation = p.image_operation ?? null
+          }
+          return item
+        })
+      rules.push({
+        name: rule.name,
+        group_ids: rule.group_ids,
+        account_ids: rule.account_ids,
+        pricing
       })
     }
   }
   return rules
+}
+
+function isBlankPrice(value: number | string | null | undefined): boolean {
+  return value === null || value === undefined || value === ''
+}
+
+function modelLabel(entry: PricingFormEntry): string {
+  return entry.models.join(', ') || t('admin.channels.form.unnamed')
+}
+
+function accountStatsImageCostError(entry: PricingFormEntry): string | null {
+  if (entry.billing_mode !== 'image') return null
+
+  if ((entry.intervals || []).some(iv => !isAccountStatsImageTierLabel(iv.tier_label))) {
+    return t('admin.channels.form.accountStatsImageTierInvalid')
+  }
+
+  let hasPositivePrice = false
+  const prices = [
+    entry.per_request_price,
+    ...(entry.intervals || []).map(iv => iv.per_request_price),
+  ]
+  for (const price of prices) {
+    if (isBlankPrice(price)) continue
+    const numeric = Number(price)
+    if (numeric <= 0) {
+      return t('admin.channels.form.accountStatsImageCostPositive')
+    }
+    hasPositivePrice = true
+  }
+
+  return hasPositivePrice ? null : t('admin.channels.form.accountStatsImageCostRequired')
 }
 
 // ── Form ↔ API conversion ──
@@ -1401,6 +1445,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
+        image_operation: null,
         intervals: apiIntervalsToForm(p.intervals || [])
       } as PricingFormEntry))
 
@@ -1590,6 +1635,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
         image_input_price: perTokenToMTok(p.image_input_price),
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
+        image_operation: p.billing_mode === 'image' ? (p.image_operation ?? null) : null,
         intervals: apiIntervalsToForm(p.intervals || [])
       } as PricingFormEntry))
     }
@@ -1698,6 +1744,42 @@ async function handleSubmit() {
     }
   }
 
+  for (const section of form.platforms.filter(s => s.enabled)) {
+    for (const rule of section.account_stats_pricing_rules) {
+      const conflict = findAccountStatsPricingConflict(rule.pricing)
+      if (conflict) {
+        appStore.showError(
+          t('admin.channels.accountStatsPricingConflict',
+            { model1: conflict[0], model2: conflict[1] })
+        )
+        activeTab.value = section.platform
+        return
+      }
+
+      for (const entry of rule.pricing) {
+        if (entry.models.length === 0) continue
+
+        if (entry.intervals && entry.intervals.length > 0) {
+          const intervalErr = validateIntervals(entry.intervals, entry.billing_mode, t)
+          if (intervalErr) {
+            const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+            appStore.showError(`${platformLabel} - ${modelLabel(entry)}: ${intervalErr}`)
+            activeTab.value = section.platform
+            return
+          }
+        }
+
+        const imageCostErr = accountStatsImageCostError(entry)
+        if (imageCostErr) {
+          const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+          appStore.showError(`${platformLabel} - ${modelLabel(entry)}: ${imageCostErr}`)
+          activeTab.value = section.platform
+          return
+        }
+      }
+    }
+  }
+
   // 校验区间合法性（范围、重叠等）
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
@@ -1705,8 +1787,7 @@ async function handleSubmit() {
       const intervalErr = validateIntervals(entry.intervals, entry.billing_mode, t)
       if (intervalErr) {
         const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
-        const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
-        appStore.showError(`${platformLabel} - ${modelLabel}: ${intervalErr}`)
+        appStore.showError(`${platformLabel} - ${modelLabel(entry)}: ${intervalErr}`)
         activeTab.value = section.platform
         return
       }

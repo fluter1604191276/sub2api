@@ -8,6 +8,8 @@ import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants
 
 export type { BillingMode } from '@/constants/channel'
 
+export type AccountStatsImageOperation = 'generation' | 'responses' | 'edit'
+
 export interface PricingInterval {
   id?: number
   min_tokens: number
@@ -33,6 +35,7 @@ export interface ChannelModelPricing {
   image_input_price: number | null
   image_output_price: number | null
   per_request_price: number | null
+  image_operation?: AccountStatsImageOperation | null
   intervals: PricingInterval[]
 }
 
