@@ -35,6 +35,25 @@ func (m BillingMode) IsValidUsageFilter() bool {
 	return false
 }
 
+// AccountStatsImageOperation identifies the image API operation for account stats pricing.
+type AccountStatsImageOperation string
+
+const (
+	AccountStatsImageOperationAny        AccountStatsImageOperation = ""
+	AccountStatsImageOperationGeneration AccountStatsImageOperation = "generation"
+	AccountStatsImageOperationResponses  AccountStatsImageOperation = "responses"
+	AccountStatsImageOperationEdit       AccountStatsImageOperation = "edit"
+)
+
+// IsValid checks whether the image operation can be persisted for account stats pricing.
+func (o AccountStatsImageOperation) IsValid() bool {
+	switch o {
+	case AccountStatsImageOperationAny, AccountStatsImageOperationGeneration, AccountStatsImageOperationResponses, AccountStatsImageOperationEdit:
+		return true
+	}
+	return false
+}
+
 const (
 	BillingModelSourceRequested     = "requested"
 	BillingModelSourceUpstream      = "upstream"
@@ -85,15 +104,16 @@ type AccountStatsPricingRule struct {
 type ChannelModelPricing struct {
 	ID               int64
 	ChannelID        int64
-	Platform         string            // 所属平台（anthropic/openai/gemini/...）
-	Models           []string          // 绑定的模型列表
-	BillingMode      BillingMode       // 计费模式
-	InputPrice       *float64          // 每 token 输入价格（USD）— 向后兼容 flat 定价
-	OutputPrice      *float64          // 每 token 输出价格（USD）
-	CacheWritePrice  *float64          // 缓存写入价格
-	CacheReadPrice   *float64          // 缓存读取价格
-	ImageOutputPrice *float64          // 图片输出价格（向后兼容）
-	PerRequestPrice  *float64          // 默认按次计费价格（USD）
+	Platform         string      // 所属平台（anthropic/openai/gemini/...）
+	Models           []string    // 绑定的模型列表
+	BillingMode      BillingMode // 计费模式
+	InputPrice       *float64    // 每 token 输入价格（USD）— 向后兼容 flat 定价
+	OutputPrice      *float64    // 每 token 输出价格（USD）
+	CacheWritePrice  *float64    // 缓存写入价格
+	CacheReadPrice   *float64    // 缓存读取价格
+	ImageOutputPrice *float64    // 图片输出价格（向后兼容）
+	PerRequestPrice  *float64    // 默认按次计费价格（USD）
+	ImageOperation   AccountStatsImageOperation
 	Intervals        []PricingInterval // 区间定价列表
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
