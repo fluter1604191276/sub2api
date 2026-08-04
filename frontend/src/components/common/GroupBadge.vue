@@ -8,7 +8,12 @@
     <!-- Platform logo -->
     <PlatformIcon v-if="platform" :platform="platform" size="sm" />
     <!-- Group name -->
-    <span class="truncate">{{ name }}</span>
+    <span
+      :class="fullName ? 'min-w-0 whitespace-normal break-words text-left' : 'truncate'"
+      :title="name"
+    >
+      {{ name }}
+    </span>
     <!-- Right side label -->
     <span v-if="showLabel" :class="labelClass">
       <template v-if="hasCustomRate">
@@ -52,6 +57,8 @@ interface Props {
    * 只关心费率、不关心有效期的场景）。
    */
   alwaysShowRate?: boolean
+  /** Allow long group names to wrap instead of truncating with an ellipsis. */
+  fullName?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -60,7 +67,8 @@ const props = withDefaults(defineProps<Props>(), {
   daysRemaining: null,
   userRateMultiplier: null,
   peakRateEnabled: false,
-  alwaysShowRate: false
+  alwaysShowRate: false,
+  fullName: false
 })
 
 const { t } = useI18n()

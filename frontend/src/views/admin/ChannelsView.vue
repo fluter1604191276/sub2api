@@ -39,6 +39,14 @@
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
             </button>
+            <button
+              @click="openModelCalibrationDialog"
+              :disabled="calibrationLoading || calibrationApplying"
+              class="btn btn-secondary"
+            >
+              <Icon name="sync" size="md" class="mr-2" :class="calibrationLoading ? 'animate-spin' : ''" />
+              {{ t('admin.channels.modelCalibration.action', 'Calibrate Models') }}
+            </button>
             <button @click="openCreateDialog" class="btn btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.channels.createChannel', 'Create Channel') }}
@@ -137,6 +145,128 @@
         />
       </template>
     </TablePageLayout>
+
+    <BaseDialog
+      :show="showCalibrationDialog"
+      :title="t('admin.channels.modelCalibration.title', 'Channel Model Calibration')"
+      width="extra-wide"
+      :close-on-escape="!calibrationApplying"
+      @close="closeModelCalibrationDialog"
+    >
+      <div v-if="calibrationLoading" class="flex min-h-64 items-center justify-center text-gray-500 dark:text-gray-400">
+        <Icon name="refresh" size="lg" class="mr-3 animate-spin" />
+        {{ t('admin.channels.modelCalibration.loading', 'Analyzing account model mappings...') }}
+      </div>
+
+      <div v-else-if="calibrationPreview" class="space-y-4">
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          {{ t('admin.channels.modelCalibration.description') }}
+        </p>
+
+        <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div class="rounded border border-gray-200 px-3 py-2 dark:border-dark-600">
+            <div class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.modelCalibration.changedChannels') }}</div>
+            <div class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ calibrationPreview.changed_channels }}</div>
+          </div>
+          <div class="rounded border border-emerald-200 px-3 py-2 dark:border-emerald-900/60">
+            <div class="text-xs text-emerald-700 dark:text-emerald-400">{{ t('admin.channels.modelCalibration.additions') }}</div>
+            <div class="mt-1 text-lg font-semibold text-emerald-700 dark:text-emerald-400">+{{ calibrationPreview.addition_count }}</div>
+          </div>
+          <div class="rounded border border-red-200 px-3 py-2 dark:border-red-900/60">
+            <div class="text-xs text-red-700 dark:text-red-400">{{ t('admin.channels.modelCalibration.removals') }}</div>
+            <div class="mt-1 text-lg font-semibold text-red-700 dark:text-red-400">-{{ calibrationPreview.removal_count }}</div>
+          </div>
+          <div class="rounded border border-amber-200 px-3 py-2 dark:border-amber-900/60">
+            <div class="text-xs text-amber-700 dark:text-amber-400">{{ t('admin.channels.modelCalibration.skipped') }}</div>
+            <div class="mt-1 text-lg font-semibold text-amber-700 dark:text-amber-400">{{ calibrationPreview.skipped_count }}</div>
+          </div>
+        </div>
+
+        <div class="rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/30 dark:text-blue-300">
+          {{ t('admin.channels.modelCalibration.safetyNote') }}
+        </div>
+
+        <div v-if="calibrationRelevantChannels.length > 0" class="max-h-[52vh] space-y-3 overflow-y-auto pr-1">
+          <div
+            v-for="channel in calibrationRelevantChannels"
+            :key="channel.channel_id"
+            class="rounded border border-gray-200 dark:border-dark-600"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-3 py-2 dark:border-dark-700">
+              <div class="min-w-0">
+                <span class="font-medium text-gray-900 dark:text-white">{{ channel.channel_name }}</span>
+                <span class="ml-2 text-xs text-gray-400">#{{ channel.channel_id }}</span>
+              </div>
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="rounded bg-gray-100 px-2 py-0.5 text-gray-700 dark:bg-dark-700 dark:text-gray-300">
+                  {{ channel.current_model_count }} → {{ channel.calibrated_model_count }}
+                </span>
+                <span v-if="channel.changed" class="rounded bg-emerald-50 px-2 py-0.5 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                  {{ t('admin.channels.modelCalibration.willChange') }}
+                </span>
+                <span v-if="channel.skipped.length" class="rounded bg-amber-50 px-2 py-0.5 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+                  {{ t('admin.channels.modelCalibration.needsReview') }}
+                </span>
+              </div>
+            </div>
+
+            <div class="space-y-3 px-3 py-3">
+              <div v-for="platform in channel.platforms" :key="platform.platform" class="space-y-2">
+                <div class="flex items-center gap-2 text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                  <PlatformIcon :platform="calibrationPlatform(platform.platform)" size="xs" />
+                  {{ platform.platform }}
+                  <span class="font-normal normal-case">{{ platform.current_model_count }} → {{ platform.calibrated_model_count }}</span>
+                </div>
+                <div v-if="platform.additions.length" class="flex flex-wrap items-center gap-1.5">
+                  <span class="mr-1 text-xs text-emerald-700 dark:text-emerald-400">{{ t('admin.channels.modelCalibration.addLabel') }}</span>
+                  <span v-for="model in platform.additions" :key="`add-${model}`" class="rounded bg-emerald-50 px-2 py-0.5 font-mono text-xs text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                    {{ model }}
+                  </span>
+                </div>
+                <div v-if="platform.removals.length" class="flex flex-wrap items-center gap-1.5">
+                  <span class="mr-1 text-xs text-red-700 dark:text-red-400">{{ t('admin.channels.modelCalibration.removeLabel') }}</span>
+                  <span v-for="model in platform.removals" :key="`remove-${model}`" class="rounded bg-red-50 px-2 py-0.5 font-mono text-xs text-red-800 dark:bg-red-950/40 dark:text-red-300">
+                    {{ model }}
+                  </span>
+                </div>
+                <div v-if="platform.skipped.length" class="space-y-1">
+                  <div v-for="(item, index) in platform.skipped" :key="`${item.reason}-${item.model || index}`" class="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                    <Icon name="exclamationTriangle" size="xs" class="mt-0.5 flex-shrink-0" />
+                    <span><span v-if="item.model" class="font-mono">{{ item.model }}: </span>{{ calibrationSkipLabel(item.reason) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="rounded border border-dashed border-gray-300 py-8 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400">
+          {{ t('admin.channels.modelCalibration.noChanges') }}
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex w-full flex-wrap items-center justify-between gap-3">
+          <span v-if="calibrationPreview" class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.channels.modelCalibration.rowsToChange', { count: calibrationPreview.pricing_rows_changed }) }}
+          </span>
+          <div class="ml-auto flex gap-3">
+            <button type="button" class="btn btn-secondary" :disabled="calibrationApplying" @click="closeModelCalibrationDialog">
+              {{ t('common.cancel', 'Cancel') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary"
+              :disabled="calibrationApplying || !calibrationPreview || calibrationPreview.pricing_rows_changed === 0"
+              @click="applyModelCalibration"
+            >
+              <Icon name="sync" size="md" class="mr-2" :class="calibrationApplying ? 'animate-spin' : ''" />
+              {{ calibrationApplying ? t('admin.channels.modelCalibration.applying') : t('admin.channels.modelCalibration.apply') }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </BaseDialog>
 
     <!-- Create/Edit Dialog -->
     <BaseDialog
@@ -630,7 +760,15 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
+import type {
+  Channel,
+  ChannelModelPricing,
+  CreateChannelRequest,
+  UpdateChannelRequest,
+  AccountStatsPricingRule,
+  ChannelModelCalibrationPreview,
+  ModelCalibrationSkipReason
+} from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
 import { mTokToPerToken, perTokenToMTok, apiIntervalsToForm, formIntervalsToAPI, findModelConflict, validateIntervals } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
@@ -738,6 +876,59 @@ const submitting = ref(false)
 const showDeleteDialog = ref(false)
 const deletingChannel = ref<Channel | null>(null)
 const activeTab = ref<string>('basic')
+const showCalibrationDialog = ref(false)
+const calibrationLoading = ref(false)
+const calibrationApplying = ref(false)
+const calibrationPreview = ref<ChannelModelCalibrationPreview | null>(null)
+
+const calibrationRelevantChannels = computed(() =>
+  (calibrationPreview.value?.channels || []).filter(channel => channel.changed || channel.skipped.length > 0)
+)
+
+function calibrationSkipLabel(reason: ModelCalibrationSkipReason): string {
+  return t(`admin.channels.modelCalibration.skipReasons.${reason}`, reason)
+}
+
+function calibrationPlatform(platform: string): GroupPlatform {
+  return platform as GroupPlatform
+}
+
+async function openModelCalibrationDialog() {
+  if (calibrationLoading.value || calibrationApplying.value) return
+  showCalibrationDialog.value = true
+  calibrationLoading.value = true
+  calibrationPreview.value = null
+  try {
+    calibrationPreview.value = await adminAPI.channels.previewModelCalibration()
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.channels.modelCalibration.previewError')))
+    showCalibrationDialog.value = false
+  } finally {
+    calibrationLoading.value = false
+  }
+}
+
+function closeModelCalibrationDialog() {
+  if (calibrationApplying.value) return
+  showCalibrationDialog.value = false
+  calibrationPreview.value = null
+}
+
+async function applyModelCalibration() {
+  if (calibrationApplying.value || !calibrationPreview.value || calibrationPreview.value.pricing_rows_changed === 0) return
+  calibrationApplying.value = true
+  try {
+    const applied = await adminAPI.channels.applyModelCalibration()
+    appStore.showSuccess(t('admin.channels.modelCalibration.applySuccess', { count: applied.applied_pricing_rows }))
+    showCalibrationDialog.value = false
+    calibrationPreview.value = null
+    await loadChannels()
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('admin.channels.modelCalibration.applyError')))
+  } finally {
+    calibrationApplying.value = false
+  }
+}
 
 // Groups
 const allGroups = ref<AdminGroup[]>([])

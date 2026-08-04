@@ -807,6 +807,8 @@ export default {
         accounts: 'Accounts',
         capacity: 'Capacity',
         usage: 'Usage',
+        realtimeQualityStats: '1h Quality',
+        qualityStats: '24h Quality',
         status: 'Status',
         actions: 'Actions',
         billingType: 'Billing Type',
@@ -817,6 +819,11 @@ export default {
       },
       usageToday: 'Today',
       usageTotal: 'Total',
+      quality: {
+        loadFailed: 'Failed',
+        hint: 'Uses successful streaming usage records assigned to this group in the last 24 hours and the latest 10/100 timed requests. Score v2 matches account quality: TTFT weighs 85% and total duration 15%; with fewer than 3 TTFT samples, duration-only scoring is capped at 69. Letter grade and numeric score are display-only and never change group routing automatically.',
+        realtimeHint: 'Uses streaming requests assigned to this group in the last hour and shows successes, failures, and the last success time. Idle means the group received no real traffic in the last hour, not that it is broken; its 24-hour score is then shown as a muted historical baseline.'
+      },
       accountsAvailable: 'Avail:',
       accountsRateLimited: 'Limited:',
       accountsTotal: 'Total:',

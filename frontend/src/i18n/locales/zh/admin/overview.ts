@@ -800,6 +800,8 @@ export default {
         accounts: '账号数',
         capacity: '容量',
         usage: '用量',
+        realtimeQualityStats: '1h质量',
+        qualityStats: '24h质量',
         status: '状态',
         actions: '操作',
         billingType: '计费类型',
@@ -810,6 +812,11 @@ export default {
       },
       usageToday: '今日',
       usageTotal: '累计',
+      quality: {
+        loadFailed: '加载失败',
+        hint: '基于最近 24 小时归属于该分组的真实成功流式流水，分别取最新 10 次和 100 次有耗时记录。评分 v2 与账号质量口径一致：首字 85%、总耗时 15%，首字样本少于 3 条时仅按总耗时评分且最高 69 分；同时展示字母评级和百分制，仅供人工调度参考，不会自动改变分组路由。',
+        realtimeHint: '仅统计最近 1 小时归属于该分组的流式请求，并展示成功、失败和最近成功时间。“未参与”表示最近 1 小时没有真实流量，不等于分组故障；此时 24 小时评分只作为灰色历史基线。'
+      },
       accountsAvailable: '可用:',
       accountsRateLimited: '限流:',
       accountsTotal: '总量:',

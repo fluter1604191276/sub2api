@@ -988,7 +988,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 
 // calculateTokenCost 按 token 区间计费
 func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input CostInput) (*CostBreakdown, error) {
-	totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
+	totalContext := usageContextTokensForPricing(input.Tokens)
 
 	pricing := input.Resolver.GetIntervalPricing(resolved, totalContext)
 	if pricing == nil {
@@ -1131,6 +1131,14 @@ func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens 
 	return float64(tokens.CacheCreationTokens) * price * multiplier
 }
 
+func usageContextTokensForPricing(tokens UsageTokens) int {
+	cacheCreationTokens := tokens.CacheCreationTokens
+	if cacheCreationTokens == 0 {
+		cacheCreationTokens = tokens.CacheCreation5mTokens + tokens.CacheCreation1hTokens
+	}
+	return tokens.InputTokens + tokens.CacheReadTokens + cacheCreationTokens
+}
+
 // calculatePerRequestCost 按次/图片计费
 func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, input CostInput) (*CostBreakdown, error) {
 	count := input.RequestCount
@@ -1145,7 +1153,7 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	if unitPrice == 0 {
-		totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
+		totalContext := usageContextTokensForPricing(input.Tokens)
 		unitPrice = input.Resolver.GetRequestTierPriceByContext(resolved, totalContext)
 	}
 
@@ -1255,7 +1263,7 @@ func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens
 	if pricing.LongContextInputMultiplier <= 1 && pricing.LongContextOutputMultiplier <= 1 {
 		return false
 	}
-	totalInputTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+	totalInputTokens := usageContextTokensForPricing(tokens)
 	return totalInputTokens > pricing.LongContextInputThreshold
 }
 

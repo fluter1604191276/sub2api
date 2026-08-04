@@ -292,16 +292,11 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 		return "", "", status, err
 	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
-		return extractOpenAIResponsesText(respBytes), string(respBytes), status, nil
+		if text := strings.TrimSpace(extractOpenAIResponsesText(respBytes)); text != "" {
+			return text, string(respBytes), status, nil
+		}
 	}
-	return extractMonitorResponseText(adapter, respBytes), string(respBytes), status, nil
-}
-
-func extractMonitorResponseText(adapter providerAdapter, respBytes []byte) string {
-	if adapter.extractText != nil {
-		return adapter.extractText(respBytes)
-	}
-	return gjson.GetBytes(respBytes, adapter.textPath).String()
+	return extractMonitorResponseTextForAdapter(adapter, respBytes), string(respBytes), status, nil
 }
 
 func extractAnthropicMonitorText(respBytes []byte) string {
@@ -322,6 +317,98 @@ func extractAnthropicMonitorText(respBytes []byte) string {
 		return true
 	})
 	return strings.Join(parts, "\n")
+}
+
+func extractMonitorResponseTextForAdapter(adapter providerAdapter, respBytes []byte) string {
+	if adapter.extractText != nil {
+		if text := strings.TrimSpace(adapter.extractText(respBytes)); text != "" {
+			return text
+		}
+	}
+	return extractMonitorResponseText(respBytes, adapter.textPath)
+}
+
+// extractMonitorResponseText first uses the provider's canonical JSON path, then
+// falls back to common compatibility response shapes seen behind proxy services.
+func extractMonitorResponseText(respBytes []byte, primaryPath string) string {
+	if text := firstStringFromGJSON(gjson.GetBytes(respBytes, primaryPath)); text != "" {
+		return text
+	}
+	for _, path := range monitorTextFallbackPaths {
+		if path == primaryPath {
+			continue
+		}
+		if text := firstStringFromGJSON(gjson.GetBytes(respBytes, path)); text != "" {
+			return text
+		}
+	}
+	if text := extractMonitorResponseTextFromSSE(respBytes, primaryPath); text != "" {
+		return text
+	}
+	return ""
+}
+
+// monitorTextFallbackPaths intentionally stays narrow: these are output-content
+// fields only, so replace-mode does not accidentally treat ids/model names as text.
+//
+//nolint:gochecknoglobals // static path list, read-only after init.
+var monitorTextFallbackPaths = []string{
+	// Anthropic Messages.
+	"content.0.text",
+	"content.#.text",
+	"content.0.content",
+	"content.#.content",
+	"delta.text",
+	// OpenAI chat completions and older completions.
+	"choices.0.message.content",
+	"choices.#.message.content",
+	"choices.0.delta.content",
+	"choices.#.delta.content",
+	"choices.0.text",
+	"choices.#.text",
+	// OpenAI Responses style.
+	"output_text",
+	"output.0.content.0.text",
+	"output.#.content.#.text",
+	"response.output.0.content.0.text",
+	"response.output.#.content.#.text",
+	// Gemini-style fallback for mixed compatibility layers.
+	"candidates.0.content.parts.0.text",
+	"candidates.#.content.parts.#.text",
+}
+
+func firstStringFromGJSON(v gjson.Result) string {
+	if !v.Exists() {
+		return ""
+	}
+	if v.Type == gjson.String {
+		return strings.TrimSpace(v.String())
+	}
+	if v.IsArray() {
+		for _, item := range v.Array() {
+			if text := firstStringFromGJSON(item); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func extractMonitorResponseTextFromSSE(respBytes []byte, primaryPath string) string {
+	for _, line := range strings.Split(string(respBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" || !gjson.Valid(payload) {
+			continue
+		}
+		if text := extractMonitorResponseText([]byte(payload), primaryPath); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 // extractOpenAIResponsesText 聚合 Responses API 的最终 assistant 文本。
@@ -588,7 +675,7 @@ func sanitizeErrorMessage(msg string) string {
 	for _, p := range monitorAPIKeyPatterns {
 		msg = p.pattern.ReplaceAllString(msg, p.replace)
 	}
-	return msg
+	return sanitizeClientVisibleUpstreamErrorMessage(msg)
 }
 
 // truncateMessage 把消息按 monitorMessageMaxBytes 截断，避免 DB 列溢出与日志过长。

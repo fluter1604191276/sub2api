@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -731,6 +733,59 @@ func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
 		return
 	}
 	response.Success(c, results)
+}
+
+type BatchGroupQualityStatsRequest struct {
+	GroupIDs []int64 `json:"group_ids" binding:"required"`
+}
+
+// GetBatchQualityStats returns display-only latency summaries for the current
+// group page. It never changes group priority or scheduling state.
+// POST /api/v1/admin/groups/quality-stats/batch
+func (h *GroupHandler) GetBatchQualityStats(c *gin.Context) {
+	var req BatchGroupQualityStatsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	groupIDs := normalizeInt64IDList(req.GroupIDs)
+	if len(groupIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+	if h.dashboardService == nil {
+		response.InternalError(c, "Dashboard service is unavailable")
+		return
+	}
+
+	cacheKey := buildGroupQualityStatsBatchCacheKey(groupIDs)
+	if cached, ok := groupQualityStatsBatchCache.Get(cacheKey); ok {
+		if cached.ETag != "" {
+			c.Header("ETag", cached.ETag)
+			c.Header("Vary", "If-None-Match")
+			if ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+				c.Status(http.StatusNotModified)
+				return
+			}
+		}
+		c.Header("X-Snapshot-Cache", "hit")
+		response.Success(c, cached.Payload)
+		return
+	}
+
+	stats, err := h.dashboardService.GetGroupQualityStatsBatch(c.Request.Context(), groupIDs, time.Now().UTC())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	payload := gin.H{"stats": stats}
+	cached := groupQualityStatsBatchCache.Set(cacheKey, payload)
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	c.Header("X-Snapshot-Cache", "miss")
+	response.Success(c, payload)
 }
 
 // GetGroupAPIKeys handles getting API keys in a group

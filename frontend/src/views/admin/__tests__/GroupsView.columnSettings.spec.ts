@@ -10,6 +10,8 @@ const {
   getModelsListCandidates,
   getUsageSummary,
   getCapacitySummary,
+  getBatchQualityStats,
+  getLiveCapability,
   listAccounts,
   showError,
   showSuccess,
@@ -21,6 +23,8 @@ const {
   getModelsListCandidates: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
+  getBatchQualityStats: vi.fn(),
+  getLiveCapability: vi.fn(),
   listAccounts: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -39,6 +43,8 @@ const messages: Record<string, string> = {
   'admin.groups.columns.accounts': 'Accounts',
   'admin.groups.columns.capacity': 'Capacity',
   'admin.groups.columns.usage': 'Usage',
+  'admin.groups.columns.realtimeQualityStats': '1h Quality',
+  'admin.groups.columns.qualityStats': '24h Quality',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
 }
@@ -51,6 +57,8 @@ vi.mock('@/api/admin', () => ({
       getModelsListCandidates,
       getUsageSummary,
       getCapacitySummary,
+      getBatchQualityStats,
+      getLiveCapability,
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -227,6 +235,8 @@ describe('admin GroupsView column settings', () => {
     getModelsListCandidates.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
+    getBatchQualityStats.mockReset()
+    getLiveCapability.mockReset()
     listAccounts.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
@@ -244,6 +254,8 @@ describe('admin GroupsView column settings', () => {
     getModelsListCandidates.mockResolvedValue([])
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
+    getBatchQualityStats.mockResolvedValue({ stats: {} })
+    getLiveCapability.mockResolvedValue({ supported: false })
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     isCurrentStep.mockReturnValue(false)
   })
@@ -264,6 +276,8 @@ describe('admin GroupsView column settings', () => {
       'account_count',
       'capacity',
       'usage',
+      'quality_stats_1h',
+      'quality_stats',
       'status',
       'actions',
     ])
@@ -288,6 +302,8 @@ describe('admin GroupsView column settings', () => {
       'rate_multiplier',
       'is_exclusive',
       'account_count',
+      'quality_stats_1h',
+      'quality_stats',
       'status',
       'actions',
     ])
@@ -307,6 +323,8 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'quality_stats_1h',
+      'quality_stats',
       'status',
       'actions',
     ])
@@ -330,6 +348,8 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'quality_stats_1h',
+      'quality_stats',
       'status',
       'actions',
     ])
@@ -354,30 +374,47 @@ describe('admin GroupsView column settings', () => {
       'account_count',
       'capacity',
       'usage',
+      'quality_stats_1h',
+      'quality_stats',
       'status',
       'actions',
     ])
     expect(localStorage.getItem('group-hidden-columns')).toBe(JSON.stringify([]))
   })
 
-  it('skips usage and capacity fetches until consuming columns are shown', async () => {
+  it('skips usage, capacity, and quality fetches until consuming columns are shown', async () => {
     localStorage.setItem(
       'group-hidden-columns',
-      JSON.stringify(['billing_type', 'usage', 'capacity']),
+      JSON.stringify([
+        'billing_type',
+        'usage',
+        'capacity',
+        'quality_stats_1h',
+        'quality_stats',
+      ]),
     )
 
     const wrapper = await mountView()
 
     expect(getUsageSummary).not.toHaveBeenCalled()
     expect(getCapacitySummary).not.toHaveBeenCalled()
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     await openColumnSettings(wrapper)
     await clickColumnToggle(wrapper, 'Usage')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).not.toHaveBeenCalled()
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
 
     await clickColumnToggle(wrapper, 'Capacity')
     expect(getUsageSummary).toHaveBeenCalledTimes(1)
     expect(getCapacitySummary).toHaveBeenCalledTimes(1)
+    expect(getBatchQualityStats).not.toHaveBeenCalled()
+
+    await clickColumnToggle(wrapper, '1h Quality')
+    expect(getBatchQualityStats).toHaveBeenCalledWith([1])
+
+    await clickColumnToggle(wrapper, '24h Quality')
+    expect(getBatchQualityStats).toHaveBeenCalledTimes(1)
   })
 })

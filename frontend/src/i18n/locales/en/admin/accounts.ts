@@ -158,6 +158,8 @@ export default {
         status: 'Status',
         schedulable: 'Schedulable',
         todayStats: 'Today Stats',
+        realtimeQualityStats: '1h Quality',
+        qualityStats: '24h Quality',
         groups: 'Groups',
         usageWindows: 'Usage Windows',
         proxy: 'Proxy',
@@ -171,6 +173,32 @@ export default {
         stickyShort: 'Sticky',
         ungrouped: 'Ungrouped',
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, billing rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
+      },
+      quality: {
+        last10: 'Last 10',
+        last100: 'Last 100',
+        firstTokenShort: 'TTFT',
+        totalShort: 'Total',
+        insufficientSamples: '{count} valid sample(s); at least 3 are required for a score',
+        scoreTitle: 'Grade {grade} / score {score}, {count} valid sample(s), {firstCount} TTFT sample(s)',
+        durationOnly: 'Insufficient TTFT evidence; duration-only score capped at 69',
+        ttftOnly: 'Scored from TTFT only',
+        hint: 'Uses successful streaming usage records from the last 24 hours and the latest 10/100 timed requests. Score v2 uses a piecewise-linear curve calibrated from this site\'s historical usage: TTFT weighs 85% and total duration 15%. With fewer than 3 TTFT samples, duration-only scoring is capped at 69. S+/S/S-/A+/A/A-/B+/B/B-/C is shown beside the numeric score for scheduling review only and never changes account priority automatically.',
+        realtimeHint: 'Uses streaming requests from the last hour only. Participation combines successful and failed attempts; Idle means the account received no real traffic in the last hour, not that it is broken. When there is no successful request in the last hour, the 24-hour score is muted as a historical baseline.',
+        activity: {
+          active: 'Active',
+          low_sample: 'Low sample',
+          degraded: 'Degraded',
+          failing: 'Failing',
+          idle: 'Idle',
+          unassigned: 'Ungrouped',
+          paused: 'Scheduling paused',
+          counts: '{success} ok/{failed} failed',
+          lastSuccessNow: 'Succeeded just now',
+          lastSuccessMinutes: 'Last success {count}m ago',
+          lastSuccessHours: 'Last success {count}h ago',
+          noSuccess24h: 'No success in 24h'
+        }
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       ollamaCloud: {
