@@ -302,9 +302,12 @@ func applyAccountStatsCost(
 	if usageLog != nil {
 		usage.ImageCount = usageLog.ImageCount
 		if usageLog.ImageSize != nil {
-			usage.ImageSize = *usageLog.ImageSize
+			usage.ImageSize = strings.TrimSpace(*usageLog.ImageSize)
 		}
 		usage.ImageSizeBreakdown = usageLog.ImageSizeBreakdown
+		if usageLog.InboundEndpoint != nil {
+			usage.InboundEndpoint = strings.TrimSpace(*usageLog.InboundEndpoint)
+		}
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
 		ctx, cs, bs, accountID, groupID, model, usage, totalCost,

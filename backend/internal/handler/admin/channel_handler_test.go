@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -344,6 +345,70 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	require.Equal(t, float64Ptr(0.002), r.CacheReadPrice)
 	require.Equal(t, float64Ptr(0.04), r.ImageOutputPrice)
 	require.Equal(t, float64Ptr(0.5), r.PerRequestPrice)
+}
+
+func TestPricingRequestToService_ImageOperationResponsesRoundTrip(t *testing.T) {
+	reqs := []channelModelPricingRequest{
+		{
+			Platform:        "openai",
+			Models:          []string{"gpt-image-1"},
+			BillingMode:     "image",
+			ImageOperation:  "responses",
+			PerRequestPrice: float64Ptr(0.04),
+		},
+	}
+
+	result := pricingRequestToService(reqs)
+	require.Len(t, result, 1)
+	require.Equal(t, service.AccountStatsImageOperationResponses, result[0].ImageOperation)
+
+	resp := pricingToResponse(&result[0])
+	require.Equal(t, "responses", resp.ImageOperation)
+}
+
+func TestPricingRequestToService_ImageOperationOmittedRemainsEmpty(t *testing.T) {
+	result := pricingRequestToService([]channelModelPricingRequest{
+		{
+			Platform:    "openai",
+			Models:      []string{"gpt-image-1"},
+			BillingMode: "image",
+		},
+	})
+
+	require.Len(t, result, 1)
+	require.Empty(t, result[0].ImageOperation)
+
+	resp := pricingToResponse(&result[0])
+	require.Empty(t, resp.ImageOperation)
+}
+
+func TestCreateChannel_ImageOperationOtherRejectedByBinding(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	h := &ChannelHandler{}
+	router.POST("/channels", h.Create)
+
+	body := []byte(`{
+		"name": "image-channel",
+		"model_pricing": [
+			{
+				"platform": "openai",
+				"models": ["gpt-image-1"],
+				"billing_mode": "image",
+				"image_operation": "other",
+				"per_request_price": 0.04
+			}
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/channels", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "VALIDATION_ERROR")
+	require.Contains(t, w.Body.String(), "ImageOperation")
 }
 
 func TestPricingRequestToService_WithIntervals(t *testing.T) {
