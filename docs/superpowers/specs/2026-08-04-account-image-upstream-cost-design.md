@@ -54,22 +54,26 @@ rules, not a second cost subsystem.
 
 ## Data Model
 
-Add two nullable columns to `channel_account_stats_model_pricing`:
+Add one nullable column to `channel_account_stats_model_pricing`:
 
 ```text
 image_operation VARCHAR(24) NULL
-image_size_tier VARCHAR(8) NULL
 ```
 
 Canonical values:
 
 ```text
 image_operation: generation | responses | edit | NULL
-image_size_tier: 1K | 2K | 4K | NULL
 ```
 
-`NULL` means any operation or any size. Existing rows remain `NULL/NULL`, so
-their current behavior is unchanged.
+`NULL` means any operation. Existing rows remain null, so their current
+behavior is unchanged.
+
+Image size continues to use the existing
+`channel_account_stats_pricing_intervals.tier_label` and
+`channel_account_stats_pricing_intervals.per_request_price` fields. A model
+pricing row's existing `per_request_price` is the any-size fallback. No second
+image-size column is introduced.
 
 No columns are added to `usage_logs`: the required request and image metadata
 already exists.
@@ -84,64 +88,80 @@ The operation is derived from the normalized inbound endpoint:
 | `/v1/images/generations` | `generation` |
 | `/v1/responses` with generated images | `responses` |
 | `/v1/images/edits` | `edit` |
-| Other image-producing endpoint | no specific operation |
+| Other endpoint with generated images | `generation` |
 
 This derives the cost context from existing normalized request data and avoids
-persisting a duplicate operation field in each usage log.
+persisting a duplicate operation field in each usage log. The fallback to
+`generation` covers native Gemini, Antigravity, chat-compatible, and other
+image-producing routes that do not use OpenAI's image endpoint names.
 
 ## Size Resolution
 
-The canonical `usageLog.ImageSize` is used for single-size requests. When
-`ImageSizeBreakdown` contains multiple size buckets, each bucket is costed
-independently using its generated-image count.
+The canonical `usageLog.ImageSize` is used for single-size requests. The
+resolver selects an existing pricing interval whose normalized `tier_label`
+equals 1K, 2K, or 4K, then uses that interval's `per_request_price`. If there is
+no matching interval, the model pricing row's `per_request_price` is the
+any-size fallback. When `ImageSizeBreakdown` contains multiple size buckets,
+each bucket is costed independently using its generated-image count.
 
-If the image size is missing, the resolver may only match a wildcard size
-rule. It must not guess 1K, 2K, or 4K inside the account-cost resolver; size
-normalization remains owned by the existing image billing pipeline.
+If the image size is missing, the resolver may only use the row-level default
+`per_request_price`. It must not guess or select a 1K, 2K, or 4K interval
+inside the account-cost resolver; size normalization remains owned by the
+existing image billing pipeline.
 
 ## Matching Order
 
-For each matching account/group rule, model matching continues to prefer an
-exact model over a wildcard model. Among entries with the same model
-specificity, image context is matched in this order:
+For each matching account/group rule, image context is matched in this order:
 
-1. Exact operation + exact size.
-2. Exact operation + any size.
-3. Any operation + exact size.
-4. Any operation + any size.
+1. Exact model + exact operation.
+2. Exact model + any operation.
+3. Wildcard model + exact operation.
+4. Wildcard model + any operation.
 
-If no image-context rule matches, the resolver continues through the existing
-fallback chain:
+Image-mode rows are preferred for image requests. Existing per-request rows
+remain compatible as any-operation fallbacks, but new operation-specific
+configuration is only accepted on image-mode rows. After a model/operation row
+is selected, size resolution uses an exact `tier_label` interval first and the
+row's default `per_request_price` second. A candidate row must price the whole
+request. If it cannot, the resolver tries the next row in the matching order;
+it must not combine size prices from different rows.
 
-1. Existing account statistics custom pricing.
-2. Channel `apply_pricing_to_account_stats` estimate.
-3. LiteLLM/default model pricing.
-4. Existing `total_cost * account_rate_multiplier` report fallback.
+Within account-statistics custom pricing, image-mode rows are attempted first,
+then a legacy any-operation `per_request` row, and then the next matching
+account/group rule. If all custom rules miss, the resolver continues through
+the existing fallback chain:
 
-An image-specific row with no usable positive `per_request_price` is treated as
-not matched. Zero is not accepted as a configured upstream cost because it can
-silently create false profit.
+1. Channel `apply_pricing_to_account_stats` estimate.
+2. LiteLLM/default model pricing.
+3. Existing `total_cost * account_rate_multiplier` report fallback.
+
+An image-specific row with neither a usable positive size interval nor a
+positive default `per_request_price` is treated as not matched. Zero is not
+accepted as a configured upstream cost because it can silently create false
+profit.
 
 ## Cost Calculation
 
 For a single-size response:
 
 ```text
-account_stats_cost = configured_per_image_cost * image_count
+account_stats_cost = resolved_interval_or_default_cost * image_count
 ```
 
 For a mixed-size response:
 
 ```text
 account_stats_cost = sum(
-  configured_cost(operation, size) * image_size_breakdown[size]
+  resolved_interval_or_default_cost(operation, size)
+  * image_size_breakdown[size]
 )
 ```
 
 If any mixed-size bucket cannot resolve through the image-rule fallback order,
-the entire image-specific calculation is abandoned and the existing fallback
-chain is used. Partial configured cost must not be combined with an unrelated
-default estimate.
+or the sum of positive breakdown counts differs from `image_count`, the entire
+image-specific calculation is abandoned and the existing fallback chain is
+used. Partial configured cost must not be combined with an unrelated default
+estimate or stored as though it covered every generated image.
 
 The stored amount is the raw upstream account cost. The existing reporting
 layer may continue applying `account_rate_multiplier` exactly as it does today.
@@ -150,14 +170,16 @@ rate multipliers are untouched.
 
 ## Backend Changes
 
-- Extend `ChannelModelPricing` and account-statistics pricing DTOs with the two
-  optional image-context fields.
-- Persist and load the fields in the existing account-statistics pricing
-  repository.
+- Extend `ChannelModelPricing` and account-statistics pricing DTOs with the
+  optional image-operation field.
+- Persist and load the field only in the existing account-statistics pricing
+  repository. Primary channel pricing does not use it.
 - Pass the usage log's image metadata and normalized endpoints into
   `resolveAccountStatsCost`.
 - Keep token pricing and ordinary per-request pricing on their current paths.
 - Add a dedicated image-context matcher used only when `image_count > 0`.
+- Reuse `PricingInterval.TierLabel` for size matching and the existing default
+  `PerRequestPrice` for any-size fallback.
 - Keep existing model wildcard semantics and rule ordering.
 
 ## Admin UI
@@ -165,31 +187,38 @@ rate multipliers are untouched.
 Extend the existing "custom account statistics pricing rules" editor in the
 channel form. Do not add a new page or another top-level setting.
 
-When billing mode is `image` or `per_request`, show:
+When billing mode is `image`, show:
 
 - an operation selector: Any, Native generation, Responses bridge, Image edit;
-- a size selector: Any, 1K, 2K, 4K;
 - the existing per-request price input, labelled as upstream cost per image for
   image mode.
+- the existing image-tier editor for 1K, 2K, and 4K size-specific costs.
 
-For token mode, hide these selectors and submit both values as null. Existing
-rows display Any/Any.
+For all non-image modes, hide the operation selector and submit it as null.
+Existing image rows display Any operation and retain their current interval
+configuration.
 
 ## Validation
 
-- Reject unknown operation and size values at the API boundary.
-- Require a positive per-request price for image-specific entries.
-- Allow multiple rows for the same model only when their operation/size
-  selectors differ.
-- Reject exact duplicate model + operation + size combinations within the same
+- Reject unknown operation values at the API boundary.
+- Reject a non-null operation on non-image pricing rows.
+- Require at least one positive upstream per-image cost from the row default or
+  a size interval. A configured default or interval cost must be positive;
+  zero must not silently create false profit.
+- Continue validating image interval labels and prices through the existing
+  interval validation path.
+- Allow multiple rows for the same model only when their operation selectors
+  differ.
+- Reject exact duplicate model + operation combinations within the same
   account-statistics rule.
 - Preserve the existing model wildcard conflict checks where applicable.
 
 ## Compatibility And Migration
 
-- The migration only adds nullable columns and is reversible.
-- Existing rows resolve as Any operation + Any size.
-- Existing API clients may omit the new fields.
+- The migration only adds one nullable column and is reversible.
+- Existing rows resolve as Any operation; existing image intervals continue to
+  represent size tiers.
+- Existing API clients may omit the new field.
 - Existing channels and usage reports retain current behavior until an
   administrator configures more-specific image cost rows.
 - No production data backfill is required.
@@ -198,25 +227,32 @@ rows display Any/Any.
 
 ### Backend unit tests
 
-- Existing Any/Any row retains current per-image behavior.
-- Exact operation and size outrank wildcard variants.
+- Existing any-operation row retains current per-image behavior.
+- Exact model and operation outrank wildcard variants.
 - Native generation, Responses generation, and image edit classify correctly.
-- 1K, 2K, and 4K costs multiply by image count.
+- Existing 1K, 2K, and 4K pricing intervals multiply by image count.
+- Missing size intervals use the existing row-level `per_request_price`.
 - Mixed-size breakdown sums independent buckets.
 - Missing mixed-size bucket abandons partial calculation and uses the existing
   fallback chain.
+- An incomplete operation-specific row falls back to one complete
+  any-operation row; costs from the two rows are never combined.
+- Mixed-size breakdown whose counts do not equal `image_count` uses the
+  existing fallback chain instead of undercounting cost.
 - Non-image token and per-request requests are unchanged.
 - User charge fields remain unchanged when account cost differs.
 
 ### Repository tests
 
-- New fields round-trip through create, update, and load operations.
-- Existing null fields round-trip without behavior changes.
+- The new operation field round-trips through create, update, and load
+  operations.
+- Existing null operation values and pricing intervals round-trip without
+  behavior changes.
 
 ### Frontend tests
 
-- Image controls appear only for image/per-request modes.
-- Existing entries load as Any/Any.
+- Image operation controls appear only for image mode.
+- Existing entries load as Any operation and preserve image tiers.
 - Duplicate combinations are rejected.
 - API payload conversion preserves or clears image context correctly.
 
@@ -233,7 +269,6 @@ rows display Any/Any.
 ## Rollback
 
 Application rollback is sufficient because older binaries ignore the nullable
-columns. The migration columns may remain in place. Configuration rollback is
-performed by clearing operation/size selectors or restoring the pre-change
+column. The migration column may remain in place. Configuration rollback is
+performed by clearing the operation selector or restoring the pre-change
 channel rules from the production backup.
-
