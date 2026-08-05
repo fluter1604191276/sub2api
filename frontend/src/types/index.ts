@@ -1225,9 +1225,22 @@ export interface AccountQualityWindow {
   first_token_sample_count: number
   average_first_token_ms: number | null
   average_duration_ms: number | null
+  p50_first_token_ms?: number | null
+  p90_first_token_ms?: number | null
+  generation_sample_count?: number
+  p50_generation_tokens_per_second?: number | null
+  p10_generation_tokens_per_second?: number | null
+  routing_first_token_ms?: number | null
+  routing_generation_tokens_per_second?: number | null
   quality_score: number | null
   quality_grade?: string
-  score_basis?: 'ttft_duration' | 'ttft_only' | 'duration_only'
+  score_basis?:
+    | 'ttft_duration'
+    | 'ttft_only'
+    | 'duration_only'
+    | 'routing_ttft_generation'
+    | 'routing_ttft_only'
+    | 'routing_generation_only'
 }
 
 export interface AccountQualityPeriod {
@@ -1276,8 +1289,12 @@ export interface SmartSchedulerPreviewItem {
   decision: string
   reason: string
   score?: number | null
+  raw_score?: number | null
   confidence: number
   confidence_label: 'high' | 'medium' | 'low' | string
+  evidence_scope: 'model_endpoint' | 'model' | 'endpoint' | 'account' | string
+  evidence_fallback: boolean
+  exploration_candidate: boolean
   quality_1h: AccountQualityPeriod
   quality_24h: AccountQualityPeriod
   activity: AccountQualityActivity
@@ -1288,6 +1305,10 @@ export interface SmartSchedulerPreviewItem {
   client_excluded_count: number
   platform_failure_count: number
   uncertain_failure_count: number
+  recent_provider_failure_count?: number
+  recent_provider_transient_count?: number
+  recent_rate_limit_count?: number
+  recent_uncertain_failure_count?: number
   cost_multiplier: number
   load?: SmartSchedulerLoad | null
   model_supported: boolean

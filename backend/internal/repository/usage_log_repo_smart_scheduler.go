@@ -12,7 +12,12 @@ import (
 // GetSmartSchedulerErrorStatsBatch returns classified, distinct streaming
 // failures for the last 24 hours. Classification is deliberately based on
 // structured ops columns; error text is not used as a billing or routing rule.
-func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.SmartSchedulerErrorStats, error) {
+func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
+	ctx context.Context,
+	accountIDs []int64,
+	startTime, endTime time.Time,
+	requestedModel, endpoint string,
+) (map[int64]service.SmartSchedulerErrorStats, error) {
 	result := make(map[int64]service.SmartSchedulerErrorStats, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return result, nil
@@ -28,6 +33,8 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 				AND ul.created_at < $3
 				AND ul.actual_cost > 0
 				AND ul.stream = TRUE
+				AND ($4 = '' OR LOWER(COALESCE(NULLIF(ul.requested_model, ''), ul.model)) = LOWER($4))
+				AND ($5 = 'any' OR LOWER(COALESCE(NULLIF(ul.inbound_endpoint, ''), '')) = LOWER($5))
 			GROUP BY ul.account_id
 		), classified AS (
 			SELECT
@@ -47,6 +54,8 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 				AND oe.created_at >= $2
 				AND oe.created_at < $3
 				AND oe.stream = TRUE
+				AND ($4 = '' OR LOWER(COALESCE(NULLIF(oe.requested_model, ''), oe.model)) = LOWER($4))
+				AND ($5 = 'any' OR LOWER(COALESCE(NULLIF(oe.inbound_endpoint, ''), '')) = LOWER($5))
 		), deduplicated AS (
 			SELECT DISTINCT account_id, request_key, category, is_recent FROM classified
 		), failures AS (
@@ -60,7 +69,8 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 				COUNT(*) FILTER (WHERE category = 'uncertain') AS uncertain_count,
 				COUNT(*) FILTER (WHERE category = 'provider_failure' AND is_recent) AS recent_provider_failure_count,
 				COUNT(*) FILTER (WHERE category = 'provider_transient' AND is_recent) AS recent_provider_transient_count,
-				COUNT(*) FILTER (WHERE category = 'rate_limit' AND is_recent) AS recent_rate_limit_count
+				COUNT(*) FILTER (WHERE category = 'rate_limit' AND is_recent) AS recent_rate_limit_count,
+				COUNT(*) FILTER (WHERE category = 'uncertain' AND is_recent) AS recent_uncertain_count
 			FROM deduplicated
 			GROUP BY account_id
 		)
@@ -75,11 +85,12 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 			COALESCE(f.uncertain_count, 0),
 			COALESCE(f.recent_provider_failure_count, 0),
 			COALESCE(f.recent_provider_transient_count, 0),
-			COALESCE(f.recent_rate_limit_count, 0)
+			COALESCE(f.recent_rate_limit_count, 0),
+			COALESCE(f.recent_uncertain_count, 0)
 		FROM successful s
 		FULL OUTER JOIN failures f ON f.account_id = s.account_id
 	`
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime)
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime, endTime, requestedModel, endpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +98,7 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 	for rows.Next() {
 		var accountID int64
 		var stats service.SmartSchedulerErrorStats
-		var counts [10]sql.NullInt64
+		var counts [11]sql.NullInt64
 		values := make([]any, 0, len(counts)+1)
 		values = append(values, &accountID)
 		for i := range counts {
@@ -106,6 +117,7 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(ctx context.Contex
 		stats.RecentProviderFailureCount = counts[7].Int64
 		stats.RecentProviderTransientCount = counts[8].Int64
 		stats.RecentRateLimitCount = counts[9].Int64
+		stats.RecentUncertainFailureCount = counts[10].Int64
 		result[accountID] = stats
 	}
 	if err := rows.Err(); err != nil {

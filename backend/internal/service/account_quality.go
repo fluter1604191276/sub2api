@@ -63,13 +63,20 @@ var accountQualityDurationCurve = []accountQualityCurvePoint{
 // AccountQualityWindow contains the latency summary for one recent-request window.
 // A nil score means there is not enough evidence to make a useful judgement.
 type AccountQualityWindow struct {
-	SampleCount           int64    `json:"sample_count"`
-	FirstTokenSampleCount int64    `json:"first_token_sample_count"`
-	AverageFirstTokenMs   *float64 `json:"average_first_token_ms"`
-	AverageDurationMs     *float64 `json:"average_duration_ms"`
-	QualityScore          *int     `json:"quality_score"`
-	QualityGrade          string   `json:"quality_grade,omitempty"`
-	ScoreBasis            string   `json:"score_basis,omitempty"`
+	SampleCount                      int64    `json:"sample_count"`
+	FirstTokenSampleCount            int64    `json:"first_token_sample_count"`
+	AverageFirstTokenMs              *float64 `json:"average_first_token_ms"`
+	AverageDurationMs                *float64 `json:"average_duration_ms"`
+	P50FirstTokenMs                  *float64 `json:"p50_first_token_ms,omitempty"`
+	P90FirstTokenMs                  *float64 `json:"p90_first_token_ms,omitempty"`
+	GenerationSampleCount            int64    `json:"generation_sample_count,omitempty"`
+	P50GenerationTokensPerSecond     *float64 `json:"p50_generation_tokens_per_second,omitempty"`
+	P10GenerationTokensPerSecond     *float64 `json:"p10_generation_tokens_per_second,omitempty"`
+	RoutingFirstTokenMs              *float64 `json:"routing_first_token_ms,omitempty"`
+	RoutingGenerationTokensPerSecond *float64 `json:"routing_generation_tokens_per_second,omitempty"`
+	QualityScore                     *int     `json:"quality_score"`
+	QualityGrade                     string   `json:"quality_grade,omitempty"`
+	ScoreBasis                       string   `json:"score_basis,omitempty"`
 }
 
 type AccountQualityPeriod struct {

@@ -4235,9 +4235,9 @@
         </div>
 
         <div v-if="smartSchedulerLoading" class="space-y-3">
-          <div class="grid gap-3 sm:grid-cols-4">
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div
-              v-for="index in 4"
+              v-for="index in 5"
               :key="index"
               class="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-dark-700"
             ></div>
@@ -4282,7 +4282,7 @@
             </div>
           </div>
 
-          <div class="grid gap-3 sm:grid-cols-4">
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
               <div class="text-xs text-emerald-700 dark:text-emerald-300">{{ t("admin.groups.smartScheduler.primary") }}</div>
               <div class="mt-1 text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{{ smartSchedulerPreview.primary_count }}</div>
@@ -4298,6 +4298,10 @@
             <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
               <div class="text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.total") }}</div>
               <div class="mt-1 text-2xl font-semibold text-gray-800 dark:text-white">{{ smartSchedulerPreview.total_accounts }}</div>
+            </div>
+            <div class="rounded-lg border border-cyan-200 bg-cyan-50 p-3 dark:border-cyan-900/50 dark:bg-cyan-900/20">
+              <div class="text-xs text-cyan-700 dark:text-cyan-300">{{ t("admin.groups.smartScheduler.exploration") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-cyan-800 dark:text-cyan-100">{{ t("admin.groups.smartScheduler.explorationRate", { rate: formatSmartSchedulerPercentage(smartSchedulerPreview.exploration_rate) }) }}</div>
             </div>
           </div>
 
@@ -4349,21 +4353,27 @@
                       <div class="font-medium text-gray-900 dark:text-white">{{ item.account_name }}</div>
                       <div class="mt-1 text-gray-500 dark:text-gray-400">#{{ item.account_id }} · {{ item.platform }}</div>
                       <div v-if="item.model_mapping" class="mt-1 break-all text-blue-600 dark:text-blue-400">→ {{ item.model_mapping }}</div>
+                      <div class="mt-2 flex flex-wrap gap-1">
+                        <span class="badge badge-gray">{{ smartSchedulerEvidenceLabel(item.evidence_scope) }}</span>
+                        <span v-if="item.evidence_fallback" class="badge badge-warning">{{ t("admin.groups.smartScheduler.fallbackEvidence") }}</span>
+                        <span v-if="item.exploration_candidate" class="badge badge-primary">{{ t("admin.groups.smartScheduler.explorationCandidate") }}</span>
+                      </div>
                     </td>
                     <td class="px-3 py-3">
                       <span :class="['inline-flex min-w-[3.5rem] justify-center rounded px-2 py-1 font-semibold', smartSchedulerScoreClass(item)]">
                         {{ formatSmartSchedulerScore(item.score) }}
                       </span>
+                      <div v-if="item.raw_score != null" class="mt-1 text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.rawScore", { score: formatSmartSchedulerScore(item.raw_score) }) }}</div>
                       <div class="mt-1 text-gray-500 dark:text-gray-400">{{ formatSmartSchedulerConfidence(item.confidence, item.confidence_label) }}</div>
                     </td>
                     <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
                       <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_1h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_1h.last_100) }}</div>
-                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.duration") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.average_duration_ms) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.routing_first_token_ms ?? item.quality_1h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.generationSpeed") }} {{ formatSmartSchedulerGenerationSpeed(item.quality_1h.last_10.routing_generation_tokens_per_second) }}</div>
                       <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_1h.last_10.sample_count }}/{{ item.quality_1h.last_100.sample_count }}</div>
                     </td>
                     <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
                       <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_24h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_24h.last_100) }}</div>
-                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.duration") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.average_duration_ms) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.routing_first_token_ms ?? item.quality_24h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.generationSpeed") }} {{ formatSmartSchedulerGenerationSpeed(item.quality_24h.last_10.routing_generation_tokens_per_second) }}</div>
                       <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_24h.last_10.sample_count }}/{{ item.quality_24h.last_100.sample_count }}</div>
                     </td>
                     <td class="max-w-[16rem] px-3 py-3 text-gray-600 dark:text-gray-300">
@@ -6455,6 +6465,19 @@ const formatSmartSchedulerLatency = (value: number | null): string => {
   const seconds = value / 1000;
   return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
 };
+
+const formatSmartSchedulerGenerationSpeed = (
+  value: number | null | undefined,
+): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(1)} tok/s`;
+};
+
+const formatSmartSchedulerPercentage = (value: number): string =>
+  `${(Math.max(0, value) * 100).toFixed(1)}%`;
+
+const smartSchedulerEvidenceLabel = (scope: string): string =>
+  t(`admin.groups.smartScheduler.evidenceScopes.${scope}`);
 
 const formatSmartSchedulerQuality = (window: AccountQualityWindow): string => {
   if (window.quality_score == null) {

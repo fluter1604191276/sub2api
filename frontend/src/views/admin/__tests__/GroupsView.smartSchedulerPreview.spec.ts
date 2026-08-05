@@ -66,6 +66,15 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.rank': 'Rank',
   'admin.groups.smartScheduler.account': 'Account',
   'admin.groups.smartScheduler.score': 'Score',
+  'admin.groups.smartScheduler.rawScore': 'Raw {score}',
+  'admin.groups.smartScheduler.exploration': 'Exploration preview',
+  'admin.groups.smartScheduler.explorationRate': 'Explore {rate}',
+  'admin.groups.smartScheduler.explorationCandidate': 'Explore candidate',
+  'admin.groups.smartScheduler.fallbackEvidence': 'Fallback evidence',
+  'admin.groups.smartScheduler.evidenceScopes.model_endpoint': 'Model + endpoint',
+  'admin.groups.smartScheduler.evidenceScopes.model': 'Model',
+  'admin.groups.smartScheduler.evidenceScopes.endpoint': 'Endpoint',
+  'admin.groups.smartScheduler.evidenceScopes.account': 'Account global',
   'admin.groups.smartScheduler.quality1h': '1h quality',
   'admin.groups.smartScheduler.quality24h': '24h quality',
   'admin.groups.smartScheduler.errors': 'Errors',
@@ -73,7 +82,7 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.load': 'Load',
   'admin.groups.smartScheduler.decision': 'Decision',
   'admin.groups.smartScheduler.firstToken': 'TTFT',
-  'admin.groups.smartScheduler.duration': 'Duration',
+  'admin.groups.smartScheduler.generationSpeed': 'Generation',
   'admin.groups.smartScheduler.failureSummary': 'Provider {provider}, transient {transient}, rate limit {rateLimit}',
   'admin.groups.smartScheduler.clientSummary': 'Client {client}, platform {platform}, uncertain {uncertain}',
   'admin.groups.smartScheduler.loadSummary': 'Load {current}/{max}, waiting {waiting}, rate {rate}',
@@ -201,6 +210,13 @@ const qualityWindow = (score: number | null = 92): AccountQualityWindow => ({
   first_token_sample_count: 10,
   average_first_token_ms: 420,
   average_duration_ms: 1600,
+  p50_first_token_ms: 350,
+  p90_first_token_ms: 650,
+  generation_sample_count: 10,
+  p50_generation_tokens_per_second: 48,
+  p10_generation_tokens_per_second: 24,
+  routing_first_token_ms: 440,
+  routing_generation_tokens_per_second: 40.8,
   quality_score: score,
   quality_grade: score == null ? undefined : 'A',
 })
@@ -233,8 +249,12 @@ const schedulerItem = (
   decision: 'primary',
   reason: 'best score',
   score: 96,
+  raw_score: 98,
   confidence: 0.91,
   confidence_label: 'high',
+  evidence_scope: 'model_endpoint',
+  evidence_fallback: false,
+  exploration_candidate: false,
   quality_1h: qualityPeriod(96),
   quality_24h: qualityPeriod(95),
   activity,
@@ -264,19 +284,19 @@ const preview: SmartSchedulerPreview = {
   platform: 'openai',
   requested_model: 'gpt-5.5',
   endpoint: 'responses',
-  algorithm_version: 'smart-scheduler-v1',
+  algorithm_version: 'preview-v2',
   generated_at: '2026-08-01T02:03:04Z',
   total_accounts: 3,
   primary_count: 1,
   warm_count: 1,
   isolated_count: 1,
-  exploration_rate: 0.1,
+  exploration_rate: 0.075,
   production_control_active: false,
   load_snapshot_available: true,
   warnings: [],
   items: [
     schedulerItem({ account_id: 100, account_name: 'Primary Account', pool: 'primary', reason: 'best score' }),
-    schedulerItem({ rank: 2, account_id: 101, account_name: 'Warm Account', pool: 'warm', reason: 'observe before primary', score: 72, confidence_label: 'medium' }),
+    schedulerItem({ rank: 2, account_id: 101, account_name: 'Warm Account', pool: 'warm', reason: 'observe before primary', score: 72, confidence_label: 'medium', evidence_scope: 'account', evidence_fallback: true, exploration_candidate: true }),
     schedulerItem({ rank: 3, account_id: 102, account_name: 'Isolated Account', pool: 'isolated', reason: 'excluded by failures', score: 25, schedulable: false, confidence_label: 'low', load: null }),
   ],
 }
@@ -454,6 +474,14 @@ describe('admin GroupsView smart scheduler preview', () => {
     expect(dialogText).toContain('best score')
     expect(dialogText).toContain('observe before primary')
     expect(dialogText).toContain('excluded by failures')
+    expect(dialogText).toContain('Algorithm preview-v2')
+    expect(dialogText).toContain('Explore 7.5%')
+    expect(dialogText).toContain('Model + endpoint')
+    expect(dialogText).toContain('Fallback evidence')
+    expect(dialogText).toContain('Explore candidate')
+    expect(dialogText).toContain('Raw 98')
+    expect(dialogText).toContain('TTFT 440ms')
+    expect(dialogText).toContain('Generation 40.8 tok/s')
     wrapper.unmount()
   })
 })
