@@ -455,6 +455,16 @@
                 }}</span>
               </button>
               <button
+                @click="handleSmartScheduler(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-dark-700 dark:hover:text-blue-400"
+                :title="t('admin.groups.smartScheduler.action')"
+              >
+                <Icon name="brain" size="sm" />
+                <span class="text-xs">{{
+                  t("admin.groups.smartScheduler.action")
+                }}</span>
+              </button>
+              <button
                 @click="handleDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -4164,6 +4174,239 @@
       </template>
     </BaseDialog>
 
+    <!-- Smart Scheduler Preview Modal -->
+    <BaseDialog
+      :show="showSmartSchedulerModal"
+      :title="
+        smartSchedulerGroup
+          ? t('admin.groups.smartScheduler.title', {
+              name: smartSchedulerGroup.name,
+            })
+          : t('admin.groups.smartScheduler.action')
+      "
+      width="full"
+      @close="closeSmartSchedulerModal"
+    >
+      <div class="space-y-4">
+        <div
+          class="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-sm text-blue-900 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-100"
+        >
+          {{ t("admin.groups.smartScheduler.description") }}
+        </div>
+
+        <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_auto] md:items-end">
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.smartScheduler.requestedModel")
+            }}</label>
+            <input
+              v-model.trim="smartSchedulerModel"
+              type="text"
+              class="input"
+              :placeholder="t('admin.groups.smartScheduler.requestedModelPlaceholder')"
+              @keyup.enter="loadSmartSchedulerPreview"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.smartScheduler.endpoint")
+            }}</label>
+            <Select
+              v-model="smartSchedulerEndpoint"
+              :options="smartSchedulerEndpointOptions"
+            />
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="smartSchedulerLoading || !smartSchedulerGroup"
+            :title="t('admin.groups.smartScheduler.refresh')"
+            @click="loadSmartSchedulerPreview"
+          >
+            <Icon
+              name="refresh"
+              size="sm"
+              :class="smartSchedulerLoading ? 'animate-spin' : ''"
+            />
+            <span class="ml-2">{{
+              t("admin.groups.smartScheduler.refresh")
+            }}</span>
+          </button>
+        </div>
+
+        <div v-if="smartSchedulerLoading" class="space-y-3">
+          <div class="grid gap-3 sm:grid-cols-4">
+            <div
+              v-for="index in 4"
+              :key="index"
+              class="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-dark-700"
+            ></div>
+          </div>
+          <div class="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-dark-700"></div>
+        </div>
+
+        <div
+          v-else-if="smartSchedulerPreview"
+          class="space-y-4"
+        >
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+            <span>{{
+              t("admin.groups.smartScheduler.generatedAt", {
+                time: formatSmartSchedulerDate(smartSchedulerPreview.generated_at),
+              })
+            }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.algorithm", {
+                version: smartSchedulerPreview.algorithm_version,
+              })
+            }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.requestedModel")
+            }}: {{ smartSchedulerPreview.requested_model || t("admin.groups.smartScheduler.noModel") }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.endpoint")
+            }}: {{ formatSmartSchedulerEndpoint(smartSchedulerPreview.endpoint) }}</span>
+          </div>
+
+          <div
+            v-if="!smartSchedulerPreview.load_snapshot_available"
+            class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
+          >
+            <div class="font-medium">{{ t("admin.groups.smartScheduler.loadSnapshotWarning") }}</div>
+            <div
+              v-for="warning in smartSchedulerPreview.warnings"
+              :key="warning"
+              class="mt-1 text-xs text-amber-800 dark:text-amber-200"
+            >
+              {{ warning }}
+            </div>
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-4">
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+              <div class="text-xs text-emerald-700 dark:text-emerald-300">{{ t("admin.groups.smartScheduler.primary") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{{ smartSchedulerPreview.primary_count }}</div>
+            </div>
+            <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
+              <div class="text-xs text-amber-700 dark:text-amber-300">{{ t("admin.groups.smartScheduler.warm") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-amber-800 dark:text-amber-100">{{ smartSchedulerPreview.warm_count }}</div>
+            </div>
+            <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-900/20">
+              <div class="text-xs text-red-700 dark:text-red-300">{{ t("admin.groups.smartScheduler.isolated") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-red-800 dark:text-red-100">{{ smartSchedulerPreview.isolated_count }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.total") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-gray-800 dark:text-white">{{ smartSchedulerPreview.total_accounts }}</div>
+            </div>
+          </div>
+
+          <div
+            v-if="smartSchedulerPreview.items.length === 0"
+            class="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+          >
+            {{ t("admin.groups.smartScheduler.noAccounts") }}
+          </div>
+
+          <section
+            v-for="pool in smartSchedulerPools"
+            :key="pool.key"
+            class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+          >
+            <div class="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-800">
+              <div class="flex items-center gap-2">
+                <span :class="['h-2.5 w-2.5 rounded-full', pool.dotClass]"></span>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ pool.label }}</h3>
+              </div>
+              <span class="badge badge-gray">{{ pool.items.length }}</span>
+            </div>
+            <div v-if="pool.items.length === 0" class="px-3 py-4 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.noEvidence") }}
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="min-w-[1100px] w-full text-left text-xs">
+                <thead class="bg-white text-gray-500 dark:bg-dark-900 dark:text-gray-400">
+                  <tr>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.rank") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.account") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.score") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality1h") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality24h") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.errors") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.cost") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.load") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.decision") }}</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+                  <tr
+                    v-for="item in pool.items"
+                    :key="item.account_id"
+                    class="bg-white align-top dark:bg-dark-900"
+                  >
+                    <td class="px-3 py-3 font-mono text-gray-500 dark:text-gray-400">#{{ item.rank }}</td>
+                    <td class="max-w-[18rem] px-3 py-3">
+                      <div class="font-medium text-gray-900 dark:text-white">{{ item.account_name }}</div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">#{{ item.account_id }} · {{ item.platform }}</div>
+                      <div v-if="item.model_mapping" class="mt-1 break-all text-blue-600 dark:text-blue-400">→ {{ item.model_mapping }}</div>
+                    </td>
+                    <td class="px-3 py-3">
+                      <span :class="['inline-flex min-w-[3.5rem] justify-center rounded px-2 py-1 font-semibold', smartSchedulerScoreClass(item)]">
+                        {{ formatSmartSchedulerScore(item.score) }}
+                      </span>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">{{ formatSmartSchedulerConfidence(item.confidence, item.confidence_label) }}</div>
+                    </td>
+                    <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
+                      <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_1h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_1h.last_100) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.duration") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.average_duration_ms) }}</div>
+                      <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_1h.last_10.sample_count }}/{{ item.quality_1h.last_100.sample_count }}</div>
+                    </td>
+                    <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
+                      <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_24h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_24h.last_100) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.duration") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.average_duration_ms) }}</div>
+                      <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_24h.last_10.sample_count }}/{{ item.quality_24h.last_100.sample_count }}</div>
+                    </td>
+                    <td class="max-w-[16rem] px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <div>{{ t("admin.groups.smartScheduler.failureSummary", { provider: item.provider_failure_count, transient: item.provider_transient_failure_count, rateLimit: item.rate_limit_count }) }}</div>
+                      <div class="mt-1">{{ t("admin.groups.smartScheduler.clientSummary", { client: item.client_excluded_count, platform: item.platform_failure_count, uncertain: item.uncertain_failure_count }) }}</div>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-3 font-medium text-gray-700 dark:text-gray-300">{{ item.cost_multiplier.toFixed(4) }}x</td>
+                    <td class="whitespace-nowrap px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <span v-if="item.load">{{ t("admin.groups.smartScheduler.loadSummary", { current: item.load.current_concurrency, max: item.load.max_concurrency, waiting: item.load.waiting_count, rate: item.load.load_rate }) }}</span>
+                      <span v-else>{{ t("admin.groups.smartScheduler.noLoad") }}</span>
+                    </td>
+                    <td class="max-w-[15rem] px-3 py-3">
+                      <div class="font-medium text-gray-800 dark:text-gray-200">{{ smartSchedulerDecisionLabel(item) }}</div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">{{ item.reason }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div
+          v-else
+          class="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+        >
+          {{ t("admin.groups.smartScheduler.noAccounts") }}
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end pt-4">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeSmartSchedulerModal"
+          >
+            {{ t("common.close") }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <!-- Group Rate Multipliers Modal -->
     <GroupRateMultipliersModal
       :show="showRateMultipliersModal"
@@ -4189,6 +4432,7 @@ import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
 import type {
+  AccountQualityWindow,
   AccountQualityStats,
   AdminGroup,
   CompositeModelRoute,
@@ -4197,6 +4441,8 @@ import type {
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  SmartSchedulerPreview,
+  SmartSchedulerPreviewItem,
   SubscriptionType,
 } from "@/types";
 import type { Column } from "@/components/common/types";
@@ -4749,6 +4995,48 @@ const compositeRouteForm = reactive<CompositeRouteFormState>({
   priority: 100,
   enabled: true,
   notes: "",
+});
+
+const showSmartSchedulerModal = ref(false);
+const smartSchedulerGroup = ref<AdminGroup | null>(null);
+const smartSchedulerPreview = ref<SmartSchedulerPreview | null>(null);
+const smartSchedulerLoading = ref(false);
+const smartSchedulerModel = ref("");
+const smartSchedulerEndpoint = ref("any");
+const smartSchedulerReqSeq = ref(0);
+
+const smartSchedulerEndpointOptions = computed(() => [
+  { value: "any", label: t("admin.groups.smartScheduler.anyEndpoint") },
+  {
+    value: "chat_completions",
+    label: t("admin.groups.smartScheduler.chatCompletions"),
+  },
+  { value: "responses", label: t("admin.groups.smartScheduler.responses") },
+  { value: "messages", label: t("admin.groups.smartScheduler.messages") },
+]);
+
+const smartSchedulerPools = computed(() => {
+  const items = smartSchedulerPreview.value?.items ?? [];
+  return [
+    {
+      key: "primary",
+      label: t("admin.groups.smartScheduler.primary"),
+      dotClass: "bg-emerald-500",
+      items: items.filter((item) => item.pool === "primary"),
+    },
+    {
+      key: "warm",
+      label: t("admin.groups.smartScheduler.warm"),
+      dotClass: "bg-amber-500",
+      items: items.filter((item) => item.pool === "warm"),
+    },
+    {
+      key: "isolated",
+      label: t("admin.groups.smartScheduler.isolated"),
+      dotClass: "bg-red-500",
+      items: items.filter((item) => item.pool === "isolated"),
+    },
+  ];
 });
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
@@ -6088,6 +6376,129 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const handleSmartScheduler = async (group: AdminGroup) => {
+  smartSchedulerGroup.value = group;
+  smartSchedulerPreview.value = null;
+  smartSchedulerModel.value = "";
+  smartSchedulerEndpoint.value = "any";
+  showSmartSchedulerModal.value = true;
+  await loadSmartSchedulerPreview();
+};
+
+const closeSmartSchedulerModal = () => {
+  smartSchedulerReqSeq.value += 1;
+  showSmartSchedulerModal.value = false;
+  smartSchedulerGroup.value = null;
+  smartSchedulerPreview.value = null;
+  smartSchedulerModel.value = "";
+  smartSchedulerEndpoint.value = "any";
+  smartSchedulerLoading.value = false;
+};
+
+const loadSmartSchedulerPreview = async () => {
+  if (!smartSchedulerGroup.value) return;
+
+  const requestSequence = ++smartSchedulerReqSeq.value;
+  smartSchedulerLoading.value = true;
+  try {
+    const model = smartSchedulerModel.value.trim();
+    const endpoint = smartSchedulerEndpoint.value;
+    const preview = await adminAPI.groups.getSmartSchedulerPreview(
+      smartSchedulerGroup.value.id,
+      {
+        ...(model ? { model } : {}),
+        ...(endpoint !== "any" ? { endpoint } : {}),
+      },
+    );
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      smartSchedulerPreview.value = preview;
+    }
+  } catch (error: unknown) {
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      appStore.showError(
+        extractApiErrorMessage(
+          error,
+          t("admin.groups.smartScheduler.error"),
+        ),
+      );
+    }
+    console.error("Error loading smart scheduler preview:", error);
+  } finally {
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      smartSchedulerLoading.value = false;
+    }
+  }
+};
+
+const formatSmartSchedulerDate = (value: string): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value || "—";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+};
+
+const formatSmartSchedulerEndpoint = (endpoint: string): string =>
+  smartSchedulerEndpointOptions.value.find((option) => option.value === endpoint)
+    ?.label || endpoint || t("admin.groups.smartScheduler.anyEndpoint");
+
+const formatSmartSchedulerLatency = (value: number | null): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  const seconds = value / 1000;
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+};
+
+const formatSmartSchedulerQuality = (window: AccountQualityWindow): string => {
+  if (window.quality_score == null) {
+    return t("admin.groups.smartScheduler.noScore");
+  }
+  return `${window.quality_grade || ""} ${window.quality_score}`.trim();
+};
+
+const formatSmartSchedulerScore = (score: number | null | undefined): string =>
+  score == null ? t("admin.groups.smartScheduler.noScore") : score.toFixed(0);
+
+const formatSmartSchedulerConfidence = (
+  confidence: number,
+  label: string,
+): string => {
+  const confidenceLabel = t(
+    `admin.groups.smartScheduler.confidenceLabels.${label}`,
+  );
+  return `${confidenceLabel} ${Math.round(confidence * 100)}%`;
+};
+
+const smartSchedulerScoreClass = (
+  item: SmartSchedulerPreviewItem,
+): string => {
+  if (item.score == null) {
+    return "bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-gray-300";
+  }
+  if (item.score >= 90) {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300";
+  }
+  if (item.score >= 70) {
+    return "bg-blue-100 text-blue-700 dark:bg-blue-900/35 dark:text-blue-300";
+  }
+  if (item.score >= 50) {
+    return "bg-amber-100 text-amber-700 dark:bg-amber-900/35 dark:text-amber-300";
+  }
+  return "bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300";
+};
+
+const smartSchedulerDecisionLabel = (item: SmartSchedulerPreviewItem): string => {
+  const pool = item.pool === "primary" || item.pool === "warm" || item.pool === "isolated"
+    ? item.pool
+    : "isolated";
+  return t(`admin.groups.smartScheduler.poolLabels.${pool}`);
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

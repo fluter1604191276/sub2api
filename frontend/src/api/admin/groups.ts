@@ -7,6 +7,7 @@ import { apiClient } from '../client'
 import type {
   AdminGroup,
   AccountQualityStats,
+  SmartSchedulerPreview,
   GroupPlatform,
   CompositeModelRoute,
   CompositeModelRouteInput,
@@ -118,6 +119,18 @@ export async function getModelsListCandidates(
     }
   )
   return data.models || []
+}
+
+/** Read-only smart scheduler ranking for a group's bound accounts. */
+export async function getSmartSchedulerPreview(
+  id: number,
+  params?: { model?: string; endpoint?: string }
+): Promise<SmartSchedulerPreview> {
+  const { data } = await apiClient.get<SmartSchedulerPreview>(
+    `/admin/groups/${id}/smart-scheduler/preview`,
+    { params }
+  )
+  return data
 }
 
 /**
@@ -499,6 +512,7 @@ export const groupsAPI = {
   getLiveCapability,
   getById,
   getModelsListCandidates,
+  getSmartSchedulerPreview,
   create,
   duplicate,
   update,

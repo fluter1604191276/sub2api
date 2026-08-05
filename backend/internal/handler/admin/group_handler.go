@@ -26,6 +26,7 @@ type GroupHandler struct {
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
+	smartScheduler       *service.SmartSchedulerPreviewService
 }
 
 // GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
@@ -88,11 +89,12 @@ func (f optionalLimitField) ToServiceInput() *float64 {
 }
 
 // NewGroupHandler creates a new admin group handler
-func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService) *GroupHandler {
+func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService, smartScheduler *service.SmartSchedulerPreviewService) *GroupHandler {
 	return &GroupHandler{
 		adminService:         adminService,
 		dashboardService:     dashboardService,
 		groupCapacityService: groupCapacityService,
+		smartScheduler:       smartScheduler,
 	}
 }
 
@@ -786,6 +788,36 @@ func (h *GroupHandler) GetBatchQualityStats(c *gin.Context) {
 	}
 	c.Header("X-Snapshot-Cache", "miss")
 	response.Success(c, payload)
+}
+
+// GetSmartSchedulerPreview returns a read-only account ranking for one group.
+// It never changes account/group state and never performs an upstream request.
+func (h *GroupHandler) GetSmartSchedulerPreview(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	model := strings.TrimSpace(c.Query("model"))
+	if len([]rune(model)) > 200 {
+		response.BadRequest(c, "model is too long")
+		return
+	}
+	endpoint := strings.TrimSpace(c.Query("endpoint"))
+	if len([]rune(endpoint)) > 80 {
+		response.BadRequest(c, "endpoint is too long")
+		return
+	}
+	if h.smartScheduler == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Smart scheduler preview is unavailable")
+		return
+	}
+	preview, err := h.smartScheduler.Preview(c.Request.Context(), groupID, model, endpoint, time.Now().UTC())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
 }
 
 // GetGroupAPIKeys handles getting API keys in a group

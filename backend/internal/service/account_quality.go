@@ -216,6 +216,32 @@ func (s *DashboardService) GetGroupQualityStatsBatch(ctx context.Context, groupI
 	return buildAccountQualityStats(uniqueIDs, samples), nil
 }
 
+// GetAccountQualityStatsBatch exposes the same display-only quality calculation
+// to read-only preview services that already depend on DashboardService.
+func (s *DashboardService) GetAccountQualityStatsBatch(ctx context.Context, accountIDs []int64, now time.Time) (map[int64]AccountQualityStats, error) {
+	uniqueIDs := normalizeQualityIDs(accountIDs)
+	result := make(map[int64]AccountQualityStats, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return result, nil
+	}
+	reader, ok := s.usageRepo.(accountQualityStatsReader)
+	if !ok {
+		return nil, fmt.Errorf("account quality statistics are not supported by the usage repository")
+	}
+	endTime := now.UTC()
+	samples, err := reader.GetAccountQualityStatsBatch(
+		ctx,
+		uniqueIDs,
+		endTime.Add(-AccountQualityWindowHours*time.Hour),
+		endTime.Add(-AccountQualityRealtimeWindowHours*time.Hour),
+		endTime,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get account quality stats failed: %w", err)
+	}
+	return buildAccountQualityStats(uniqueIDs, samples), nil
+}
+
 func classifyAccountQualityActivity(successfulRequests, failedRequests int64) string {
 	if successfulRequests == 0 && failedRequests >= accountQualityFailingMinErrors {
 		return accountQualityActivityFailing

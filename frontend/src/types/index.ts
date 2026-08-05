@@ -1257,6 +1257,63 @@ export interface AccountQualityStats extends AccountQualityPeriod {
   score_version: number
 }
 
+export interface SmartSchedulerLoad {
+  current_concurrency: number
+  waiting_count: number
+  load_rate: number
+  max_concurrency: number
+}
+
+export interface SmartSchedulerPreviewItem {
+  rank: number
+  account_id: number
+  account_name: string
+  platform: string
+  priority?: number | null
+  status: string
+  schedulable: boolean
+  pool: 'primary' | 'warm' | 'isolated' | string
+  decision: string
+  reason: string
+  score?: number | null
+  confidence: number
+  confidence_label: 'high' | 'medium' | 'low' | string
+  quality_1h: AccountQualityPeriod
+  quality_24h: AccountQualityPeriod
+  activity: AccountQualityActivity
+  error_successful_request_count: number
+  provider_failure_count: number
+  provider_transient_failure_count: number
+  rate_limit_count: number
+  client_excluded_count: number
+  platform_failure_count: number
+  uncertain_failure_count: number
+  cost_multiplier: number
+  load?: SmartSchedulerLoad | null
+  model_supported: boolean
+  endpoint_supported: boolean
+  model_mapping?: string
+  last_used_at?: string | null
+}
+
+export interface SmartSchedulerPreview {
+  group: { id: number; name: string }
+  platform: string
+  requested_model: string
+  endpoint: string
+  algorithm_version: string
+  generated_at: string
+  total_accounts: number
+  primary_count: number
+  warm_count: number
+  isolated_count: number
+  exploration_rate: number
+  production_control_active: boolean
+  load_snapshot_available: boolean
+  warnings: string[]
+  items: SmartSchedulerPreviewItem[]
+}
+
 export interface UsageProgress {
   utilization: number // Percentage (0-100+, 100 = 100%)
   resets_at: string | null
