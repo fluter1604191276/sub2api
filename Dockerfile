@@ -18,7 +18,7 @@ ARG NPM_CONFIG_REGISTRY=
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
 # -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS frontend-builder
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS frontend-builder
 ARG NPM_CONFIG_REGISTRY
 
 WORKDIR /app/frontend
@@ -46,7 +46,8 @@ RUN pnpm run build
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Builder
 # -----------------------------------------------------------------------------
-FROM ${GOLANG_IMAGE} AS backend-builder
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS backend-builder
+ARG TARGETARCH
 
 # Build arguments for version info (set by CI)
 ARG VERSION=
@@ -78,7 +79,7 @@ COPY --from=frontend-builder /app/backend/internal/web/dist ./internal/web/dist
 RUN VERSION_VALUE="${VERSION}" && \
     if [ -z "${VERSION_VALUE}" ]; then VERSION_VALUE="$(./scripts/resolve-version.sh)"; fi && \
     DATE_VALUE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
-    CGO_ENABLED=0 GOOS=linux go build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
     -tags embed \
     -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${COMMIT} -X main.Date=${DATE_VALUE} -X main.BuildType=release" \
     -trimpath \
@@ -88,17 +89,28 @@ RUN VERSION_VALUE="${VERSION}" && \
 # -----------------------------------------------------------------------------
 # Stage 3: PostgreSQL Client (version-matched with docker-compose)
 # -----------------------------------------------------------------------------
-FROM ${POSTGRES_IMAGE} AS pg-client
+FROM --platform=$TARGETPLATFORM ${POSTGRES_IMAGE} AS pg-client
 
 # -----------------------------------------------------------------------------
 # Stage 4: Final Runtime Image
 # -----------------------------------------------------------------------------
-FROM ${ALPINE_IMAGE}
+FROM --platform=$TARGETPLATFORM ${ALPINE_IMAGE}
+
+# These values bind the runtime image to the exact source snapshot used to
+# build it. The production release gate verifies them before a switch.
+ARG VERSION=
+ARG COMMIT=
+ARG DATE=
+ARG SOURCE_SNAPSHOT=
 
 # Labels
 LABEL maintainer="Wei-Shaw <github.com/Wei-Shaw>"
 LABEL description="Sub2API - AI API Gateway Platform"
 LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${COMMIT}"
+LABEL org.opencontainers.image.created="${DATE}"
+LABEL org.opencontainers.image.source-snapshot="${SOURCE_SNAPSHOT}"
 
 # Install runtime dependencies
 RUN apk add --no-cache \

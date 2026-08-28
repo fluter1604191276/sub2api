@@ -67,6 +67,18 @@ class RefreshUpstreamLedgerTest(unittest.TestCase):
         self.assertIn("--update-ledger-page-rates", command_text)
         self.assertIn("--hub-compose-dir", command_text)
         self.assertIn("emit_true_loss_alerts.py", command_text)
+        self.assertIn("audit_kbq_configuration.py", command_text)
+        configuration_command = next(
+            command for name, command in steps
+            if name == "preflight KBQ production pricing configuration"
+        )
+        historical_command = next(
+            command for name, command in steps
+            if name == "audit KBQ true upstream cost"
+        )
+        self.assertNotIn("--fail-on-loss", configuration_command)
+        self.assertIn("--hours", historical_command)
+        self.assertEqual("720", historical_command[historical_command.index("--hours") + 1])
         self.assertIn("--fail-soft", command_text)
         self.assertNotIn("refresh_balance_api_adapters.py", command_text)
         self.assertIn("true-loss alert", metadata["last_orchestrated_refresh_note"])
@@ -216,6 +228,37 @@ class RefreshUpstreamLedgerTest(unittest.TestCase):
         self.assertNotIn("audit KBQ true upstream cost", step_names)
         self.assertNotIn("emit optional KBQ true-loss alert", step_names)
         self.assertNotIn("emit_true_loss_alerts.py", command_text)
+
+    def test_fail_on_loss_applies_to_configuration_and_historical_audits(self):
+        _result, steps, _metadata = self.run_main_with_args(
+            "--db",
+            "/tmp/upstream-rates-test.sqlite",
+            "--output",
+            "/tmp/upstream-rates-test.html",
+            "--local-postgres",
+            "--fail-on-loss",
+        )
+
+        by_name = {name: command for name, command in steps}
+        self.assertIn(
+            "--fail-on-loss",
+            by_name["preflight KBQ production pricing configuration"],
+        )
+        self.assertIn("--fail-on-loss", by_name["audit KBQ true upstream cost"])
+
+    def test_configuration_audit_can_be_skipped_independently(self):
+        _result, steps, _metadata = self.run_main_with_args(
+            "--db",
+            "/tmp/upstream-rates-test.sqlite",
+            "--output",
+            "/tmp/upstream-rates-test.html",
+            "--local-postgres",
+            "--skip-kbq-configuration-audit",
+        )
+
+        names = [name for name, _command in steps]
+        self.assertNotIn("preflight KBQ production pricing configuration", names)
+        self.assertIn("audit KBQ true upstream cost", names)
 
 
 if __name__ == "__main__":

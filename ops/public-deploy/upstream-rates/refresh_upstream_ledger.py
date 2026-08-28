@@ -27,8 +27,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh Fluter upstream ledger and dashboard")
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--output", default=DEFAULT_OUTPUT)
-    parser.add_argument("--hours", type=int, default=24, help="KBQ true-cost audit window")
-    parser.add_argument("--ssh-host", default="us-api-vps")
+    parser.add_argument("--hours", type=int, default=720, help="KBQ true-cost audit window")
+    parser.add_argument("--ssh-host", default="fluterapi-prod")
     parser.add_argument(
         "--local-postgres",
         action="store_true",
@@ -68,6 +68,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip-site-account-snapshot", action="store_true")
     parser.add_argument("--skip-priority-plan-preview", action="store_true")
+    parser.add_argument("--skip-kbq-configuration-audit", action="store_true")
     parser.add_argument("--skip-kbq-audit", action="store_true")
     parser.add_argument("--skip-true-loss-alert", action="store_true")
     parser.add_argument(
@@ -80,7 +81,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fail-on-loss",
         action="store_true",
-        help="Return non-zero if KBQ true-cost audit finds real loss buckets",
+        help="Return non-zero if KBQ configuration or historical audit finds a blocking loss risk",
     )
     return parser.parse_args()
 
@@ -245,6 +246,23 @@ def main() -> int:
             command.extend(["--ssh-host", args.ssh_host])
         run_step("refresh read-only account priority plan preview", command)
 
+    if not args.skip_kbq_configuration_audit:
+        command = [
+            python,
+            str(script_dir / "audit_kbq_configuration.py"),
+            "--db",
+            args.db,
+            "--recharge-factor",
+            kbq_recharge_factor,
+        ]
+        if args.local_postgres:
+            command.append("--local-postgres")
+        else:
+            command.extend(["--ssh-host", args.ssh_host])
+        if args.fail_on_loss:
+            command.append("--fail-on-loss")
+        run_step("preflight KBQ production pricing configuration", command)
+
     if not args.skip_kbq_audit:
         command = [
             python,
@@ -281,7 +299,7 @@ def main() -> int:
     write_metadata(
         args.db,
         "last_orchestrated_refresh_note",
-        "safe refresh: upstream-hub read-only import from local hub or sanitized snapshot when available, KBQ pricing, public pricing adapters, read-only site account multiplier snapshot, read-only priority plan preview, KBQ true-cost audit, optional dry-run/loopback true-loss alert, removed upstream group cleanup, static dashboard render; no paid image smoke; no production account edits; legacy API balance adapters skipped unless explicitly included",
+        "safe refresh: upstream-hub read-only import from local hub or sanitized snapshot when available, KBQ pricing, public pricing adapters, read-only site account multiplier snapshot, read-only priority plan preview, KBQ production pricing configuration preflight, KBQ true-cost audit, optional dry-run/loopback true-loss alert, removed upstream group cleanup, static dashboard render; no paid image smoke; no production account edits; legacy API balance adapters skipped unless explicitly included",
     )
 
     if not args.skip_removed_group_cleanup:

@@ -99,7 +99,7 @@ def parse_args() -> argparse.Namespace:
         description="Dry-run account multiplier drift or create disabled draft accounts from upstream ledger"
     )
     parser.add_argument("--db", default=DEFAULT_DB)
-    parser.add_argument("--ssh-host", default="us-api-vps")
+    parser.add_argument("--ssh-host", default="fluterapi-prod")
     parser.add_argument("--compose-dir", default=DEFAULT_COMPOSE_DIR)
     parser.add_argument("--backup-dir", default=DEFAULT_BACKUP_DIR)
     parser.add_argument("--local-postgres", action="store_true")

@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "fluter-region-compliance",
+  "main": "src/index.js",
+  "compatibility_date": "2026-06-25",
+  "workers_dev": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.05
+  },
+  "routes": [
+    {
+      "pattern": "fluterapi.top/*",
+      "zone_name": "fluterapi.top"
+    },
+    {
+      "pattern": "api.fluterapi.top/*",
+      "zone_name": "fluterapi.top"
+    },
+    {
+      "pattern": "img-api.fluterapi.top/*",
+      "zone_name": "fluterapi.top"
+    }
+  ]
+}

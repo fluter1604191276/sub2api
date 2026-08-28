@@ -97,7 +97,7 @@ class AccountSnapshot:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Refresh site account multiplier snapshots")
     parser.add_argument("--db", default=DEFAULT_DB)
-    parser.add_argument("--ssh-host", default="us-api-vps")
+    parser.add_argument("--ssh-host", default="fluterapi-prod")
     parser.add_argument("--compose-dir", default=DEFAULT_COMPOSE_DIR)
     parser.add_argument("--local-postgres", action="store_true")
     return parser.parse_args()

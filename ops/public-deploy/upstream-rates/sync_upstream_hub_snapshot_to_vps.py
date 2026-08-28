@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 DEFAULT_HUB_COMPOSE_DIR = "/Users/fluter_claw/Desktop/study_project/upstream-hub"
-DEFAULT_REMOTE_SSH_HOST = "us-api-vps"
+DEFAULT_REMOTE_SSH_HOST = "fluterapi-prod"
 DEFAULT_REMOTE_SNAPSHOT = "/var/lib/fluterapi-upstream-rates/upstream-hub-snapshot.json"
 DEFAULT_REMOTE_DB = "/var/lib/fluterapi-upstream-rates/upstream_rates.sqlite"
 DEFAULT_REMOTE_OUTPUT = "/www/fluterapi-home/admin/upstream-rates/index.html"

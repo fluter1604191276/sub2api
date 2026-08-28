@@ -123,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-body-bytes", type=int, default=DEFAULT_MAX_BODY_BYTES)
     parser.add_argument("--init-token", action="store_true", help="Create a local collector token file with mode 600")
     parser.add_argument("--sync-latest", action="store_true", help="Import latest.json through refresh_browser_readonly_adapters.py")
-    parser.add_argument("--remote-ssh-host", default="us-api-vps")
+    parser.add_argument("--remote-ssh-host", default="fluterapi-prod")
     parser.add_argument("--import-script", type=Path, default=DEFAULT_IMPORT_SCRIPT)
     parser.add_argument("--no-remote-render-dashboard", action="store_true")
     parser.add_argument("--queue-command", metavar="SITE_OR_PROVIDER", help="Queue one local browser command for an opened upstream tab")

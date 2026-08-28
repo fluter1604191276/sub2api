@@ -119,6 +119,13 @@ tests
 CLAUDE.md
 .claude
 scripts
+!ops/public-deploy/scripts/
+!ops/public-deploy/scripts/**
+# Machine-specific launchd jobs contain local absolute paths and must remain
+# outside the reusable operations bundle.
+ops/public-deploy/scripts/com.fluter.sub2api-vps-backup-retention.plist
+ops/public-deploy/scripts/fluter_vps_backup_retention_launcher.sh
+ops/public-deploy/upstream-rates/launchd/
 !backend/scripts/
 !backend/scripts/resolve-version.sh
 .code-review-state

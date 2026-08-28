@@ -72,6 +72,10 @@ deploy/data/
 deploy/postgres_data/
 deploy/redis_data/
 
+# Operator material is not part of the runtime image or build input. This
+# includes upstream snapshots, reports, release evidence, and backup helpers.
+ops/
+
 # GoReleaser
 .goreleaser.yaml
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Backup S2A Manager deployment
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=DEPLOY_DIR=/www/s2a-manager
+Environment=RETENTION_DAYS=7
+Environment=BACKUP_CLEANUP_MODE=delete
+ExecStart=/www/s2a-manager/scripts/backup-s2a-manager.sh

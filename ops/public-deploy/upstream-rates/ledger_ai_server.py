@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8751)
     parser.add_argument("--db", default=DEFAULT_DB)
     parser.add_argument("--dashboard-path", default=DEFAULT_DASHBOARD)
-    parser.add_argument("--node-label", default="us-api-vps-new")
+    parser.add_argument("--node-label", default="fluterapi-prod")
     parser.add_argument("--serve-dashboard", action="store_true")
     return parser.parse_args()
 
@@ -573,7 +573,7 @@ def cached_slow_metrics(db_path: str, dashboard_path: str) -> dict[str, Any]:
 def collect_metrics(
     db_path: str = DEFAULT_DB,
     dashboard_path: str = DEFAULT_DASHBOARD,
-    node_label: str = "us-api-vps-new",
+    node_label: str = "fluterapi-prod",
 ) -> dict[str, Any]:
     load = parse_loadavg(read_text("/proc/loadavg"))
     cpu_ticks = parse_cpu_stat(read_text("/proc/stat"))
@@ -584,7 +584,7 @@ def collect_metrics(
         "status": "ok",
         "metrics_version": 2,
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "node": {"label": str(node_label or "us-api-vps-new")[:120]},
+        "node": {"label": str(node_label or "fluterapi-prod")[:120]},
         "cpu": {
             "cores": cpu_cores,
             "load1": load[0],

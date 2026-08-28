@@ -405,6 +405,165 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
         finally:
             Path(db_path).unlink(missing_ok=True)
 
+    def test_configuration_audit_is_rendered_separately_from_usage_audit(self):
+        db_path = self.create_minimal_db()
+        conn = sqlite3.connect(db_path)
+        conn.executescript(
+            """
+            create table kbq_configuration_audit_runs (
+              id integer primary key,
+              observed_at text not null,
+              pricing_version text not null,
+              account_count integer not null,
+              mapping_count integer not null,
+              active_mapping_count integer not null,
+              ok_count integer not null,
+              blocking_count integer not null,
+              active_blocking_count integer not null,
+              dormant_blocking_count integer not null,
+              real_loss_count integer not null,
+              ambiguous_group_ratio_count integer not null,
+              missing_upstream_price_count integer not null,
+              missing_local_price_count integer not null,
+              missing_user_price_count integer not null,
+              tool_fee_uncovered_count integer not null,
+              tool_fee_unknown_count integer not null,
+              source text not null,
+              note text not null
+            );
+            create table kbq_configuration_audit_rows (
+              id integer primary key,
+              run_id integer not null,
+              status text not null,
+              account_id integer not null,
+              account_name text not null,
+              account_status text not null,
+              schedulable integer not null,
+              group_id integer,
+              group_name text not null,
+              group_status text not null,
+              requested_model text not null,
+              upstream_model text not null,
+              pricing_status text not null,
+              kbq_group_key text not null,
+              kbq_group_ratio real,
+              group_ratio_source text not null,
+              group_rate_multiplier real,
+              minimum_user_multiplier real,
+              channel_id integer,
+              channel_name text not null,
+              channel_status text not null,
+              local_pricing_source text not null,
+              upstream_input_price real,
+              upstream_output_price real,
+              upstream_cache_read_price real,
+              upstream_cache_write_price real,
+              local_input_price real,
+              local_output_price real,
+              local_cache_read_price real,
+              local_cache_write_price real,
+              site_input_price real,
+              site_output_price real,
+              site_cache_read_price real,
+              site_cache_write_price real,
+              minimum_break_even_multiplier real,
+              group_web_search_price_per_call real,
+              upstream_web_search_price_per_call real,
+              site_web_search_price_per_call real,
+              tool_fee_status text not null,
+              note text not null
+            );
+            """
+        )
+        conn.execute(
+            "insert into kbq_configuration_audit_runs values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (1, "2026-08-13T04:00:00+00:00", "kbq-test", 2, 2, 1, 0, 2, 1, 1, 1, 1, 0, 0, 0, 1, 0, "test", "read-only"),
+        )
+        base = (
+            1, 1, "REAL_LOSS", 7788, "特价 deepseek flash", "active", 1, 13,
+            "deepseek", "active", "deepseek-v4-flash", "deepseek-v4-flash", "ok",
+            "特价", 0.18, "explicit", 0.5, 0.5, 16, "deepseek 网页反代", "inactive",
+            "fallback", 0.18, 0.36, 0.0036, None, 0.07, 0.14, 0.0014, None,
+            0.07, 0.14, 0.0014, None, 0.36, None, 0.009, 0.005,
+            "TOOL_FEE_UNCOVERED_LOSS", "inactive channel fallback causes loss",
+        )
+        ambiguous = list(base)
+        ambiguous[0] = 2
+        ambiguous[2] = "AMBIGUOUS_GROUP_RATIO"
+        ambiguous[3] = 7794
+        ambiguous[4] = "KBQ codex ambiguous"
+        ambiguous[10] = "gpt-5.6-luna"
+        ambiguous[11] = "gpt-5.6-luna"
+        ambiguous[13] = ""
+        ambiguous[14] = None
+        ambiguous[15] = "multiple_groups"
+        ambiguous[35] = None
+        ambiguous[36] = None
+        ambiguous[37] = None
+        ambiguous[38] = "TOOL_FEE_UNKNOWN"
+        ambiguous[39] = "set explicit group key"
+        conn.execute(
+            "insert into kbq_configuration_audit_rows values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            base,
+        )
+        conn.execute(
+            "insert into kbq_configuration_audit_rows values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ambiguous,
+        )
+        for definition in (
+            "channel_mapped_model text not null default ''",
+            "billing_model text not null default ''",
+            "billing_model_source text not null default ''",
+            "minimum_break_even_multiplier_priority real",
+            "minimum_break_even_multiplier_flex real",
+            "minimum_safe_user_multiplier real",
+            "checked_service_tiers text not null default 'default'",
+        ):
+            conn.execute(f"alter table kbq_configuration_audit_rows add column {definition}")
+        conn.execute(
+            """
+            update kbq_configuration_audit_rows
+            set channel_mapped_model = ?, billing_model = ?, billing_model_source = ?,
+                minimum_break_even_multiplier_priority = ?,
+                minimum_break_even_multiplier_flex = ?, minimum_safe_user_multiplier = ?,
+                checked_service_tiers = ?
+            where id = 1
+            """,
+            ("deepseek-v4-flash", "deepseek-v4-flash", "channel_mapped", 0.18, 0.72, 0.72, "default,priority,flex"),
+        )
+        conn.commit()
+        conn.close()
+        try:
+            loaded = self.render_mod.load_rows(db_path)
+            metadata = loaded[6]
+            self.assertEqual(1, metadata["_kbq_configuration_summary"]["realLossCount"])
+            self.assertEqual(1, metadata["_kbq_configuration_summary"]["activeBlockingCount"])
+            self.assertEqual(1, metadata["_kbq_configuration_summary"]["dormantBlockingCount"])
+            self.assertEqual({"REAL_LOSS", "AMBIGUOUS_GROUP_RATIO"}, {
+                row["status"] for row in metadata["_kbq_configuration_rows"]
+            })
+            html = self.render_mod.render(*loaded[:8])
+            self.assertIn("KBQ_CONFIGURATION_AUDIT", html)
+            self.assertIn("KBQ_CONFIGURATION_ROWS", html)
+            self.assertIn("REAL_LOSS", html)
+            self.assertIn("AMBIGUOUS_GROUP_RATIO", html)
+            self.assertIn("TOOL_FEE_UNCOVERED_LOSS", html)
+            self.assertIn("当前可调度阻断", html)
+            self.assertIn("停用草案阻断", html)
+            configuration_rows = extract_js_const_json(html, "KBQ_CONFIGURATION_ROWS")
+            self.assertEqual(0.009, configuration_rows[0]["upstreamWebSearchPricePerCall"])
+            self.assertEqual(0.005, configuration_rows[0]["siteWebSearchPricePerCall"])
+            self.assertEqual("channel_mapped", configuration_rows[0]["billingModelSource"])
+            self.assertEqual(0.18, configuration_rows[0]["minimumBreakEvenMultiplierPriority"])
+            self.assertEqual(0.72, configuration_rows[0]["minimumBreakEvenMultiplierFlex"])
+            self.assertEqual(0.72, configuration_rows[0]["minimumSafeUserMultiplier"])
+            self.assertEqual("default,priority,flex", configuration_rows[0]["checkedServiceTiers"])
+            self.assertIn("三档保本倍率", html)
+            self.assertIn("实际阻断档位", html)
+            self.assertNotIn("row.rawModelRatio.toFixed", html)
+        finally:
+            Path(db_path).unlink(missing_ok=True)
+
     def test_load_rows_preserves_image_per_shot_cost_label(self):
         db_path = self.create_minimal_db()
         conn = sqlite3.connect(db_path)
@@ -516,7 +675,7 @@ class RenderUpstreamDashboardTest(unittest.TestCase):
             adapter_status=[],
             metadata={
                 "priority_plan_manual_write_command": (
-                    'ssh us-api-vps "sudo python3 '
+                    'ssh fluterapi-prod "sudo python3 '
                     '/var/lib/fluterapi-upstream-rates/plan_account_priority_buckets.py --write-notes"'
                 ),
                 "safe_note": "ok",

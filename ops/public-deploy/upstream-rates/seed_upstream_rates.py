@@ -525,7 +525,11 @@ create table if not exists kbq_token_model_records (
   category text not null,
   model_name text not null,
   base_model text not null,
-  cost_multiplier real not null,
+  kbq_group_key text not null default '',
+  kbq_group_ratio real,
+  group_ratio_source text not null default '',
+  pricing_status text not null default 'OK',
+  cost_multiplier real,
   endpoints text not null,
   input_usd_per_1m real,
   output_usd_per_1m real,
@@ -541,7 +545,7 @@ create table if not exists kbq_token_model_records (
   source_url text not null,
   note text not null,
   updated_at text not null,
-  unique(category, model_name)
+  unique(category, model_name, kbq_group_key)
 );
 """
 

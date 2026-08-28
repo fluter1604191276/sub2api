@@ -17,7 +17,8 @@ Commands on the VPS:
 sudo python3 /var/lib/fluterapi-upstream-rates/seed_upstream_rates.py --reset
 sudo python3 /var/lib/fluterapi-upstream-rates/refresh_kbq_token_models.py
 sudo python3 /var/lib/fluterapi-upstream-rates/refresh_public_pricing_adapters.py
-sudo python3 /var/lib/fluterapi-upstream-rates/audit_kbq_true_costs.py --local-postgres --hours 24
+sudo python3 /var/lib/fluterapi-upstream-rates/audit_kbq_configuration.py --local-postgres
+sudo python3 /var/lib/fluterapi-upstream-rates/audit_kbq_true_costs.py --local-postgres --hours 720
 sudo python3 /var/lib/fluterapi-upstream-rates/emit_true_loss_alerts.py
 sudo python3 /var/lib/fluterapi-upstream-rates/render_upstream_dashboard.py
 ```
@@ -43,17 +44,73 @@ history belong to S2A Manager and are not duplicated here.
 Safe hourly refresh entrypoint:
 
 ```bash
-sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py --local-postgres --hours 24
+sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py --local-postgres
 ```
 
 This imports upstream-hub observations when a local hub or sanitized snapshot is
 available, refreshes KBQ public token pricing, refreshes public pricing adapters such as Junche
 `/api/pricing`, snapshots current production account/group multipliers into the
-independent ledger, recomputes recent KBQ true upstream costs from read-only
-production usage logs, emits a dry-run true-loss alert summary, marks old
+independent ledger, preflights every current KBQ model mapping against the same
+pricing-source order used by production, recomputes 720 hours of KBQ true upstream
+costs from read-only production usage logs, emits a dry-run true-loss alert summary, marks old
 upstream groups that no longer appear in refreshed upstream pages/APIs, and
 renders the static admin page. It does not run paid image-generation smoke
 tests and does not edit sub2api accounts, groups, channels, pricing, or notes.
+
+The two KBQ audits answer different questions:
+
+- `audit_kbq_configuration.py` is a static preflight. It checks mappings even
+  before they have usage logs and follows production billing priority: active
+  channel pricing, running-image LiteLLM pricing, then known Go fallback. An
+  inactive channel is ignored. Missing prices, ambiguous KBQ groups, true token
+  price inversion, and uncovered DeepSeek tool fees are blocking findings.
+  It always reports default/priority/flex break-even multipliers, but only
+  reachable tiers can block: OpenAI checks default/priority/flex, Anthropic
+  checks default/priority because fast-mode maps to priority, and other
+  platforms check default. `minimum_safe_user_multiplier` is the maximum
+  break-even multiplier across those reachable tiers. The audit reads the
+  production `openai_fast_policy_settings` and mirrors its first-match scope,
+  service-tier, model-whitelist, fallback, filter/block, and force-priority
+  behavior. Therefore a filtered/blocked `flex` tier is excluded only when the
+  production policy actually makes it unreachable for that account and final
+  upstream model.
+  The summary separates currently routable mappings from disabled or draft
+  mappings, so dormant onboarding work does not hide live production risk.
+- `audit_kbq_true_costs.py` is a historical audit over actual usage. It reports
+  `REAL_LOSS` only when reconstructed upstream token cost exceeded what users
+  were billed. The default and recommended window is 720 hours. The reported
+  upstream cost is a confirmed token-cost lower bound: revenue from buckets
+  without a current KBQ price is excluded from margin, and DeepSeek margin is
+  labelled an upper bound while web-search call counts are absent from generic
+  token usage logs.
+
+Both scripts read only the allowlisted pricing and mapping fields they need from
+production. They never export full credentials, API keys, tokens, cookies, or
+request bodies, and they write findings only to the independent SQLite ledger.
+For a release or pricing-change gate, add `--fail-on-loss`; the command returns
+status 2 when a currently routable mapping has a blocking configuration state
+or the historical audit finds a `REAL_LOSS` bucket. Disabled/draft mappings are
+still reported, but do not make the release gate permanently fail:
+
+```bash
+sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py \
+  --local-postgres \
+  --fail-on-loss
+```
+
+KBQ token cost must never be inferred from the raw `model_ratio` alone:
+
+```text
+input = model_ratio × KBQ group_ratio × 2 × recharge_factor
+output = input × completion_ratio
+cache_read = input × cache_ratio
+cache_write = input × create_cache_ratio
+```
+
+Compute the user multiplier required for every paid dimension and reachable
+service tier, then take the maximum. Tool-call charges such as DeepSeek
+`web_search` are separate costs and must be billed separately or the tool must
+be disabled; a safe token multiplier cannot cover an unrecorded per-call fee.
 
 upstream-hub is now the preferred collection source for logged-in upstream
 balances and group multipliers. The old Chrome/Tampermonkey/Safari collectors
@@ -138,7 +195,7 @@ python3 ops/public-deploy/upstream-rates/refresh_from_upstream_hub.py \
 
 sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py \
   --local-postgres \
-  --hours 24 \
+  --hours 720 \
   --upstream-hub-snapshot-json /var/lib/fluterapi-upstream-rates/upstream-hub-snapshot.json
 ```
 
@@ -170,7 +227,7 @@ parameters.
 To wire it into the hourly refresh, pass the local OpenClaw endpoint explicitly:
 
 ```bash
-sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py --local-postgres --hours 24 --true-loss-alert-endpoint http://127.0.0.1:8752/alerts
+sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py --local-postgres --hours 720 --true-loss-alert-endpoint http://127.0.0.1:8752/alerts
 ```
 
 If `--skip-kbq-audit` is used, the alert step is skipped too, so stale audit
@@ -261,7 +318,7 @@ available.
 Local browser read-only diagnostic refresh:
 
 ```bash
-python3 ops/public-deploy/upstream-rates/refresh_browser_readonly_adapters.py --remote-ssh-host us-api-vps
+python3 ops/public-deploy/upstream-rates/refresh_browser_readonly_adapters.py --remote-ssh-host fluterapi-prod
 ```
 
 This legacy path refreshes already-open Safari tabs, extracts small sanitized
@@ -275,7 +332,7 @@ Chrome/Tampermonkey read-only diagnostic collector:
 ```bash
 python3 ops/public-deploy/upstream-rates/chrome_readonly_collector.py
 python3 ops/public-deploy/upstream-rates/chrome_readonly_collector.py --queue-command KBQ --command-reason "refresh before ledger sync"
-python3 ops/public-deploy/upstream-rates/chrome_readonly_collector.py --sync-latest --remote-ssh-host us-api-vps
+python3 ops/public-deploy/upstream-rates/chrome_readonly_collector.py --sync-latest --remote-ssh-host fluterapi-prod
 ```
 
 This is a legacy Chrome companion to the Safari diagnostic adapter. The
@@ -523,10 +580,11 @@ python3 ops/public-deploy/upstream-rates/seed_upstream_rates.py --db /tmp/fluter
 python3 ops/public-deploy/upstream-rates/refresh_from_upstream_hub.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --hub-compose-dir /Users/fluter_claw/Desktop/study_project/upstream-hub --hub-connection docker --update-ledger-page-rates
 python3 ops/public-deploy/upstream-rates/refresh_kbq_token_models.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite
 python3 ops/public-deploy/upstream-rates/refresh_public_pricing_adapters.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite
-python3 ops/public-deploy/upstream-rates/refresh_site_account_snapshot.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host us-api-vps
-python3 ops/public-deploy/upstream-rates/audit_kbq_true_costs.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host us-api-vps --hours 24
+python3 ops/public-deploy/upstream-rates/refresh_site_account_snapshot.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host fluterapi-prod
+python3 ops/public-deploy/upstream-rates/audit_kbq_configuration.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host fluterapi-prod
+python3 ops/public-deploy/upstream-rates/audit_kbq_true_costs.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host fluterapi-prod --hours 720
 python3 ops/public-deploy/upstream-rates/render_upstream_dashboard.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --output /tmp/fluter-upstream-rates-test/index.html
 python3 ops/public-deploy/upstream-rates/refresh_upstream_ledger.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --output /tmp/fluter-upstream-rates-test/index.html --skip-kbq-audit
-python3 ops/public-deploy/upstream-rates/sync_account_multipliers_from_ledger.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host us-api-vps
+python3 ops/public-deploy/upstream-rates/sync_account_multipliers_from_ledger.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --ssh-host fluterapi-prod
 python3 ops/public-deploy/upstream-rates/ledger_ai_server.py --db /tmp/fluter-upstream-rates-test/upstream_rates.sqlite --host 127.0.0.1 --port 8751
 ```

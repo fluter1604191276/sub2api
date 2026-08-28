@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Refresh KBQ token-priced and Claude per-call model costs into SQLite.
+"""Refresh KBQ token-priced and per-call model costs into SQLite.
 
 This script reads KBQ's public /api/pricing data. It does not use or store API
-keys. It stores token-priced Claude/Codex models and Claude quota_type=1
-per-call models separately so the dashboard does not mix token multipliers with
-per-call prices.
+keys. Every quota_type=0 model remains visible, including models without a
+verified official baseline. Per-call models stay separate so the dashboard
+does not mix token multipliers with per-call prices.
 """
 
 from __future__ import annotations
@@ -30,7 +30,11 @@ create table if not exists kbq_token_model_records (
   category text not null,
   model_name text not null,
   base_model text not null,
-  cost_multiplier real not null,
+  kbq_group_key text not null default '',
+  kbq_group_ratio real,
+  group_ratio_source text not null default '',
+  pricing_status text not null default 'OK',
+  cost_multiplier real,
   endpoints text not null,
   input_usd_per_1m real,
   output_usd_per_1m real,
@@ -46,7 +50,7 @@ create table if not exists kbq_token_model_records (
   source_url text not null,
   note text not null,
   updated_at text not null,
-  unique(category, model_name)
+  unique(category, model_name, kbq_group_key)
 );
 
 create table if not exists kbq_per_call_model_records (
@@ -76,22 +80,27 @@ create table if not exists metadata (
 
 UPSERT = """
 insert into kbq_token_model_records (
-  category, model_name, base_model, cost_multiplier, endpoints,
+  category, model_name, base_model, kbq_group_key, kbq_group_ratio,
+  group_ratio_source, pricing_status, cost_multiplier, endpoints,
   input_usd_per_1m, output_usd_per_1m, cache_read_usd_per_1m,
   cache_write_usd_per_1m, raw_model_ratio,
   official_input_usd_per_1m, official_output_usd_per_1m,
   official_cache_read_usd_per_1m, official_cache_write_usd_per_1m,
   official_label, pricing_version, source_url, note, updated_at
 ) values (
-  :category, :model_name, :base_model, :cost_multiplier, :endpoints,
+  :category, :model_name, :base_model, :kbq_group_key, :kbq_group_ratio,
+  :group_ratio_source, :pricing_status, :cost_multiplier, :endpoints,
   :input_usd_per_1m, :output_usd_per_1m, :cache_read_usd_per_1m,
   :cache_write_usd_per_1m, :raw_model_ratio,
   :official_input_usd_per_1m, :official_output_usd_per_1m,
   :official_cache_read_usd_per_1m, :official_cache_write_usd_per_1m,
   :official_label, :pricing_version, :source_url, :note, :updated_at
 )
-on conflict(category, model_name) do update set
+on conflict(category, model_name, kbq_group_key) do update set
   base_model = excluded.base_model,
+  kbq_group_ratio = excluded.kbq_group_ratio,
+  group_ratio_source = excluded.group_ratio_source,
+  pricing_status = excluded.pricing_status,
   cost_multiplier = excluded.cost_multiplier,
   endpoints = excluded.endpoints,
   input_usd_per_1m = excluded.input_usd_per_1m,
@@ -222,8 +231,47 @@ def per_call_category(model_name: str) -> str:
     return mapping.get(prefix, "Claude 按次其它")
 
 
+def model_category(model_name: str) -> str:
+    low = model_name.lower()
+    if "claude" in low:
+        return "Claude"
+    if "gpt" in low or "codex" in low:
+        return "Codex/OpenAI"
+    if "deepseek" in low:
+        return "DeepSeek"
+    if "kimi" in low:
+        return "Kimi"
+    if "glm" in low:
+        return "GLM"
+    if "grok" in low:
+        return "Grok"
+    if "gemini" in low:
+        return "Gemini"
+    if "minimax" in low:
+        return "MiniMax"
+    if "qwen" in low:
+        return "Qwen"
+    return "Other"
+
+
 def official_prices(base_model: str) -> dict[str, Any] | None:
     model = base_model.lower()
+    if model in {"grok-4.5", "grok-4.5-latest"}:
+        return {
+            "input": 2,
+            "output": 6,
+            "cache_read": 0.5,
+            "cache_write": None,
+            "label": "xAI Grok 4.5: input $2, output $6, cache read $0.5 / 1M",
+        }
+    if "minimax-m3" in model:
+        return {
+            "input": 0.6,
+            "output": 2.4,
+            "cache_read": 0.12,
+            "cache_write": None,
+            "label": "MiniMax M3 standard tier: input $0.6, output $2.4, cache read $0.12 / 1M",
+        }
     if "gpt-5.5" in model:
         return {
             "input": 5,
@@ -325,6 +373,24 @@ def live_prices(
     }
 
 
+def group_variants(
+    item: dict[str, Any], group_ratios: dict[str, Any]
+) -> list[tuple[str, float | None, str]]:
+    if bracket_prefix(str(item.get("model_name") or "")):
+        return [("model_variant", 1.0, "model_variant")]
+
+    enabled = [
+        str(key)
+        for key in (item.get("enable_groups") or [])
+        if number_or_none(group_ratios.get(str(key))) is not None
+    ]
+    if enabled:
+        return [(key, float(group_ratios[key]), "enable_groups") for key in enabled]
+
+    # A model without enable_groups is not safe to price by guessing default.
+    return [("", None, "ambiguous_group")]
+
+
 def max_cost_multiplier(
     live: dict[str, float | None], official: dict[str, Any]
 ) -> float | None:
@@ -344,56 +410,107 @@ def build_rows(
     source_url: str,
     recharge_factor: float,
 ) -> list[dict[str, Any]]:
-    default_group_ratio = float(pricing.get("group_ratio", {}).get("default") or 1)
+    group_ratios = pricing.get("group_ratio", {}) or {}
     pricing_version = pricing.get("pricing_version") or ""
     rows = []
     for item in pricing.get("data", []):
         model_name = item.get("model_name") or ""
-        low = model_name.lower()
         if item.get("quota_type") != 0:
             continue
-        if "claude" in low:
-            category = "Claude"
-        elif "gpt" in low or "codex" in low:
-            category = "Codex/OpenAI"
-        else:
-            continue
-
+        category = model_category(model_name)
         base_model = strip_prefix(model_name)
         official = official_prices(base_model)
-        if official is None:
-            continue
-        live = live_prices(item, default_group_ratio, recharge_factor)
-        cost_multiplier = max_cost_multiplier(live, official)
-        if cost_multiplier is None:
-            continue
         endpoints = ", ".join(item.get("supported_endpoint_types") or [])
-        rows.append(
-            {
-                "category": category,
-                "model_name": model_name,
-                "base_model": base_model,
-                "cost_multiplier": cost_multiplier,
-                "endpoints": endpoints,
-                "input_usd_per_1m": live["input"],
-                "output_usd_per_1m": live["output"],
-                "cache_read_usd_per_1m": live["cache_read"],
-                "cache_write_usd_per_1m": live["cache_write"],
-                "raw_model_ratio": live["raw_model_ratio"],
-                "official_input_usd_per_1m": official["input"],
-                "official_output_usd_per_1m": official["output"],
-                "official_cache_read_usd_per_1m": official["cache_read"],
-                "official_cache_write_usd_per_1m": official["cache_write"],
-                "official_label": official["label"],
-                "pricing_version": pricing_version,
-                "source_url": source_url,
-                "note": (
-                    "只含 KBQ quota_type=0 按 token 计费；成本倍率=上游实际价/官方基准价；"
-                    f"已计入 KBQ 充值折扣系数 {recharge_factor:g}；已排除按次、DeepSeek、Gemini、Grok。"
-                ),
+        for group_key, group_ratio, group_source in group_variants(item, group_ratios):
+            live = live_prices(item, group_ratio or 1.0, recharge_factor) if group_ratio is not None else {
+                "input": None,
+                "output": None,
+                "cache_read": None,
+                "cache_write": None,
+                "raw_model_ratio": number_or_none(item.get("model_ratio")) or 0,
             }
-        )
-    return sorted(rows, key=lambda row: (row["category"], row["cost_multiplier"], row["model_name"]))
+            cost_multiplier = max_cost_multiplier(live, official) if official else None
+            if group_source == "ambiguous_group":
+                pricing_status = "AMBIGUOUS_GROUP_RATIO"
+                cost_multiplier = None
+            else:
+                pricing_status = "OK" if cost_multiplier is not None else "NO_OFFICIAL_BASELINE"
+            rows.append(
+                {
+                    "category": category,
+                    "model_name": model_name,
+                    "base_model": base_model,
+                    "kbq_group_key": group_key,
+                    "kbq_group_ratio": group_ratio,
+                    "group_ratio_source": group_source,
+                    "pricing_status": pricing_status,
+                    "cost_multiplier": cost_multiplier,
+                    "endpoints": endpoints,
+                    "input_usd_per_1m": live["input"],
+                    "output_usd_per_1m": live["output"],
+                    "cache_read_usd_per_1m": live["cache_read"],
+                    "cache_write_usd_per_1m": live["cache_write"],
+                    "raw_model_ratio": live["raw_model_ratio"],
+                    "official_input_usd_per_1m": official["input"] if official else None,
+                    "official_output_usd_per_1m": official["output"] if official else None,
+                    "official_cache_read_usd_per_1m": official["cache_read"] if official else None,
+                    "official_cache_write_usd_per_1m": official["cache_write"] if official else None,
+                    "official_label": official["label"] if official else "NO_OFFICIAL_BASELINE",
+                    "pricing_version": pricing_version,
+                    "source_url": source_url,
+                    "note": (
+                        "KBQ quota_type=0 按 token 计费；实时输入/输出/缓存价已计入 "
+                        f"KBQ 分组 {group_key or '-'}={group_ratio if group_ratio is not None else '-'} 与充值系数 {recharge_factor:g}；"
+                        + (
+                            "成本倍率=上游实际价/本站基准价的最大分项倍率。"
+                            if official
+                            else "缺少已核验本站/官方基准，只展示实时绝对价，不伪造倍率。"
+                        )
+                    ),
+                }
+            )
+    return sorted(
+        rows,
+        key=lambda row: (
+            row["category"],
+            row["cost_multiplier"] is None,
+            row["cost_multiplier"] or 0,
+            row["model_name"],
+            row["kbq_group_key"],
+        ),
+    )
+
+
+def token_table_has_current_unique_index(conn: sqlite3.Connection) -> bool:
+    expected = ["category", "model_name", "kbq_group_key"]
+    for index in conn.execute("pragma index_list(kbq_token_model_records)"):
+        if not bool(index[2]):
+            continue
+        columns = [
+            row[2]
+            for row in conn.execute(f"pragma index_info({index[1]})")
+        ]
+        if columns == expected:
+            return True
+    return False
+
+
+def ensure_token_table_schema(conn: sqlite3.Connection) -> None:
+    """Recreate the derived table when upgrading from the legacy lossy schema."""
+
+    if not table_exists(conn, "kbq_token_model_records"):
+        return
+    columns = {row[1]: row for row in conn.execute("pragma table_info(kbq_token_model_records)")}
+    cost_column = columns.get("cost_multiplier")
+    needs_rebuild = (
+        "kbq_group_key" not in columns
+        or "pricing_status" not in columns
+        or (cost_column is not None and bool(cost_column[3]))
+        or not token_table_has_current_unique_index(conn)
+    )
+    if needs_rebuild:
+        conn.execute("drop table kbq_token_model_records")
+        conn.executescript(SCHEMA)
 
 
 def table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
@@ -420,6 +537,12 @@ def models_for_upstream_group(
     group = (upstream_group or "").lower()
     matched: list[dict[str, Any]] = []
 
+    preferred_group = ""
+    if "plus" in group:
+        preferred_group = "GPT-plus"
+    elif "pro" in group:
+        preferred_group = "GPT-pro"
+
     def add_prefix(
         prefix: str,
         *,
@@ -430,6 +553,12 @@ def models_for_upstream_group(
             model_name = str(row["model_name"])
             base_model = str(row["base_model"]).lower()
             if not model_name.startswith(prefix):
+                continue
+            if (
+                preferred_group
+                and row.get("group_ratio_source") != "model_variant"
+                and row.get("kbq_group_key") != preferred_group
+            ):
                 continue
             if require and not any(token in base_model for token in require):
                 continue
@@ -519,7 +648,8 @@ def refresh_curated_kbq_ledger_rows(
         actual = max(
             decimal_or_none(model["cost_multiplier"]) or Decimal("0")
             for model in matched_models
-        )
+            if model.get("cost_multiplier") is not None
+        ) if any(model.get("cost_multiplier") is not None for model in matched_models) else Decimal("0")
         if actual <= 0:
             continue
         page_rate = actual / recharge
@@ -619,6 +749,7 @@ def main() -> None:
     conn.row_factory = sqlite3.Row
     with conn:
         conn.executescript(SCHEMA)
+        ensure_token_table_schema(conn)
         conn.execute("delete from kbq_token_model_records")
         conn.execute("delete from kbq_per_call_model_records")
         for row in rows:

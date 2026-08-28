@@ -1,0 +1,18 @@
+# Private operator material. Keep local for diagnostics; never publish it.
+reports/
+docs/assets/
+upstream-rates/local-snapshots/
+upstream-rates/output/
+upstream-rates/.omc/
+upstream-rates/.playwright-cli/
+
+# Generated local runtime artifacts.
+__pycache__/
+*.py[cod]
+scripts/__pycache__/
+upstream-rates/__pycache__/
+
+# Local release evidence is generated from an exact candidate and stored out
+# of tree unless it has been explicitly reviewed and sanitized.
+release-manifests/
+release-evidence/

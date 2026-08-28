@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fluter API</title>
+    <meta
+      name="description"
+      content="Fluter API 的公网入口，进入 API 控制台或前往支付小店购买额度卡密。"
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f7fb;
+        --bg-strong: #eaf0f8;
+        --ink: #142033;
+        --muted: #5b6676;
+        --soft: #738095;
+        --panel: #ffffff;
+        --line: #d9e2ee;
+        --line-strong: #c7d4e4;
+        --api: #1469d8;
+        --api-deep: #0d438c;
+        --pay: #087b64;
+        --pay-deep: #075744;
+        --warm: #b46a18;
+        --shadow: 0 22px 60px rgba(25, 38, 61, 0.14);
+        --shadow-soft: 0 14px 32px rgba(25, 38, 61, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 320px;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(244, 247, 251, 0.96) 42%, #edf3f8 100%),
+          var(--bg);
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        content: "";
+        background-image:
+          linear-gradient(rgba(20, 32, 51, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(20, 32, 51, 0.045) 1px, transparent 1px);
+        background-size: 42px 42px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.58), transparent 72%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 30px 0 34px;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        min-height: 48px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        flex: 0 0 auto;
+        place-items: center;
+        border: 1px solid rgba(20, 105, 216, 0.2);
+        border-radius: 8px;
+        color: var(--api-deep);
+        background: #edf5ff;
+        box-shadow: inset 0 -10px 20px rgba(20, 105, 216, 0.08);
+      }
+
+      .brand-text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .brand-name {
+        font-size: 17px;
+      }
+
+      .brand-domain {
+        color: var(--soft);
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        min-height: 38px;
+        padding: 0 14px;
+        border: 1px solid rgba(8, 123, 100, 0.2);
+        border-radius: 999px;
+        color: var(--pay-deep);
+        background: rgba(237, 250, 246, 0.84);
+        font-size: 14px;
+        font-weight: 720;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #0aa579;
+        box-shadow: 0 0 0 4px rgba(10, 165, 121, 0.13);
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.72fr);
+        gap: 52px;
+        align-items: center;
+        min-height: calc(100vh - 112px);
+        padding: 46px 0 30px;
+      }
+
+      .hero-copy {
+        max-width: 680px;
+      }
+
+      .hero-links {
+        min-width: 0;
+      }
+
+      h1 {
+        max-width: 640px;
+        margin: 0;
+        font-size: 64px;
+        font-weight: 850;
+        line-height: 1.04;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 620px;
+        margin: 22px 0 0;
+        color: var(--muted);
+        font-size: 19px;
+        line-height: 1.75;
+      }
+
+      .trust-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 28px;
+      }
+
+      .trust-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid rgba(20, 32, 51, 0.1);
+        border-radius: 999px;
+        color: #334155;
+        background: rgba(255, 255, 255, 0.74);
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 8px 20px rgba(25, 38, 61, 0.06);
+      }
+
+      .trust-icon {
+        display: inline-grid;
+        width: 18px;
+        height: 18px;
+        place-items: center;
+        color: var(--api);
+      }
+
+      .route-panel {
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.84);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 22px 22px 18px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(135deg, rgba(20, 105, 216, 0.08), rgba(8, 123, 100, 0.08)),
+          #ffffff;
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 820;
+      }
+
+      .panel-caption {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .secure-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--pay-deep);
+        font-size: 13px;
+        font-weight: 780;
+        white-space: nowrap;
+      }
+
+      .secure-mark svg,
+      .trust-icon svg,
+      .entry-icon svg,
+      .arrow-icon svg {
+        display: block;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+      }
+
+      .flow-row {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 14px;
+        padding: 20px 22px;
+      }
+
+      .flow-row + .flow-row {
+        border-top: 0;
+        border-left: 1px solid var(--line);
+      }
+
+      .step-number {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        color: #ffffff;
+        background: var(--ink);
+        font-size: 13px;
+        font-weight: 820;
+      }
+
+      .flow-row:nth-child(2) .step-number {
+        background: var(--api);
+      }
+
+      .flow-row:nth-child(3) .step-number {
+        background: var(--pay);
+      }
+
+      .flow-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+      }
+
+      .flow-text {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.62;
+      }
+
+      .entries {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 18px;
+        margin-top: 0;
+      }
+
+      .entry {
+        position: relative;
+        display: flex;
+        min-height: 216px;
+        flex-direction: column;
+        justify-content: space-between;
+        overflow: hidden;
+        padding: 26px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow-soft);
+        text-decoration: none;
+        transition:
+          transform 160ms ease,
+          border-color 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      .entry::before {
+        position: absolute;
+        inset: 0 0 auto;
+        height: 5px;
+        content: "";
+        background: var(--api);
+      }
+
+      .entry.pay::before {
+        background: var(--pay);
+      }
+
+      .entry:hover,
+      .entry:focus-visible {
+        border-color: rgba(20, 105, 216, 0.42);
+        box-shadow: 0 24px 54px rgba(25, 38, 61, 0.16);
+        outline: none;
+        transform: translateY(-3px);
+      }
+
+      .entry.pay:hover,
+      .entry.pay:focus-visible {
+        border-color: rgba(8, 123, 100, 0.42);
+      }
+
+      .entry-main {
+        display: grid;
+        gap: 16px;
+      }
+
+      .entry-icon {
+        display: grid;
+        width: 48px;
+        height: 48px;
+        place-items: center;
+        border: 1px solid rgba(20, 105, 216, 0.18);
+        border-radius: 8px;
+        color: var(--api);
+        background: #edf5ff;
+      }
+
+      .pay .entry-icon {
+        border-color: rgba(8, 123, 100, 0.18);
+        color: var(--pay);
+        background: #edf9f5;
+      }
+
+      .entry-label {
+        color: var(--soft);
+        font-size: 13px;
+        font-weight: 790;
+        text-transform: uppercase;
+      }
+
+      h2 {
+        margin: 7px 0 9px;
+        font-size: 30px;
+        font-weight: 850;
+        line-height: 1.18;
+        letter-spacing: 0;
+      }
+
+      .entry p {
+        max-width: 470px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.68;
+      }
+
+      .entry-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        width: 100%;
+        min-height: 46px;
+        margin-top: 28px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+        color: var(--api-deep);
+        font-size: 15px;
+        font-weight: 820;
+      }
+
+      .pay .entry-action {
+        color: var(--pay-deep);
+      }
+
+      .arrow-icon {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 50%;
+        color: #ffffff;
+        background: var(--api);
+      }
+
+      .pay .arrow-icon {
+        background: var(--pay);
+      }
+
+      .note {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        margin-top: 20px;
+        padding: 15px 16px;
+        border: 1px solid rgba(180, 106, 24, 0.2);
+        border-radius: 8px;
+        color: #5c3b13;
+        background: rgba(255, 249, 235, 0.82);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .note svg {
+        flex: 0 0 auto;
+        margin-top: 2px;
+        color: var(--warm);
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 26px 0 8px;
+        color: var(--soft);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .domain-list {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .domain-list span {
+        padding: 5px 8px;
+        border: 1px solid rgba(20, 32, 51, 0.1);
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.68);
+        color: #3d4b5f;
+        font-weight: 700;
+      }
+
+      @media (max-width: 920px) {
+        .page {
+          width: min(100% - 32px, 720px);
+        }
+
+        .hero {
+          grid-template-columns: 1fr;
+          gap: 28px;
+          align-items: start;
+          min-height: auto;
+          padding-top: 54px;
+        }
+
+        h1 {
+          max-width: 560px;
+          font-size: 48px;
+        }
+
+        .lead {
+          font-size: 18px;
+        }
+
+        .entries {
+          margin-top: 26px;
+        }
+
+        .flow {
+          grid-template-columns: 1fr;
+        }
+
+        .flow-row + .flow-row {
+          border-top: 1px solid var(--line);
+          border-left: 0;
+        }
+      }
+
+      @media (max-width: 680px) {
+        .page {
+          width: min(100% - 24px, 540px);
+          padding-top: 18px;
+        }
+
+        .topbar {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 14px;
+        }
+
+        .status {
+          min-height: 34px;
+          font-size: 13px;
+        }
+
+        .hero {
+          padding-top: 38px;
+        }
+
+        h1 {
+          font-size: 38px;
+          line-height: 1.08;
+        }
+
+        .lead {
+          margin-top: 18px;
+          font-size: 16px;
+          line-height: 1.72;
+        }
+
+        .trust-row {
+          margin-top: 22px;
+        }
+
+        .panel-head {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 20px;
+        }
+
+        .flow-row {
+          grid-template-columns: 36px minmax(0, 1fr);
+          gap: 12px;
+          padding: 18px 20px;
+        }
+
+        .entries {
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+
+        .entry {
+          min-height: 220px;
+          padding: 22px;
+        }
+
+        h2 {
+          font-size: 26px;
+        }
+
+        .entry p {
+          font-size: 15px;
+        }
+
+        footer {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        .domain-list {
+          justify-content: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar" aria-label="站点状态">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M6 19V5h11.5M6 12h9"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <span class="brand-text">
+            <span class="brand-name">Fluter API</span>
+            <span class="brand-domain">fluterapi.top</span>
+          </span>
+        </div>
+        <div class="status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>公网 API 正常运行</span>
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-copy">
+          <h1 id="page-title">Fluter API 中转站</h1>
+          <p class="lead">
+            这里是 fluterapi.top 的总入口。进入控制台可以管理 API Key、查看额度和用量；需要充值时，前往支付小店购买额度卡密后回站内兑换。
+          </p>
+
+          <div class="trust-row" aria-label="服务说明">
+            <span class="trust-item">
+              <span class="trust-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 3l7 3v5c0 4.4-2.8 8.4-7 10-4.2-1.6-7-5.6-7-10V6l7-3z"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 12l2 2 4-5"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              HTTPS 访问
+            </span>
+            <span class="trust-item">
+              <span class="trust-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 8h10M7 12h7M7 16h4M5 4h14v16H5V4z"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              控制台自助管理
+            </span>
+            <span class="trust-item">
+              <span class="trust-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M4 7h16v11H4V7zM8 7V5h8v2M8 13h8"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              卡密充值
+            </span>
+          </div>
+        </div>
+
+        <section class="entries hero-links" aria-label="主要入口">
+          <a class="entry api" href="https://api.fluterapi.top" rel="noopener">
+            <span class="entry-main">
+              <span class="entry-icon" aria-hidden="true">
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M6 7h12M6 12h8M6 17h5M4 4h16v16H4V4z"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span>
+                <span class="entry-label">API Console</span>
+                <h2>进入 API 入口</h2>
+                <p>登录控制台，管理 API Key、查看余额、用量记录和站内功能。</p>
+              </span>
+            </span>
+            <span class="entry-action">
+              <span>打开 api.fluterapi.top</span>
+              <span class="arrow-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 12h14M13 6l6 6-6 6"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </span>
+          </a>
+
+          <a
+            class="entry pay"
+            href="https://pay.ldxp.cn/shop/IMZJ600N"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span class="entry-main">
+              <span class="entry-icon" aria-hidden="true">
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 8h14v11H5V8zM8 8V6h8v2M8 13h8M8 16h5"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <span>
+                <span class="entry-label">Top Up</span>
+                <h2>购买额度卡密</h2>
+                <p>前往联动小铺购买额度卡密，购买后回到控制台兑换。</p>
+              </span>
+            </span>
+            <span class="entry-action">
+              <span>打开支付小店</span>
+              <span class="arrow-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 12h14M13 6l6 6-6 6"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </span>
+          </a>
+        </section>
+      </section>
+
+      <aside class="route-panel" aria-label="使用路径">
+        <div class="panel-head">
+          <div>
+            <p class="panel-title">怎么用最简单</p>
+            <div class="panel-caption">先注册登录，再购买卡密，最后兑换额度。</div>
+          </div>
+          <span class="secure-mark">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M8 11V8a4 4 0 118 0v3M6 11h12v9H6v-9z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            HTTPS
+          </span>
+        </div>
+        <div class="flow">
+          <div class="flow-row">
+            <span class="step-number">01</span>
+            <div>
+              <p class="flow-title">进入 API 控制台</p>
+              <p class="flow-text">在 api.fluterapi.top 登录，查看余额、密钥和调用记录。</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <span class="step-number">02</span>
+            <div>
+              <p class="flow-title">前往支付小店</p>
+              <p class="flow-text">按需要购买额度卡密，支付完成后复制卡密。</p>
+            </div>
+          </div>
+          <div class="flow-row">
+            <span class="step-number">03</span>
+            <div>
+              <p class="flow-title">回站内兑换</p>
+              <p class="flow-text">在控制台兑换卡密，额度到账后即可调用接口。</p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="note" role="note">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M12 9v4M12 17h.01M10.3 4.7L2.7 18a2 2 0 001.7 3h15.2a2 2 0 001.7-3L13.7 4.7a2 2 0 00-3.4 0z"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+        <span>
+          请认准本站域名：总入口是 fluterapi.top，控制台是 api.fluterapi.top。购买后遇到问题，请加入售后 QQ 群：229863202。支付完成后不要把 API Key 发给任何人。
+        </span>
+      </div>
+
+      <footer>
+        <span>Fluter API 公网入口</span>
+        <span class="domain-list" aria-label="官方域名">
+          <span>fluterapi.top</span>
+          <span>api.fluterapi.top</span>
+        </span>
+      </footer>
+    </main>
+  </body>
+</html>

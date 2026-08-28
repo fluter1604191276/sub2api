@@ -1110,6 +1110,9 @@ def load_rows(db_path: str):
         "select 1 from sqlite_master where type = 'table' and name = 'kbq_true_cost_audit_runs'"
     ).fetchone()
     if has_audit_table:
+        audit_run_columns = {
+            row[1] for row in conn.execute("pragma table_info(kbq_true_cost_audit_runs)")
+        }
         audit_run = conn.execute(
             """
             select *
@@ -1127,12 +1130,27 @@ def load_rows(db_path: str):
                 "requestCount": audit_run["request_count"],
                 "bucketCount": audit_run["bucket_count"],
                 "userBilledCost": number_or_none(audit_run["user_billed_cost"]),
+                "comparableUserBilledCost": (
+                    number_or_none(audit_run["comparable_user_billed_cost"])
+                    if "comparable_user_billed_cost" in audit_run_columns
+                    else number_or_none(audit_run["user_billed_cost"])
+                ),
+                "unpricedUserBilledCost": (
+                    number_or_none(audit_run["unpriced_user_billed_cost"])
+                    if "unpriced_user_billed_cost" in audit_run_columns
+                    else 0
+                ),
                 "trueUpstreamCost": number_or_none(audit_run["true_upstream_cost"]),
                 "margin": number_or_none(audit_run["margin"]),
                 "marginPercent": number_or_none(audit_run["margin_percent"]),
                 "realLossBucketCount": audit_run["real_loss_bucket_count"],
                 "displayDriftBucketCount": audit_run["display_drift_bucket_count"],
                 "missingPriceBucketCount": audit_run["missing_price_bucket_count"],
+                "toolFeeUnknownBucketCount": (
+                    audit_run["tool_fee_unknown_bucket_count"]
+                    if "tool_fee_unknown_bucket_count" in audit_run_columns
+                    else 0
+                ),
                 "cacheCreation1hTokens": audit_run["cache_creation_1h_tokens"],
                 "source": audit_run["source"],
                 "note": audit_run["note"],
@@ -1182,6 +1200,165 @@ def load_rows(db_path: str):
                         "note": row["note"],
                     }
                 )
+    configuration_audit_summary = None
+    configuration_audit_rows = []
+    has_configuration_audit_table = conn.execute(
+        "select 1 from sqlite_master where type = 'table' and name = 'kbq_configuration_audit_runs'"
+    ).fetchone()
+    if has_configuration_audit_table:
+        configuration_run_columns = {
+            row[1] for row in conn.execute("pragma table_info(kbq_configuration_audit_runs)")
+        }
+        configuration_row_columns = {
+            row[1] for row in conn.execute("pragma table_info(kbq_configuration_audit_rows)")
+        }
+        configuration_run = conn.execute(
+            """
+            select *
+            from kbq_configuration_audit_runs
+            order by id desc
+            limit 1
+            """
+        ).fetchone()
+        if configuration_run:
+            configuration_audit_summary = {
+                "id": configuration_run["id"],
+                "observedAt": format_beijing_time(configuration_run["observed_at"]),
+                "pricingVersion": configuration_run["pricing_version"],
+                "accountCount": configuration_run["account_count"],
+                "mappingCount": configuration_run["mapping_count"],
+                "activeMappingCount": (
+                    configuration_run["active_mapping_count"]
+                    if "active_mapping_count" in configuration_run_columns
+                    else configuration_run["mapping_count"]
+                ),
+                "okCount": configuration_run["ok_count"],
+                "blockingCount": configuration_run["blocking_count"],
+                "activeBlockingCount": (
+                    configuration_run["active_blocking_count"]
+                    if "active_blocking_count" in configuration_run_columns
+                    else configuration_run["blocking_count"]
+                ),
+                "dormantBlockingCount": (
+                    configuration_run["dormant_blocking_count"]
+                    if "dormant_blocking_count" in configuration_run_columns
+                    else 0
+                ),
+                "realLossCount": configuration_run["real_loss_count"],
+                "ambiguousGroupRatioCount": configuration_run["ambiguous_group_ratio_count"],
+                "missingUpstreamPriceCount": configuration_run["missing_upstream_price_count"],
+                "missingLocalPriceCount": configuration_run["missing_local_price_count"],
+                "missingUserPriceCount": configuration_run["missing_user_price_count"],
+                "toolFeeUncoveredCount": configuration_run["tool_fee_uncovered_count"],
+                "toolFeeUnknownCount": configuration_run["tool_fee_unknown_count"],
+                "source": configuration_run["source"],
+                "note": configuration_run["note"],
+            }
+            for row in conn.execute(
+                """
+                select *
+                from kbq_configuration_audit_rows
+                where run_id = ?
+                order by
+                  case status
+                    when 'REAL_LOSS' then 0
+                    when 'TOOL_FEE_UNCOVERED_LOSS' then 1
+                    when 'TOOL_FEE_UNCOVERED' then 2
+                    when 'AMBIGUOUS_GROUP_RATIO' then 3
+                    when 'NO_UPSTREAM_PRICE' then 4
+                    when 'NO_LOCAL_PRICE' then 5
+                    when 'NO_USER_PRICE' then 6
+                    else 7
+                  end,
+                  account_name,
+                  requested_model
+                limit 200
+                """,
+                (configuration_run["id"],),
+            ):
+                configuration_audit_rows.append(
+                    {
+                        "status": row["status"],
+                        "accountId": row["account_id"],
+                        "accountName": row["account_name"],
+                        "accountStatus": row["account_status"],
+                        "schedulable": bool(row["schedulable"]),
+                        "groupId": row["group_id"],
+                        "groupName": row["group_name"],
+                        "groupStatus": row["group_status"],
+                        "requestedModel": row["requested_model"],
+                        "channelMappedModel": (
+                            row["channel_mapped_model"]
+                            if "channel_mapped_model" in configuration_row_columns
+                            else row["requested_model"]
+                        ),
+                        "upstreamModel": row["upstream_model"],
+                        "billingModel": (
+                            row["billing_model"]
+                            if "billing_model" in configuration_row_columns
+                            else row["requested_model"]
+                        ),
+                        "billingModelSource": (
+                            row["billing_model_source"]
+                            if "billing_model_source" in configuration_row_columns
+                            else "requested"
+                        ),
+                        "pricingStatus": row["pricing_status"],
+                        "kbqGroupKey": row["kbq_group_key"],
+                        "kbqGroupRatio": number_or_none(row["kbq_group_ratio"]),
+                        "groupRatioSource": row["group_ratio_source"],
+                        "groupRateMultiplier": number_or_none(row["group_rate_multiplier"]),
+                        "minimumUserMultiplier": number_or_none(row["minimum_user_multiplier"]),
+                        "channelId": row["channel_id"],
+                        "channelName": row["channel_name"],
+                        "channelStatus": row["channel_status"],
+                        "localPricingSource": row["local_pricing_source"],
+                        "upstreamInputPrice": number_or_none(row["upstream_input_price"]),
+                        "upstreamOutputPrice": number_or_none(row["upstream_output_price"]),
+                        "upstreamCacheReadPrice": number_or_none(row["upstream_cache_read_price"]),
+                        "upstreamCacheWritePrice": number_or_none(row["upstream_cache_write_price"]),
+                        "siteInputPrice": number_or_none(row["site_input_price"]),
+                        "siteOutputPrice": number_or_none(row["site_output_price"]),
+                        "siteCacheReadPrice": number_or_none(row["site_cache_read_price"]),
+                        "siteCacheWritePrice": number_or_none(row["site_cache_write_price"]),
+                        "minimumBreakEvenMultiplier": number_or_none(row["minimum_break_even_multiplier"]),
+                        "minimumBreakEvenMultiplierPriority": (
+                            number_or_none(row["minimum_break_even_multiplier_priority"])
+                            if "minimum_break_even_multiplier_priority" in configuration_row_columns
+                            else None
+                        ),
+                        "minimumBreakEvenMultiplierFlex": (
+                            number_or_none(row["minimum_break_even_multiplier_flex"])
+                            if "minimum_break_even_multiplier_flex" in configuration_row_columns
+                            else None
+                        ),
+                        "minimumSafeUserMultiplier": (
+                            number_or_none(row["minimum_safe_user_multiplier"])
+                            if "minimum_safe_user_multiplier" in configuration_row_columns
+                            else number_or_none(row["minimum_break_even_multiplier"])
+                        ),
+                        "checkedServiceTiers": (
+                            row["checked_service_tiers"]
+                            if "checked_service_tiers" in configuration_row_columns
+                            else "default"
+                        ),
+                        "groupWebSearchPricePerCall": number_or_none(row["group_web_search_price_per_call"]),
+                        "upstreamWebSearchPricePerCall": (
+                            number_or_none(row["upstream_web_search_price_per_call"])
+                            if "upstream_web_search_price_per_call" in configuration_row_columns
+                            else None
+                        ),
+                        "siteWebSearchPricePerCall": (
+                            number_or_none(row["site_web_search_price_per_call"])
+                            if "site_web_search_price_per_call" in configuration_row_columns
+                            else None
+                        ),
+                        "toolFeeStatus": row["tool_fee_status"],
+                        "note": row["note"],
+                    }
+                )
+    metadata["_kbq_configuration_summary"] = configuration_audit_summary
+    metadata["_kbq_configuration_rows"] = configuration_audit_rows
     adapter_status = []
     browser_status_by_pair = {}
     has_browser_adapter_table = conn.execute(
@@ -1357,12 +1534,17 @@ def build_dashboard_context(
     balance_snapshots=None,
 ) -> dict[str, str]:
     generated_at = format_beijing_time(datetime.now(BEIJING_TZ))
+    metadata = dict(metadata or {})
+    configuration_audit_summary = metadata.pop("_kbq_configuration_summary", None)
+    configuration_audit_rows = metadata.pop("_kbq_configuration_rows", [])
     return {
         "generated_at": generated_at,
         "kbq_json": json.dumps(kbq_rows, ensure_ascii=False),
         "kbq_per_call_json": json.dumps(kbq_per_call_rows, ensure_ascii=False),
         "audit_json": json.dumps(audit_summary, ensure_ascii=False),
         "audit_buckets_json": json.dumps(audit_buckets, ensure_ascii=False),
+        "configuration_audit_json": json.dumps(configuration_audit_summary, ensure_ascii=False),
+        "configuration_rows_json": json.dumps(configuration_audit_rows, ensure_ascii=False),
         "metadata_json": json.dumps(renderable_metadata(metadata), ensure_ascii=False),
     }
 
@@ -1373,6 +1555,8 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     kbq_per_call_json = context["kbq_per_call_json"]
     audit_json = context["audit_json"]
     audit_buckets_json = context["audit_buckets_json"]
+    configuration_audit_json = context["configuration_audit_json"]
+    configuration_rows_json = context["configuration_rows_json"]
     metadata_json = context["metadata_json"]
     return f"""<!doctype html>
 <html lang="zh-CN">
@@ -2514,7 +2698,9 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     .audit-metric span {{ display: block; color: var(--muted); font-size: 12px; }}
     .audit-metric strong {{ display: block; font-size: 20px; margin-top: 4px; }}
     .audit-metric.risk {{ background: #fef2f2; border-color: #fecaca; }}
+    .audit-metric.warn {{ background: #fffbeb; border-color: #fde68a; }}
     .audit-metric.ok {{ background: #ecfdf5; border-color: #bbf7d0; }}
+    .configuration-audit-table {{ min-width: 2060px; margin-bottom: 18px; }}
     .table-wrap {{
       background: var(--panel);
       border: 1px solid var(--line);
@@ -2537,6 +2723,10 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     .kbq-table {{ min-width: 1420px; }}
     .kbq-per-call-table {{ min-width: 1380px; }}
     .audit-table {{ min-width: 1540px; }}
+    .configuration-audit-table th:nth-child(2), .configuration-audit-table td:nth-child(2) {{ width: 290px; }}
+    .configuration-audit-table th:nth-child(3), .configuration-audit-table td:nth-child(3) {{ width: 250px; }}
+    .configuration-audit-table th:nth-child(4), .configuration-audit-table td:nth-child(4) {{ width: 230px; }}
+    .configuration-audit-table th:nth-child(10), .configuration-audit-table td:nth-child(10) {{ width: 320px; }}
     .image-table {{ min-width: 1260px; }}
     .provider-table {{ min-width: 1320px; }}
     .accounts-table th:nth-child(1), .accounts-table td:nth-child(1) {{ width: 132px; }}
@@ -2941,7 +3131,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         <div class="section-title">
           <div>
             <h2 id="serverTitle">基础设施与数据链路</h2>
-            <div class="summary-line" id="serverNodeLabel">主生产节点 us-api-vps-new · 管理员只读风险总览</div>
+            <div class="summary-line" id="serverNodeLabel">主生产节点 fluterapi-prod · 管理员只读风险总览</div>
           </div>
           <div class="actions">
             <a class="action-button" href="/admin/s2a-manager" target="_blank" rel="noopener">S2A 运行历史</a>
@@ -3061,10 +3251,34 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     </section>
     <section class="module-view section-block" id="kbqAuditSection" data-route="risk" hidden>
       <div class="section-title">
-        <h2>KBQ 真实成本审计</h2>
-        <div class="summary-line">用最近 usage_logs 重新计算 KBQ 上游真实成本；判断是否真的倒挂</div>
+        <h2>KBQ 成本与倒挂审计</h2>
+        <div class="summary-line">先模拟当前生产计费配置，再用最近 usage_logs 验证已经发生的真实盈亏</div>
       </div>
       <div class="audit-panel">
+        <h3>配置上线前预检</h3>
+        <div id="kbqConfigurationAuditSummary" class="audit-summary"></div>
+        <div class="kbq-note">预检严格按生产顺序计算：活跃渠道定价 → 运行镜像动态价 → Go fallback，再乘最低用户倍率。三档保本线全部展示，但只让接口实际可达的档位参与阻断：OpenAI 检查 default/priority/flex，Anthropic 检查 default/priority，其他平台检查 default。失效渠道不会被当作可用售价；缺价、KBQ 分组歧义和 DeepSeek 工具费未覆盖都会阻断。</div>
+        <div class="table-wrap">
+          <table class="configuration-audit-table">
+            <caption>最近一次 KBQ 配置预检；即使某映射还没有真实流水，也会提前检查倒挂</caption>
+            <thead>
+              <tr>
+                <th scope="col">状态</th>
+                <th scope="col">账号/分组/渠道</th>
+                <th scope="col">模型映射</th>
+                <th scope="col">KBQ 档位</th>
+                <th scope="col">用户最低倍率</th>
+                <th scope="col">三档保本/阻断范围</th>
+                <th scope="col">KBQ 上游价</th>
+                <th scope="col">本站用户价</th>
+                <th scope="col">本地价格来源</th>
+                <th scope="col">工具费/备注</th>
+              </tr>
+            </thead>
+            <tbody id="kbqConfigurationAuditRows"></tbody>
+          </table>
+        </div>
+        <h3>720 小时流水复核</h3>
         <div id="kbqAuditSummary" class="audit-summary"></div>
         <div class="kbq-note">判断亏本只看“真实上游成本是否大于用户扣费”。A成本属于后台展示口径，旧默认价格可能偏高，所以单独标记为 DISPLAY_DRIFT。</div>
         <div class="table-wrap">
@@ -3116,6 +3330,8 @@ def render_dashboard_document(context: dict[str, str]) -> str:
     const KBQ_PER_CALL_MODELS = {kbq_per_call_json};
     const KBQ_AUDIT = {audit_json};
     const KBQ_AUDIT_BUCKETS = {audit_buckets_json};
+    const KBQ_CONFIGURATION_AUDIT = {configuration_audit_json};
+    const KBQ_CONFIGURATION_ROWS = {configuration_rows_json};
     const META = {metadata_json};
     const GENERATED_AT = {json.dumps(generated_at)};
 
@@ -3338,7 +3554,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
         metricTone((disks.root || metrics.disk || {{}}).used_percent, 80, 90),
         metricTone((disks.www || {{}}).used_percent, 80, 90),
       ];
-      const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "us-api-vps-new";
+      const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "fluterapi-prod";
       const tones = [
         ...resourceTones,
         ...services.map(item => item.tone),
@@ -3598,7 +3814,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       serverState.net = net;
       serverState.lastGoodAt = nowMs;
       if (serverNodeLabel) {{
-        const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "us-api-vps-new";
+        const nodeLabel = metrics.node && metrics.node.label ? metrics.node.label : "fluterapi-prod";
         serverNodeLabel.textContent = `节点 ${{nodeLabel}} · 管理员只读风险总览`;
       }}
       if (serverUpdatedAt) serverUpdatedAt.textContent = metrics.ts ? `指标：${{metrics.ts}}` : "指标已更新";
@@ -3726,7 +3942,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
             <div>输入 ${{esc(fmtMoney(row.officialInputUsdPer1M))}} / 输出 ${{esc(fmtMoney(row.officialOutputUsdPer1M))}}</div>
             <div class="muted">缓存读 ${{esc(fmtMoney(row.officialCacheReadUsdPer1M))}} / 写 ${{esc(fmtMoney(row.officialCacheWriteUsdPer1M))}}</div>
           </td>
-          <td class="rate">${{esc(Number(row.rawModelRatio.toFixed(6)).toString())}}</td>
+          <td class="rate">${{esc(fmtNumber(row.rawModelRatio))}}</td>
           <td>${{stackCell([detailCell(row.updatedAt, {{ label: "更新时间", lines: 1, threshold: 28 }}), detailCell(row.sourceUrl, {{ label: "来源 URL", lines: 1, threshold: 34 }})])}}</td>
         </tr>
       `).join("") : `<tr class="empty-row"><td colspan="7">没有符合当前 KBQ 筛选条件的模型记录。</td></tr>`;
@@ -3737,7 +3953,7 @@ def render_dashboard_document(context: dict[str, str]) -> str:
           <td>${{stackCell([detailCell(row.modelName, {{ label: "KBQ 按次模型", lines: 2, threshold: 48 }}), detailCell(`公开模型：${{row.baseModel || "-"}}`, {{ label: "公开模型名", lines: 1, threshold: 42 }})])}}</td>
           <td>${{stackCell([detailCell(row.endpoints || "anthropic/openai", {{ label: "接口", lines: 1, threshold: 34 }}), detailCell(row.tags || "-", {{ label: "标签", lines: 1, threshold: 34 }})])}}</td>
           <td class="rate">${{esc(fmtMoney(row.perCallPrice))}} / 次</td>
-          <td><div class="rate">${{esc(fmtMoney(row.effectivePerCallCost))}} / 次</div><div class="muted">充值系数 ${{esc(Number(row.rechargeFactor.toFixed(6)).toString())}}</div></td>
+          <td><div class="rate">${{esc(fmtMoney(row.effectivePerCallCost))}} / 次</div><div class="muted">充值系数 ${{esc(fmtNumber(row.rechargeFactor))}}</div></td>
           <td class="note">${{detailCell(row.description || row.note, {{ label: "按次模型说明", lines: 2, threshold: 58, empty: "无说明" }})}}</td>
           <td>${{stackCell([detailCell(row.updatedAt, {{ label: "更新时间", lines: 1, threshold: 28 }}), detailCell(row.sourceUrl, {{ label: "来源 URL", lines: 1, threshold: 34 }})])}}</td>
         </tr>
@@ -3763,13 +3979,83 @@ def render_dashboard_document(context: dict[str, str]) -> str:
 
     function auditBadgeClass(status) {{
       if (status === "REAL_LOSS") return "risk";
-      if (status === "NO_PRICE" || status === "DISPLAY_DRIFT") return "warn";
+      if (status === "TOOL_FEE_UNCOVERED_LOSS") return "risk";
+      if (status === "TOOL_FEE_UNCOVERED") return "risk";
+      if (["NO_PRICE", "NO_UPSTREAM_PRICE", "NO_LOCAL_PRICE", "NO_USER_PRICE", "AMBIGUOUS_GROUP_RATIO", "DISPLAY_DRIFT", "TOOL_FEE_UNKNOWN"].includes(status)) return "warn";
       return "ok";
+    }}
+
+    function priceDimensions(row, prefix) {{
+      return `输入 ${{fmtNumber(row[`${{prefix}}InputPrice`])}} / 输出 ${{fmtNumber(row[`${{prefix}}OutputPrice`])}}<br><span class="muted">缓存读 ${{fmtNumber(row[`${{prefix}}CacheReadPrice`])}} / 写 ${{fmtNumber(row[`${{prefix}}CacheWritePrice`])}}</span>`;
+    }}
+
+    function renderKbqConfigurationAudit() {{
+      const summaryEl = document.querySelector("#kbqConfigurationAuditSummary");
+      const rowsEl = document.querySelector("#kbqConfigurationAuditRows");
+      if (!summaryEl || !rowsEl) return;
+      if (!KBQ_CONFIGURATION_AUDIT) {{
+        summaryEl.innerHTML = `
+          <div class="audit-metric warn"><span>预检状态</span><strong>暂无记录</strong></div>
+          <div class="audit-metric"><span>下一步</span><strong>运行配置预检</strong></div>
+        `;
+        rowsEl.innerHTML = `<tr class="empty-row"><td colspan="10">还没有 KBQ 配置预检记录。运行 audit_kbq_configuration.py 后会显示当前生产配置风险。</td></tr>`;
+        return;
+      }}
+      const blockingTone = KBQ_CONFIGURATION_AUDIT.activeBlockingCount > 0 ? "risk" : "ok";
+      const dormantTone = KBQ_CONFIGURATION_AUDIT.dormantBlockingCount > 0 ? "warn" : "ok";
+      const ambiguityTone = KBQ_CONFIGURATION_AUDIT.ambiguousGroupRatioCount > 0 ? "warn" : "ok";
+      const metrics = [
+        ["当前可调度映射", KBQ_CONFIGURATION_AUDIT.activeMappingCount, `全部 ${{KBQ_CONFIGURATION_AUDIT.mappingCount}} · ${{KBQ_CONFIGURATION_AUDIT.accountCount}} 个账号`, ""],
+        ["安全映射", KBQ_CONFIGURATION_AUDIT.okCount, `version ${{KBQ_CONFIGURATION_AUDIT.pricingVersion || "-"}}`, "ok"],
+        ["当前可调度阻断", KBQ_CONFIGURATION_AUDIT.activeBlockingCount, "正在参与生产流量，必须优先处理", blockingTone],
+        ["停用草案阻断", KBQ_CONFIGURATION_AUDIT.dormantBlockingCount, "上线前处理，不计入当前生产风险", dormantTone],
+        ["确定倒挂", KBQ_CONFIGURATION_AUDIT.realLossCount, "静态价格维度已低于成本", blockingTone],
+        ["分组歧义", KBQ_CONFIGURATION_AUDIT.ambiguousGroupRatioCount, "禁止猜测 KBQ 成本档", ambiguityTone],
+        ["工具费未覆盖", KBQ_CONFIGURATION_AUDIT.toolFeeUncoveredCount, `待核 ${{KBQ_CONFIGURATION_AUDIT.toolFeeUnknownCount}}`, blockingTone],
+      ];
+      summaryEl.innerHTML = metrics.map(([label, value, hint, tone]) => `
+        <div class="audit-metric ${{tone}}">
+          <span>${{esc(label)}}</span>
+          <strong>${{esc(value)}}</strong>
+          <span>${{esc(hint)}}</span>
+        </div>
+      `).join("");
+
+      rowsEl.innerHTML = KBQ_CONFIGURATION_ROWS.length ? KBQ_CONFIGURATION_ROWS.map(row => {{
+        const account = `#${{row.accountId}} ${{row.accountName}} · ${{row.accountStatus || "-"}}${{row.schedulable ? " · 可调度" : " · 不可调度"}}`;
+        const group = row.groupId ? `#${{row.groupId}} ${{row.groupName}} · ${{row.groupStatus || "-"}}` : "未分组";
+        const channel = row.channelId ? `#${{row.channelId}} ${{row.channelName}} · ${{row.channelStatus || "-"}}` : `无渠道 · ${{row.channelStatus || "missing"}}`;
+        const kbqGroup = row.kbqGroupKey
+          ? `${{row.kbqGroupKey}} · ${{fmtRate(row.kbqGroupRatio)}}`
+          : "未明确";
+        const toolFee = row.upstreamWebSearchPricePerCall === null || row.upstreamWebSearchPricePerCall === undefined
+          ? row.toolFeeStatus
+          : `${{row.toolFeeStatus}} · 上游 ${{fmtNumber(row.upstreamWebSearchPricePerCall)}} / 本站实收 ${{fmtNumber(row.siteWebSearchPricePerCall)}} 每次`;
+        const billingChain = `请求 ${{row.requestedModel || "-"}} → 渠道 ${{row.channelMappedModel || "-"}} → 上游 ${{row.upstreamModel || "-"}}`;
+        const billingModel = `${{row.billingModel || "-"}} · 来源 ${{row.billingModelSource || "-"}}`;
+        const breakEven = `安全线 ${{fmtRate(row.minimumSafeUserMultiplier)}} · 默认 ${{fmtRate(row.minimumBreakEvenMultiplier)}} · priority ${{fmtRate(row.minimumBreakEvenMultiplierPriority)}} · flex ${{fmtRate(row.minimumBreakEvenMultiplierFlex)}}`;
+        const checkedTiers = `实际阻断档位：${{row.checkedServiceTiers || "default"}}`;
+        return `
+          <tr>
+            <td><span class="badge ${{auditBadgeClass(row.status)}}">${{esc(row.status)}}</span></td>
+            <td>${{stackCell([detailCell(account, {{ label: "账号", lines: 1, threshold: 50 }}), detailCell(group, {{ label: "分组", lines: 1, threshold: 48 }}), detailCell(channel, {{ label: "渠道", lines: 1, threshold: 48 }})])}}</td>
+            <td>${{stackCell([detailCell(billingChain, {{ label: "模型映射链", lines: 2, threshold: 54 }}), detailCell(billingModel, {{ label: "最终计费模型", lines: 1, threshold: 48 }}), detailCell(row.pricingStatus || "-", {{ label: "KBQ 定价状态", lines: 1, threshold: 38 }})])}}</td>
+            <td>${{stackCell([detailCell(kbqGroup, {{ label: "KBQ 档位", lines: 1, threshold: 44 }}), detailCell(row.groupRatioSource || "-", {{ label: "档位来源", lines: 1, threshold: 44 }})])}}</td>
+            <td class="rate">${{esc(fmtRate(row.minimumUserMultiplier))}}</td>
+            <td>${{stackCell([detailCell(breakEven, {{ label: "三档保本倍率", lines: 2, threshold: 56 }}), detailCell(checkedTiers, {{ label: "阻断范围", lines: 1, threshold: 48 }})])}}</td>
+            <td>${{priceDimensions(row, "upstream")}}</td>
+            <td>${{priceDimensions(row, "site")}}</td>
+            <td>${{stackCell([detailCell(row.localPricingSource || "-", {{ label: "本站价格来源", lines: 2, threshold: 48 }}), detailCell(`渠道状态：${{row.channelStatus || "-"}}`, {{ label: "渠道状态", lines: 1, threshold: 40 }})])}}</td>
+            <td>${{stackCell([detailCell(toolFee, {{ label: "工具费状态", lines: 1, threshold: 46 }}), detailCell(row.note, {{ label: "预检备注", lines: 2, threshold: 58, empty: "无备注" }})])}}</td>
+          </tr>
+        `;
+      }}).join("") : `<tr class="empty-row"><td colspan="10">最近一次预检没有 KBQ 模型映射。</td></tr>`;
     }}
 
     function renderKbqAudit() {{
       const auditSection = document.querySelector("#kbqAuditSection");
       if (!auditSection) return;
+      renderKbqConfigurationAudit();
       const summaryEl = document.querySelector("#kbqAuditSummary");
       const rowsEl = document.querySelector("#kbqAuditRows");
       if (!KBQ_AUDIT) {{
@@ -3785,9 +4071,9 @@ def render_dashboard_document(context: dict[str, str]) -> str:
       const metrics = [
         ["审计窗口", `${{KBQ_AUDIT.hours}}h`, `version ${{KBQ_AUDIT.pricingVersion || "-"}}`],
         ["请求数", KBQ_AUDIT.requestCount, `${{KBQ_AUDIT.bucketCount}} 个桶`],
-        ["用户扣费", fmtNumber(KBQ_AUDIT.userBilledCost), "usage_logs.actual_cost"],
-        ["真实成本", fmtNumber(KBQ_AUDIT.trueUpstreamCost), "KBQ pricing 反算"],
-        ["利润空间", marginLabel, "用户扣费 - 真实成本"],
+        ["用户总扣费", fmtNumber(KBQ_AUDIT.userBilledCost), `其中缺价桶 ${{fmtNumber(KBQ_AUDIT.unpricedUserBilledCost)}}`],
+        ["已确认 token 成本", fmtNumber(KBQ_AUDIT.trueUpstreamCost), "不包含无法恢复的工具调用费"],
+        ["token 利润上界", marginLabel, `仅比较已定价收入 ${{fmtNumber(KBQ_AUDIT.comparableUserBilledCost)}} · 工具费待核 ${{KBQ_AUDIT.toolFeeUnknownBucketCount}} 桶`],
         ["真倒挂", KBQ_AUDIT.realLossBucketCount, `展示漂移 ${{KBQ_AUDIT.displayDriftBucketCount}}`],
       ];
       summaryEl.innerHTML = metrics.map(([label, value, hint], index) => `

@@ -28,7 +28,7 @@ class RefreshKbqTokenModelsTest(unittest.TestCase):
         return {
             "success": True,
             "pricing_version": "test-version",
-            "group_ratio": {"default": 1},
+            "group_ratio": {"default": 1, "GPT-plus": 0.6, "GPT-pro": 1},
             "data": [
                 {
                     "model_name": "[plus]gpt-5.5",
@@ -37,6 +37,7 @@ class RefreshKbqTokenModelsTest(unittest.TestCase):
                     "completion_ratio": 6,
                     "cache_ratio": 0.1,
                     "create_cache_ratio": 1.25,
+                    "enable_groups": ["GPT-plus", "default"],
                     "supported_endpoint_types": ["openai"],
                 },
                 {
@@ -46,6 +47,27 @@ class RefreshKbqTokenModelsTest(unittest.TestCase):
                     "completion_ratio": 6,
                     "cache_ratio": 0.1,
                     "create_cache_ratio": 1.25,
+                    "enable_groups": ["GPT-plus", "default"],
+                    "supported_endpoint_types": ["openai"],
+                },
+                {
+                    "model_name": "[特价]deepseek-v4-flash",
+                    "quota_type": 0,
+                    "model_ratio": 0.1,
+                    "completion_ratio": 2,
+                    "cache_ratio": 0.02,
+                    "create_cache_ratio": None,
+                    "enable_groups": ["default"],
+                    "supported_endpoint_types": ["openai"],
+                },
+                {
+                    "model_name": "vendor-model-without-official-baseline",
+                    "quota_type": 0,
+                    "model_ratio": 0.25,
+                    "completion_ratio": 3,
+                    "cache_ratio": 0.1,
+                    "create_cache_ratio": None,
+                    "enable_groups": ["default"],
                     "supported_endpoint_types": ["openai"],
                 },
             ],
@@ -86,6 +108,75 @@ class RefreshKbqTokenModelsTest(unittest.TestCase):
         self.assertAlmostEqual(0.108, by_name["[plus]gpt-5.4"]["cost_multiplier"])
         self.assertAlmostEqual(0.54, by_name["[plus]gpt-5.5"]["input_usd_per_1m"])
         self.assertAlmostEqual(3.24, by_name["[plus]gpt-5.5"]["output_usd_per_1m"])
+        self.assertEqual("model_variant", by_name["[plus]gpt-5.5"]["kbq_group_key"])
+
+    def test_deepseek_is_included_with_live_absolute_prices(self):
+        rows = self.mod.build_rows(self.pricing(), "https://example.test/api/pricing", 0.9)
+        by_name = {row["model_name"]: row for row in rows}
+
+        row = by_name["[特价]deepseek-v4-flash"]
+        self.assertEqual("DeepSeek", row["category"])
+        self.assertEqual("NO_OFFICIAL_BASELINE", row["pricing_status"])
+        self.assertAlmostEqual(0.18, row["input_usd_per_1m"])
+        self.assertAlmostEqual(0.36, row["output_usd_per_1m"])
+        self.assertAlmostEqual(0.0036, row["cache_read_usd_per_1m"])
+        self.assertIsNone(row["cost_multiplier"])
+
+    def test_bare_multi_group_model_keeps_each_group_variant(self):
+        pricing = self.pricing()
+        pricing["data"].append(
+            {
+                "model_name": "gpt-5.5",
+                "quota_type": 0,
+                "model_ratio": 0.5,
+                "completion_ratio": 6,
+                "cache_ratio": 0.1,
+                "create_cache_ratio": 1.25,
+                "enable_groups": ["GPT-plus", "GPT-pro"],
+                "supported_endpoint_types": ["openai"],
+            }
+        )
+
+        rows = self.mod.build_rows(pricing, "https://example.test/api/pricing", 0.9)
+        variants = {
+            row["kbq_group_key"]: row
+            for row in rows
+            if row["model_name"] == "gpt-5.5"
+        }
+
+        self.assertAlmostEqual(0.108, variants["GPT-plus"]["cost_multiplier"])
+        self.assertAlmostEqual(0.18, variants["GPT-pro"]["cost_multiplier"])
+
+    def test_schema_upgrade_rebuilds_old_unique_index(self):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript(
+            """
+            create table kbq_token_model_records (
+              id integer primary key autoincrement,
+              category text not null,
+              model_name text not null,
+              base_model text not null,
+              kbq_group_key text not null default '',
+              pricing_status text not null default 'OK',
+              cost_multiplier real,
+              unique(category, model_name)
+            );
+            """
+        )
+
+        self.mod.ensure_token_table_schema(conn)
+
+        self.assertTrue(self.mod.token_table_has_current_unique_index(conn))
+        conn.close()
+
+    def test_unknown_official_baseline_is_visible_instead_of_dropped(self):
+        rows = self.mod.build_rows(self.pricing(), "https://example.test/api/pricing", 0.9)
+        by_name = {row["model_name"]: row for row in rows}
+
+        row = by_name["vendor-model-without-official-baseline"]
+        self.assertEqual("NO_OFFICIAL_BASELINE", row["pricing_status"])
+        self.assertIsNone(row["cost_multiplier"])
+        self.assertAlmostEqual(0.45, row["input_usd_per_1m"])
 
     def test_curated_kbq_plus_ledger_row_is_reconciled_from_model_records(self):
         conn = sqlite3.connect(":memory:")
