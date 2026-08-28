@@ -62,6 +62,27 @@ def valid_manifest() -> dict:
 
 
 class ReleaseManifestStructureTests(unittest.TestCase):
+    def test_operational_release_files_use_canonical_candidate_worktree(self):
+        repo_root = SCRIPT_DIR.parents[1]
+        canonical = ".worktrees/public-0.1.171-imagecost-prep"
+        files = (
+            "ops/public-deploy/docs/RELEASE-BASELINE.md",
+            "ops/public-deploy/docs/RELEASE-PROCEDURE.md",
+            "ops/public-deploy/upstream-rates/run_upstream_hub_ledger_sync.sh",
+            "ops/public-deploy/upstream-rates/launchd/com.fluter.upstream-hub-ledger-sync.plist",
+            "ops/public-deploy/upstream-rates/launchd/com.fluter.upstream-chrome-collector.plist",
+        )
+        for relative in files:
+            content = (repo_root / relative).read_text(encoding="utf-8")
+            self.assertNotIn(".worktrees/public-deploy", content, relative)
+            if relative.endswith("run_upstream_hub_ledger_sync.sh"):
+                self.assertIn('SCRIPT_DIR="${0:A:h}"', content, relative)
+                self.assertIn('WORKDIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"', content, relative)
+            elif relative.endswith("com.fluter.upstream-hub-ledger-sync.plist"):
+                self.assertIn("/Users/fluter_claw/Library/Application Support/Fluter/upstream-ledger-sync", content, relative)
+            else:
+                self.assertIn(canonical, content, relative)
+
     def test_tag_only_release_is_rejected(self):
         manifest = valid_manifest()
         manifest["release"]["image_digest"] = "example/image:release"

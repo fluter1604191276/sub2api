@@ -13,7 +13,7 @@
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy</string>
+  <string>/Users/fluter_claw/Library/Application Support/Fluter/upstream-ledger-sync</string>
 
   <key>StartInterval</key>
   <integer>3600</integer>

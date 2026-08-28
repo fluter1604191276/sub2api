@@ -14,8 +14,8 @@ Upstream version/base commit: v0.1.171
 Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
 Custom source branch: release/v0.1.171-fluter-full-custom-20260829
 Tests/fixtures: account stats、usage/billing and frontend table preference tests。
-Image smoke evidence: 发布后需认证检查账号质量与缓存字段存在，并确认分页/筛选不改变统计窗口。
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest 的 image_smoke 与 capability 字段；覆盖账号质量、缓存字段及分页/筛选窗口。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 回退应用镜像即可；统计接口不写用户账单。
 Owner/status: fluter / ready for candidate build
 ```

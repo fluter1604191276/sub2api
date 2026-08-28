@@ -14,8 +14,8 @@ Upstream version/base commit: v0.1.171
 Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
 Custom source branch: release/v0.1.171-fluter-full-custom-20260829
 Tests/fixtures: upstream-rates Python tests and sanitization fixtures。
-Image smoke evidence: not part of runtime image; release verifier confirms ops files are excluded by .dockerignore。
-First release manifest: pending candidate build
+Image smoke evidence: not part of runtime image; release verifier confirms ops files are excluded by .dockerignore and records the source capability。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 台账工具可独立回退；不得用旧/partial 快照替代实时证据。
 Owner/status: fluter / ready for candidate build
 ```

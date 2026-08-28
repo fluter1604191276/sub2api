@@ -9,11 +9,11 @@
   <key>ProgramArguments</key>
   <array>
     <string>/opt/homebrew/bin/python3</string>
-    <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy/ops/public-deploy/upstream-rates/chrome_readonly_collector.py</string>
+    <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep/ops/public-deploy/upstream-rates/chrome_readonly_collector.py</string>
   </array>
 
   <key>WorkingDirectory</key>
-  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy</string>
+  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep</string>
 
   <key>RunAtLoad</key>
   <true/>
@@ -22,9 +22,9 @@
   <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy/ops/public-deploy/upstream-rates/local-snapshots/chrome/collector-launchd.out.log</string>
+  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep/ops/public-deploy/upstream-rates/local-snapshots/chrome/collector-launchd.out.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy/ops/public-deploy/upstream-rates/local-snapshots/chrome/collector-launchd.err.log</string>
+  <string>/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep/ops/public-deploy/upstream-rates/local-snapshots/chrome/collector-launchd.err.log</string>
 </dict>
 </plist>

@@ -14,8 +14,8 @@ Upstream version/base commit: v0.1.171
 Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
 Custom source branch: release/v0.1.171-fluter-full-custom-20260829
 Tests/fixtures: tool definition、tool call output、streaming event fixtures；apicompat tests。
-Image smoke evidence: 必须分别验证原生 Responses、Chat Completions 桥和 Anthropic 桥；桥接不支持的工具必须显式标记。
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest；分别覆盖原生 Responses、Chat Completions 桥和 Anthropic 桥，不支持的工具显式标记。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 协议 smoke 失败立即回退旧镜像，不以 HTTP 200 或 healthy 作为替代证据。
 Owner/status: fluter / partial by design; explicit compatibility decision required
 ```

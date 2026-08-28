@@ -14,8 +14,8 @@ Upstream version/base commit: v0.1.171
 Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
 Custom source branch: release/v0.1.171-fluter-full-custom-20260829
 Tests/fixtures: scheduler service and gateway routing tests；发布后需做账号选择、粘性逃逸和无数据账号探索 smoke。
-Image smoke evidence: pending candidate build
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest；覆盖账号选择、粘性逃逸和无数据账号探索。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 回退应用镜像；调度开关和原有账号配置保留，必要时关闭智能调度。
 Owner/status: fluter / ready for candidate build
 ```

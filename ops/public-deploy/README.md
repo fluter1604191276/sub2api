@@ -7,6 +7,8 @@ Operational helper scripts for the independent public VPS deployment.
 Production image switches require the capability inventory and evidence gate:
 
 - docs/PRODUCTION-EXTENSIONS.md is the source-of-truth list of site-specific二开.
+- docs/RELEASE-LINES.md is the source-of-truth index for active, production,
+  and historical version lines.
 - docs/RELEASE-BASELINE.md records the current production image and rollback contract.
 - docs/RELEASE-CHECKLIST.md is the operator stop condition.
 - docs/INCIDENT-20260828-production-switch.md records the recent release failure and

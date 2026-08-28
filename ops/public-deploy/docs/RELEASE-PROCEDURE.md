@@ -7,11 +7,20 @@ considered.
 
 ## 1. Reconcile source state
 
-Work only in:
+For this release line, work only in the canonical release worktree:
 
 ```text
-/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy
+/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep
 ```
+
+This worktree is pinned to the official `v0.1.171` baseline and the branch
+`release/v0.1.171-fluter-full-custom-20260829`. Do not build from the main
+checkout at `project/`, the legacy `public-deploy` worktree, or any older
+version-specific preparation worktree. Those directories may contain user
+changes or partial historical patches and are not release inputs.
+
+See `ops/public-deploy/docs/RELEASE-LINES.md` for the active candidate and
+historical-line registry.
 
 Record the current branch, HEAD, upstream base, and `git status --short`
 before touching files. A mixed staged/unstaged tree is an audit condition, not

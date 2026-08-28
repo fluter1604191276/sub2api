@@ -14,8 +14,8 @@ Upstream version/base commit: v0.1.171
 Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
 Custom source branch: release/v0.1.171-fluter-full-custom-20260829
 Tests/fixtures: scheduled test service/runner and billing attribution tests；发布后需验证关闭默认值、预算边界与成功/失败回写。
-Image smoke evidence: pending candidate build
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest；覆盖探针默认关闭、预算边界及成功/失败回写。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 关闭探针计划或回退应用镜像；保留探针结果和成本记录用于审计。
 Owner/status: fluter / ready for candidate build
 ```
