@@ -89,6 +89,17 @@ func TestCalculateAccountStatsImageCost_UsesExactTier(t *testing.T) {
 	require.InDelta(t, 0.32, *got, 1e-12)
 }
 
+func TestCalculateAccountStatsImageCost_NormalizesTierLabelCase(t *testing.T) {
+	pricing := imagePricing(1, []string{"gpt-image-1"}, AccountStatsImageOperationGeneration, 0)
+	pricing.Intervals = []PricingInterval{
+		{TierLabel: " 1k ", PerRequestPrice: testPtrFloat64(0.04)},
+	}
+
+	got := calculateAccountStatsImageCost(&pricing, AccountStatsUsageContext{ImageCount: 2, ImageSize: "1K"})
+	require.NotNil(t, got)
+	require.InDelta(t, 0.08, *got, 1e-12)
+}
+
 func TestCalculateAccountStatsImageCost_UsesDefaultWhenTierMissing(t *testing.T) {
 	pricing := imagePricing(1, []string{"gpt-image-1"}, AccountStatsImageOperationGeneration, 0.08)
 	pricing.Intervals = []PricingInterval{

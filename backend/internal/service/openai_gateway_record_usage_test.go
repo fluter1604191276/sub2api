@@ -2265,6 +2265,58 @@ func TestOpenAIGatewayServiceRecordUsage_ResponsesImageBillingModelBeatsRequeste
 	require.InDelta(t, 0.0, usageRepo.lastLog.OutputCost, 1e-12)
 }
 
+func TestOpenAIGatewayServiceRecordUsage_AccountStatsImageResponsesUsesInboundEndpointOperation(t *testing.T) {
+	const (
+		groupID   = int64(6128)
+		accountID = int64(7128)
+	)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	attachAccountStatsImageChannelPricingForTest(
+		svc,
+		groupID,
+		"gpt-image-2",
+		0.20,
+		"gpt-image-2",
+		AccountStatsImageOperationResponses,
+		0.04,
+	)
+
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID:  "resp_account_stats_image_responses",
+			Model:      "gpt-image-2",
+			ImageCount: 1,
+			ImageSize:  ImageBillingSize1K,
+			Duration:   time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      16128,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:                   groupID,
+				RateMultiplier:       1.0,
+				ImageRateIndependent: true,
+				ImageRateMultiplier:  1.0,
+			},
+		},
+		User:            &User{ID: 26128},
+		Account:         &Account{ID: accountID},
+		InboundEndpoint: "/v1/responses",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, 0.04, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+	require.InDelta(t, 0.20, usageRepo.lastLog.TotalCost, 1e-12)
+	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
+	require.NotNil(t, usageRepo.lastLog.ImageSize)
+	require.Equal(t, ImageBillingSize1K, *usageRepo.lastLog.ImageSize)
+	require.NotNil(t, usageRepo.lastLog.InboundEndpoint)
+	require.Equal(t, "/v1/responses", *usageRepo.lastLog.InboundEndpoint)
+}
+
 func newOpenAIImageChannelPricingResolverForTest(t *testing.T, groupID int64, model string, price float64) *ModelPricingResolver {
 	t.Helper()
 	cache := newEmptyChannelCache()
@@ -2298,6 +2350,63 @@ func newOpenAITokenImageChannelPricingResolverForTest(t *testing.T, groupID int6
 	cs := &ChannelService{}
 	cs.cache.Store(cache)
 	return NewModelPricingResolver(cs, NewBillingService(&config.Config{}, nil))
+}
+
+func newAccountStatsImageChannelServiceForTest(
+	groupID int64,
+	userModel string,
+	userPrice float64,
+	statsModel string,
+	statsOperation AccountStatsImageOperation,
+	statsPrice float64,
+) *ChannelService {
+	cache := newEmptyChannelCache()
+	userPrice1K := userPrice
+	statsPrice1K := statsPrice
+	cache.pricingByGroupModel[channelModelKey{groupID: groupID, model: userModel}] = &ChannelModelPricing{
+		BillingMode: BillingModeImage,
+		Models:      []string{userModel},
+		Intervals: []PricingInterval{{
+			TierLabel:       ImageBillingSize1K,
+			PerRequestPrice: &userPrice1K,
+		}},
+	}
+	cache.channelByGroupID[groupID] = &Channel{
+		ID:     groupID,
+		Status: StatusActive,
+		AccountStatsPricingRules: []AccountStatsPricingRule{{
+			GroupIDs: []int64{groupID},
+			Pricing: []ChannelModelPricing{{
+				Models:         []string{statsModel},
+				BillingMode:    BillingModeImage,
+				ImageOperation: statsOperation,
+				Intervals: []PricingInterval{{
+					TierLabel:       ImageBillingSize1K,
+					PerRequestPrice: &statsPrice1K,
+				}},
+			}},
+		}},
+	}
+	cache.groupPlatform[groupID] = ""
+	cache.loadedAt = time.Now()
+
+	channelService := &ChannelService{}
+	channelService.cache.Store(cache)
+	return channelService
+}
+
+func attachAccountStatsImageChannelPricingForTest(
+	svc *OpenAIGatewayService,
+	groupID int64,
+	userModel string,
+	userPrice float64,
+	statsModel string,
+	statsOperation AccountStatsImageOperation,
+	statsPrice float64,
+) {
+	channelService := newAccountStatsImageChannelServiceForTest(groupID, userModel, userPrice, statsModel, statsOperation, statsPrice)
+	svc.channelService = channelService
+	svc.resolver = NewModelPricingResolver(channelService, NewBillingService(&config.Config{}, nil))
 }
 
 type openAIMediaPriceGroupRepoStub struct {

@@ -390,6 +390,62 @@ func (r *usageLogRepository) GetAccountWindowStatsBatch(ctx context.Context, acc
 
 // GetGeminiUsageTotalsBatch 批量聚合 Gemini 账号在窗口内的 Pro/Flash 请求与用量。
 // 模型分类规则与 service.geminiModelClassFromName 一致：model 包含 flash/lite 视为 flash，其余视为 pro。
+// GetAccountCacheHitStatsBatch aggregates the rolling cache hit rate for each
+// account in one query. Input tokens are already normalized to exclude cache
+// reads when usage logs are written, so cache creation is an explicit miss in
+// the denominator.
+func (r *usageLogRepository) GetAccountCacheHitStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.CacheHitStats, error) {
+	result := make(map[int64]*usagestats.CacheHitStats, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+
+	query := `
+		SELECT
+			account_id,
+			COUNT(*) AS requests,
+			COALESCE(SUM(input_tokens), 0) AS input_tokens,
+			COALESCE(SUM(cache_creation_tokens), 0) AS cache_creation_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens
+		FROM usage_logs
+		WHERE account_id = ANY($1) AND created_at >= $2
+		GROUP BY account_id
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(accountIDs), startTime)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var accountID int64
+		stats := &usagestats.CacheHitStats{}
+		if err := rows.Scan(
+			&accountID,
+			&stats.Requests,
+			&stats.InputTokens,
+			&stats.CacheCreationTokens,
+			&stats.CacheReadTokens,
+		); err != nil {
+			return nil, err
+		}
+		if rate, ok := usagestats.CalculateCacheHitRate(stats.InputTokens, stats.CacheCreationTokens, stats.CacheReadTokens); ok {
+			stats.CacheHitRate = &rate
+		}
+		result[accountID] = stats
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	for _, accountID := range accountIDs {
+		if _, ok := result[accountID]; !ok {
+			result[accountID] = &usagestats.CacheHitStats{}
+		}
+	}
+	return result, nil
+}
+
 func (r *usageLogRepository) GetGeminiUsageTotalsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time) (map[int64]service.GeminiUsageTotals, error) {
 	result := make(map[int64]service.GeminiUsageTotals, len(accountIDs))
 	if len(accountIDs) == 0 {

@@ -7,6 +7,7 @@
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
+            :model-options="accountModelOptions"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
@@ -124,6 +125,12 @@
                         <Icon name="shield" size="sm" />
                       </span>
                       <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
+                    </button>
+                    <button class="account-tools-menu-item" :disabled="syncingAllModels" @click="handleSyncAllModels">
+                      <span class="account-tools-menu-icon bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300">
+                        <Icon name="sync" size="sm" :class="syncingAllModels ? 'animate-spin' : ''" />
+                      </span>
+                      <span class="flex-1 text-left">{{ syncingAllModels ? t('admin.accounts.syncingAllModels') : t('admin.accounts.syncAllModels') }}</span>
                     </button>
                     <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
                       <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
@@ -275,6 +282,31 @@
               :loading="todayStatsLoading"
               :error="todayStatsError"
             />
+          </template>
+          <template #cell-cache_hit_rate="{ row }">
+            <div
+              v-if="cacheHitStatsLoading && !cacheHitStatsByAccountId[String(row.id)]"
+              class="h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-gray-700"
+            />
+            <div
+              v-else-if="cacheHitStatsError && !cacheHitStatsByAccountId[String(row.id)]"
+              class="text-xs text-red-500"
+            >
+              -
+            </div>
+            <div
+              v-else-if="cacheHitStatsByAccountId[String(row.id)]?.cache_hit_rate != null"
+              class="flex flex-col items-start"
+              :title="formatCacheHitStatsTitle(cacheHitStatsByAccountId[String(row.id)]!)"
+            >
+              <span :class="['text-sm font-semibold tabular-nums', cacheHitRateClass(cacheHitStatsByAccountId[String(row.id)]!.cache_hit_rate)]">
+                {{ formatCacheHitRate(cacheHitStatsByAccountId[String(row.id)]!.cache_hit_rate) }}
+              </span>
+              <span class="text-[10px] text-gray-400 dark:text-gray-500">
+                {{ formatNumber(cacheHitStatsByAccountId[String(row.id)]!.requests) }} req
+              </span>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="row.groups" :max-display="4" />
@@ -462,9 +494,9 @@ import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { formatDateTime, formatNumber, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, ClaudeModel } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -490,6 +522,7 @@ type AccountBulkEditTarget =
         group?: string
         search?: string
         privacy_mode?: string
+        model?: string
         sort_by?: string
         sort_order?: AccountSortOrder
       }
@@ -542,16 +575,20 @@ const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
+const accountModelOptions = ref<SelectOption[]>([])
+const syncingAllModels = ref(false)
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'cache_hit_rate', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
 const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
+const CACHE_HIT_RATE_COLUMNS_VERSION_KEY = 'account-cache-hit-rate-column-version'
+const CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION = 'hidden-by-default'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -607,6 +644,11 @@ const todayStatsLoading = ref(false)
 const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
+const cacheHitStatsByAccountId = ref<Record<string, CacheHitStats>>({})
+const cacheHitStatsLoading = ref(false)
+const cacheHitStatsError = ref<string | null>(null)
+const cacheHitStatsReqSeq = ref(0)
+const pendingCacheHitStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
 
 const buildDefaultTodayStats = (): WindowStats => ({
@@ -657,6 +699,51 @@ const refreshTodayStatsBatch = async () => {
   } finally {
     if (reqSeq === todayStatsReqSeq.value) {
       todayStatsLoading.value = false
+    }
+  }
+}
+
+const refreshCacheHitStatsBatch = async () => {
+  if (hiddenColumns.has('cache_hit_rate')) {
+    cacheHitStatsLoading.value = false
+    cacheHitStatsError.value = null
+    return
+  }
+
+  const accountIDs = accounts.value.map(account => account.id)
+  const reqSeq = ++cacheHitStatsReqSeq.value
+  if (accountIDs.length === 0) {
+    cacheHitStatsByAccountId.value = {}
+    cacheHitStatsError.value = null
+    cacheHitStatsLoading.value = false
+    return
+  }
+
+  cacheHitStatsLoading.value = true
+  cacheHitStatsError.value = null
+  try {
+    const result = await adminAPI.accounts.getBatchCacheHitStats(accountIDs)
+    if (reqSeq !== cacheHitStatsReqSeq.value) return
+    const serverStats = result.stats ?? {}
+    const nextStats: Record<string, CacheHitStats> = {}
+    for (const accountID of accountIDs) {
+      const key = String(accountID)
+      nextStats[key] = serverStats[key] ?? {
+        requests: 0,
+        input_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        cache_hit_rate: null
+      }
+    }
+    cacheHitStatsByAccountId.value = nextStats
+  } catch (error) {
+    if (reqSeq !== cacheHitStatsReqSeq.value) return
+    cacheHitStatsError.value = 'Failed'
+    console.error('Failed to load account cache hit stats:', error)
+  } finally {
+    if (reqSeq === cacheHitStatsReqSeq.value) {
+      cacheHitStatsLoading.value = false
     }
   }
 }
@@ -713,11 +800,18 @@ const loadSavedColumns = () => {
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }
+      // Existing layouts predate the cache hit rate column; keep it opt-in once.
+      if (localStorage.getItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY) !== CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION) {
+        hiddenColumns.add('cache_hit_rate')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
+      }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
       })
       localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
@@ -731,6 +825,7 @@ const saveColumnsToStorage = () => {
   try {
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
     localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+    localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
@@ -803,6 +898,11 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
+  if (key === 'cache_hit_rate' && wasHidden) {
+    refreshCacheHitStatsBatch().catch((error) => {
+      console.error('Failed to load account cache hit stats after showing column:', error)
+    })
+  }
   if (key === 'scheduler_score') {
     // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
     syncAccountListDerivedParams()
@@ -838,6 +938,7 @@ const {
     status: '',
     privacy_mode: '',
     group: '',
+    model: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -896,7 +997,7 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch()])
 }
 
 const reload = async () => {
@@ -905,7 +1006,7 @@ const reload = async () => {
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
   await baseReload()
-  await refreshTodayStatsBatch()
+  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch()])
 }
 
 const debouncedReload = () => {
@@ -913,6 +1014,7 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseDebouncedReload()
 }
 
@@ -921,6 +1023,7 @@ const handlePageChange = (page: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseHandlePageChange(page)
 }
 
@@ -929,6 +1032,7 @@ const handlePageSizeChange = (size: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseHandlePageSizeChange(size)
 }
 
@@ -947,10 +1051,17 @@ const handleSort = (key: string, order: AccountSortOrder) => {
 }
 
 watch(loading, (isLoading, wasLoading) => {
-  if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
-    pendingTodayStatsRefresh.value = false
-    refreshTodayStatsBatch().catch((error) => {
-      console.error('Failed to refresh account today stats after table load:', error)
+  if (!wasLoading || isLoading) return
+  const shouldRefreshTodayStats = pendingTodayStatsRefresh.value
+  const shouldRefreshCacheHitStats = pendingCacheHitStatsRefresh.value
+  pendingTodayStatsRefresh.value = false
+  pendingCacheHitStatsRefresh.value = false
+  if (shouldRefreshTodayStats || shouldRefreshCacheHitStats) {
+    Promise.all([
+      shouldRefreshTodayStats ? refreshTodayStatsBatch() : Promise.resolve(),
+      shouldRefreshCacheHitStats ? refreshCacheHitStatsBatch() : Promise.resolve()
+    ]).catch((error) => {
+      console.error('Failed to refresh account table stats after table load:', error)
     })
   }
 })
@@ -1049,6 +1160,7 @@ const refreshAccountsIncrementally = async () => {
         type?: string
         status?: string
         privacy_mode?: string
+        model?: string
         group?: string
         search?: string
         sort_by?: string
@@ -1068,7 +1180,7 @@ const refreshAccountsIncrementally = async () => {
       hasPendingListSync.value = false
     }
 
-    await refreshTodayStatsBatch()
+    await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1109,6 +1221,35 @@ const openErrorPassthrough = () => {
 const openTLSFingerprintProfiles = () => {
   closeAccountToolsDropdown()
   showTLSFingerprintProfiles.value = true
+}
+
+const loadAccountModelOptions = async () => {
+  const models = await adminAPI.accounts.listSyncedModels()
+  accountModelOptions.value = models.map(model => ({ value: model.value, label: model.label }))
+}
+
+const handleSyncAllModels = async () => {
+  if (syncingAllModels.value) return
+  closeAccountToolsDropdown()
+  syncingAllModels.value = true
+  try {
+    const summary = await adminAPI.accounts.syncAllModels()
+    await loadAccountModelOptions()
+    await reload()
+    const messageKey = summary.failed > 0
+      ? 'admin.accounts.syncAllModelsPartial'
+      : 'admin.accounts.syncAllModelsSuccess'
+    appStore.showSuccess(t(messageKey, {
+      success: summary.success,
+      failed: summary.failed,
+      unsupported: summary.unsupported
+    }))
+  } catch (error) {
+    console.error('Failed to sync all account models:', error)
+    appStore.showError(t('admin.accounts.syncAllModelsFailed'))
+  } finally {
+    syncingAllModels.value = false
+  }
 }
 
 const syncPendingListChanges = async () => {
@@ -1222,6 +1363,26 @@ function getOpenAICompactTitle(row: any): string {
   return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
 }
 
+function formatCacheHitRate(rate: number | null | undefined): string {
+  return rate == null ? '-' : `${rate.toFixed(1)}%`
+}
+
+function cacheHitRateClass(rate: number | null | undefined): string {
+  if (rate == null) return 'text-gray-400 dark:text-dark-500'
+  if (rate >= 80) return 'text-emerald-600 dark:text-emerald-400'
+  if (rate >= 40) return 'text-amber-600 dark:text-amber-400'
+  return 'text-rose-600 dark:text-rose-400'
+}
+
+function formatCacheHitStatsTitle(stats: CacheHitStats): string {
+  return t('admin.accounts.cacheHitRateTooltip', {
+    requests: formatNumber(stats.requests),
+    input: formatNumber(stats.input_tokens),
+    creation: formatNumber(stats.cache_creation_tokens),
+    read: formatNumber(stats.cache_read_tokens)
+  })
+}
+
 function getAntigravityTierClass(row: any): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
@@ -1242,7 +1403,8 @@ const allColumns = computed(() => {
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
-    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
+    { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'cache_hit_rate', label: t('admin.accounts.columns.cacheHitRate'), sortable: false }
   ]
   if (!authStore.isSimpleMode) {
     c.push({ key: 'groups', label: t('admin.accounts.columns.groups'), sortable: false })
@@ -1475,6 +1637,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    model: typeof rawParams.model === 'string' ? rawParams.model : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -1525,6 +1688,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  model: params.model || '',
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
@@ -1570,6 +1734,13 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
+  const model = String(filters.model || '').trim()
+  if (model) {
+    const availableModels = Array.isArray(account.extra?.available_models)
+      ? account.extra.available_models.filter((value): value is string => typeof value === 'string')
+      : []
+    if (!availableModels.includes(model)) return false
+  }
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
@@ -1842,9 +2013,10 @@ const handleClickOutside = (event: MouseEvent) => {
 onMounted(async () => {
   load()
   try {
-    const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
+    const [p, g, models] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll(), adminAPI.accounts.listSyncedModels()])
     proxies.value = p
     groups.value = g
+    accountModelOptions.value = models.map(model => ({ value: model.value, label: model.label }))
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }

@@ -87,7 +87,7 @@
             </label>
             <Select
               :modelValue="entry.billing_mode"
-              @update:modelValue="emit('update', { ...entry, billing_mode: $event as BillingMode, intervals: [] })"
+              @update:modelValue="onBillingModeChange($event as BillingMode)"
               :options="billingModeOptions"
               class="mt-1"
             />
@@ -191,9 +191,22 @@
 
         <!-- Image mode -->
         <div v-else-if="entry.billing_mode === 'image'">
+          <div v-if="accountStats" class="mt-3 w-56" data-testid="account-stats-image-operation">
+            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.imageOperation') }}
+            </label>
+            <Select
+              :modelValue="entry.image_operation ?? ''"
+              @update:modelValue="onImageOperationChange($event as string)"
+              :options="imageOperationOptions"
+              class="mt-1"
+              data-testid="account-stats-image-operation-select"
+            />
+          </div>
+
           <!-- Default image price (per-request, same as per_request mode) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ t('admin.channels.form.defaultImagePrice') }}
+            {{ defaultImagePriceLabel }}
             <span class="ml-1 font-normal text-gray-400">$</span>
           </label>
           <div class="mt-1 w-48">
@@ -237,13 +250,17 @@ import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass } from './types'
 import type { BillingMode } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
+import { accountStatsImageOperationOptions } from './accountStatsImageCost'
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   entry: PricingFormEntry
   platform?: string
-}>()
+  accountStats?: boolean
+}>(), {
+  accountStats: false,
+})
 
 const emit = defineEmits<{
   update: [entry: PricingFormEntry]
@@ -264,8 +281,37 @@ const billingModeLabel = computed(() => {
   return opt ? opt.label : props.entry.billing_mode
 })
 
+const imageOperationOptions = computed(() =>
+  accountStatsImageOperationOptions.map(option => ({
+    value: option.value,
+    label: t(option.labelKey),
+  }))
+)
+
+const defaultImagePriceLabel = computed(() =>
+  props.accountStats
+    ? t('admin.channels.form.defaultUpstreamImageCost')
+    : t('admin.channels.form.defaultImagePrice')
+)
+
 function emitField(field: keyof PricingFormEntry, value: string) {
   emit('update', { ...props.entry, [field]: value === '' ? null : value })
+}
+
+function onBillingModeChange(nextMode: BillingMode) {
+  emit('update', {
+    ...props.entry,
+    billing_mode: nextMode,
+    intervals: [],
+    image_operation: nextMode === 'image' ? (props.entry.image_operation ?? null) : null,
+  })
+}
+
+function onImageOperationChange(value: string) {
+  emit('update', {
+    ...props.entry,
+    image_operation: value === '' ? null : value as PricingFormEntry['image_operation'],
+  })
 }
 
 function addInterval() {
@@ -281,7 +327,7 @@ function addInterval() {
 
 function addImageTier() {
   const intervals = [...(props.entry.intervals || [])]
-  const labels = ['1K', '2K', '4K', 'HD']
+  const labels = props.accountStats ? ['1K', '2K', '4K'] : ['1K', '2K', '4K', 'HD']
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: labels[intervals.length] || '',
     input_price: null, output_price: null, cache_write_price: null,

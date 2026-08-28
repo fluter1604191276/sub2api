@@ -233,6 +233,59 @@ func TestGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersist
 	require.InDelta(t, 0.19, usageRepo.lastLog.ActualCost, 1e-12)
 }
 
+func TestGatewayServiceRecordUsage_AccountStatsImageGenerationUsesInboundEndpointOperation(t *testing.T) {
+	const (
+		groupID   = int64(9901)
+		accountID = int64(9902)
+	)
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newGatewayRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{})
+	channelService := newAccountStatsImageChannelServiceForTest(
+		groupID,
+		"gemini-image",
+		0.20,
+		"gemini-image",
+		AccountStatsImageOperationGeneration,
+		0.04,
+	)
+	svc.channelService = channelService
+	svc.resolver = NewModelPricingResolver(channelService, NewBillingService(&config.Config{}, nil))
+
+	err := svc.RecordUsage(context.Background(), &RecordUsageInput{
+		Result: &ForwardResult{
+			RequestID:  "gateway_account_stats_image_generation",
+			Model:      "gemini-image",
+			ImageCount: 1,
+			ImageSize:  ImageBillingSize1K,
+			Duration:   time.Second,
+		},
+		APIKey: &APIKey{
+			ID:      8901,
+			GroupID: i64p(groupID),
+			Group: &Group{
+				ID:                   groupID,
+				RateMultiplier:       1.0,
+				ImageRateIndependent: true,
+				ImageRateMultiplier:  1.0,
+			},
+		},
+		User:            &User{ID: 8902},
+		Account:         &Account{ID: accountID},
+		InboundEndpoint: "/v1/images/generations",
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, usageRepo.lastLog)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, 0.04, *usageRepo.lastLog.AccountStatsCost, 1e-12)
+	require.InDelta(t, 0.20, usageRepo.lastLog.TotalCost, 1e-12)
+	require.Equal(t, 1, usageRepo.lastLog.ImageCount)
+	require.NotNil(t, usageRepo.lastLog.ImageSize)
+	require.Equal(t, ImageBillingSize1K, *usageRepo.lastLog.ImageSize)
+	require.NotNil(t, usageRepo.lastLog.InboundEndpoint)
+	require.Equal(t, "/v1/images/generations", *usageRepo.lastLog.InboundEndpoint)
+}
+
 func TestGatewayServiceRecordUsage_PeakRateAffectsTokenModeImageOutputTokens(t *testing.T) {
 	groupID := int64(902)
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}

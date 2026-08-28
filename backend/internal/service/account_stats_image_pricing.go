@@ -108,10 +108,12 @@ func calculateAccountStatsMixedImageCost(pricing *ChannelModelPricing, usage Acc
 }
 
 func accountStatsImageUnitPrice(pricing *ChannelModelPricing, size string) *float64 {
-	if size != "" {
+	normalizedSize, sizeOK := normalizeAccountStatsImageTier(size)
+	if sizeOK {
 		for i := range pricing.Intervals {
 			iv := &pricing.Intervals[i]
-			if strings.TrimSpace(iv.TierLabel) == size && iv.PerRequestPrice != nil && *iv.PerRequestPrice > 0 {
+			normalizedTier, tierOK := normalizeAccountStatsImageTier(iv.TierLabel)
+			if tierOK && normalizedTier == normalizedSize && iv.PerRequestPrice != nil && *iv.PerRequestPrice > 0 {
 				return iv.PerRequestPrice
 			}
 		}
@@ -120,6 +122,19 @@ func accountStatsImageUnitPrice(pricing *ChannelModelPricing, size string) *floa
 		return pricing.PerRequestPrice
 	}
 	return nil
+}
+
+func normalizeAccountStatsImageTier(label string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(label)) {
+	case ImageBillingSize1K:
+		return ImageBillingSize1K, true
+	case ImageBillingSize2K:
+		return ImageBillingSize2K, true
+	case ImageBillingSize4K:
+		return ImageBillingSize4K, true
+	default:
+		return "", false
+	}
 }
 
 func modelMatches(models []string, modelLower string, exact bool) bool {

@@ -142,6 +142,7 @@ const (
 type ChannelService struct {
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
+	accountRepo          channelModelCalibrationAccountRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	pricingService       *PricingService // 用于「可用渠道」展示时回落到全局定价；可为 nil（测试场景）
 
@@ -152,10 +153,11 @@ type ChannelService struct {
 // NewChannelService 创建渠道服务实例。
 // pricingService 仅供 ListAvailable 在渠道未配置定价时回落到全局 LiteLLM 数据；
 // 计费热路径走独立的 ModelPricingResolver，与此参数无关。可传 nil。
-func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService) *ChannelService {
+func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCacheInvalidator APIKeyAuthCacheInvalidator, pricingService *PricingService, accountRepo channelModelCalibrationAccountRepository) *ChannelService {
 	s := &ChannelService{
 		repo:                 repo,
 		groupRepo:            groupRepo,
+		accountRepo:          accountRepo,
 		authCacheInvalidator: authCacheInvalidator,
 		pricingService:       pricingService,
 	}
@@ -599,6 +601,9 @@ func validateChannelConfig(pricing []ChannelModelPricing, mapping map[string]map
 // validatePricingEntries 校验定价条目（冲突检测 + 区间校验 + 计费模式校验），
 // 同时用于主渠道定价和 account_stats_pricing_rules 的内部定价。
 func validatePricingEntries(pricing []ChannelModelPricing) error {
+	if err := validateNoPrimaryImageOperation(pricing); err != nil {
+		return err
+	}
 	if err := validateNoConflictingModels(pricing); err != nil {
 		return err
 	}
@@ -606,6 +611,113 @@ func validatePricingEntries(pricing []ChannelModelPricing) error {
 		return err
 	}
 	return validatePricingBillingMode(pricing)
+}
+
+func validateNoPrimaryImageOperation(pricing []ChannelModelPricing) error {
+	for _, p := range pricing {
+		if p.ImageOperation != "" {
+			return infraerrors.BadRequest(
+				"IMAGE_OPERATION_UNSUPPORTED",
+				"image_operation is only supported in account stats pricing rules",
+			)
+		}
+	}
+	return nil
+}
+
+func validateAccountStatsPricingEntries(pricing []ChannelModelPricing) error {
+	if err := validatePricingIntervals(pricing); err != nil {
+		return err
+	}
+	if err := validatePricingBillingMode(pricing); err != nil {
+		return err
+	}
+	if err := validateAccountStatsImageOperations(pricing); err != nil {
+		return err
+	}
+	return validateNoConflictingAccountStatsModels(pricing)
+}
+
+func validateAccountStatsImageOperations(pricing []ChannelModelPricing) error {
+	for _, p := range pricing {
+		if !p.ImageOperation.IsValid() {
+			return infraerrors.BadRequest(
+				"INVALID_IMAGE_OPERATION",
+				fmt.Sprintf("invalid image_operation %q for model %v", p.ImageOperation, p.Models),
+			)
+		}
+		if p.ImageOperation != "" && p.BillingMode != BillingModeImage {
+			return infraerrors.BadRequest(
+				"IMAGE_OPERATION_REQUIRES_IMAGE_MODE",
+				"image_operation requires image billing mode",
+			)
+		}
+		if p.BillingMode == BillingModeImage {
+			if err := validatePositiveImageCost(p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validatePositiveImageCost(p ChannelModelPricing) error {
+	hasPositive := false
+	if p.PerRequestPrice != nil {
+		if *p.PerRequestPrice <= 0 {
+			return infraerrors.BadRequest(
+				"IMAGE_COST_MUST_BE_POSITIVE",
+				"image per_request_price must be positive when configured",
+			)
+		}
+		hasPositive = true
+	}
+	for _, iv := range p.Intervals {
+		if _, ok := normalizeAccountStatsImageTier(iv.TierLabel); !ok {
+			return infraerrors.BadRequest(
+				"INVALID_IMAGE_COST_TIER",
+				"account stats image pricing tiers must be 1K, 2K, or 4K",
+			)
+		}
+		if iv.PerRequestPrice == nil {
+			continue
+		}
+		if *iv.PerRequestPrice <= 0 {
+			return infraerrors.BadRequest(
+				"IMAGE_COST_MUST_BE_POSITIVE",
+				"image interval per_request_price must be positive when configured",
+			)
+		}
+		hasPositive = true
+	}
+	if !hasPositive {
+		return infraerrors.BadRequest(
+			"IMAGE_COST_MUST_BE_POSITIVE",
+			"image pricing requires a positive default or interval per_request_price",
+		)
+	}
+	return nil
+}
+
+func validateNoConflictingAccountStatsModels(pricingList []ChannelModelPricing) error {
+	byPlatformScope := make(map[string][]modelEntry)
+	for _, p := range pricingList {
+		scope := "non-image"
+		if p.BillingMode == BillingModeImage {
+			scope = "image:" + string(p.ImageOperation)
+		}
+		key := p.Platform + "\x00" + scope
+		for _, model := range p.Models {
+			byPlatformScope[key] = append(byPlatformScope[key], toModelEntry(model))
+		}
+	}
+	for key, entries := range byPlatformScope {
+		platform, scope, _ := strings.Cut(key, "\x00")
+		if err := detectConflicts(entries, platform, "MODEL_PATTERN_CONFLICT", scope+" model patterns"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validatePricingBillingMode 校验计费模式配置：按次/图片模式必须配价格或区间，所有价格字段不能为负，区间至少有一个价格字段。
@@ -714,7 +826,7 @@ func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) 
 		return nil, err
 	}
 	for i, rule := range channel.AccountStatsPricingRules {
-		if err := validatePricingEntries(rule.Pricing); err != nil {
+		if err := validateAccountStatsPricingEntries(rule.Pricing); err != nil {
 			return nil, fmt.Errorf("account stats pricing rule #%d: %w", i+1, err)
 		}
 	}
@@ -758,7 +870,7 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 		return nil, err
 	}
 	for i, rule := range channel.AccountStatsPricingRules {
-		if err := validatePricingEntries(rule.Pricing); err != nil {
+		if err := validateAccountStatsPricingEntries(rule.Pricing); err != nil {
 			return nil, fmt.Errorf("account stats pricing rule #%d: %w", i+1, err)
 		}
 	}

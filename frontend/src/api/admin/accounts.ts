@@ -11,6 +11,7 @@ import type {
   PaginatedResponse,
   AccountUsageInfo,
   WindowStats,
+  CacheHitStats,
   ClaudeModel,
   AccountUsageStatsResponse,
   TempUnschedulableStatus,
@@ -40,6 +41,7 @@ export async function list(
     group?: string
     search?: string
     privacy_mode?: string
+    model?: string
     lite?: string
     include_scheduler_score?: string
     sort_by?: string
@@ -76,6 +78,7 @@ export async function listWithEtag(
     group?: string
     search?: string
     privacy_mode?: string
+    model?: string
     lite?: string
     include_scheduler_score?: string
     sort_by?: string
@@ -453,6 +456,20 @@ export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTod
   return data
 }
 
+export interface BatchCacheHitStatsResponse {
+  stats: Record<string, CacheHitStats>
+}
+
+/**
+ * 获取多个账号滚动 24 小时的 token 加权缓存命中率。
+ */
+export async function getBatchCacheHitStats(accountIds: number[]): Promise<BatchCacheHitStatsResponse> {
+  const { data } = await apiClient.post<BatchCacheHitStatsResponse>('/admin/accounts/cache-hit-stats/batch', {
+    account_ids: accountIds
+  })
+  return data
+}
+
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -478,6 +495,36 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
 
 export interface SyncUpstreamModelsResult {
   models: string[]
+}
+
+export interface AccountModelOption {
+  value: string
+  label: string
+}
+
+export interface AccountModelSyncSummary {
+  total: number
+  success: number
+  failed: number
+  unsupported: number
+  results: Array<{
+    account_id: number
+    status: string
+    model_count: number
+    error?: string
+  }>
+}
+
+export async function listSyncedModels(): Promise<AccountModelOption[]> {
+  const { data } = await apiClient.get<AccountModelOption[]>('/admin/accounts/models')
+  return data
+}
+
+export async function syncAllModels(): Promise<AccountModelSyncSummary> {
+  const { data } = await apiClient.post<AccountModelSyncSummary>('/admin/accounts/sync/models', undefined, {
+    timeout: 300000
+  })
+  return data
 }
 
 /**
@@ -574,6 +621,7 @@ export async function exportData(options?: {
     status?: string
     group?: string
     privacy_mode?: string
+    model?: string
     search?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
@@ -584,12 +632,13 @@ export async function exportData(options?: {
   if (options?.ids && options.ids.length > 0) {
     params.ids = options.ids.join(',')
   } else if (options?.filters) {
-    const { platform, type, status, group, privacy_mode, search, sort_by, sort_order } = options.filters
+    const { platform, type, status, group, privacy_mode, model, search, sort_by, sort_order } = options.filters
     if (platform) params.platform = platform
     if (type) params.type = type
     if (status) params.status = status
     if (group) params.group = group
     if (privacy_mode) params.privacy_mode = privacy_mode
+    if (model) params.model = model
     if (search) params.search = search
     if (sort_by) params.sort_by = sort_by
     if (sort_order) params.sort_order = sort_order
@@ -821,6 +870,7 @@ export const accountsAPI = {
   getUsage,
   getTodayStats,
   getBatchTodayStats,
+  getBatchCacheHitStats,
   clearRateLimit,
   recoverState,
   resetAccountQuota,
@@ -830,6 +880,8 @@ export const accountsAPI = {
   getAvailableModels,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
+  listSyncedModels,
+  syncAllModels,
   generateAuthUrl,
   exchangeCode,
   refreshOpenAIToken,

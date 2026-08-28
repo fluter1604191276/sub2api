@@ -190,11 +190,11 @@ func (m *mockChannelAuthCacheInvalidator) InvalidateAuthCacheByGroupID(_ context
 // ---------------------------------------------------------------------------
 
 func newTestChannelService(repo *mockChannelRepository) *ChannelService {
-	return NewChannelService(repo, nil, nil, nil)
+	return NewChannelService(repo, nil, nil, nil, nil)
 }
 
 func newTestChannelServiceWithAuth(repo *mockChannelRepository, auth *mockChannelAuthCacheInvalidator) *ChannelService {
-	return NewChannelService(repo, nil, auth, nil)
+	return NewChannelService(repo, nil, auth, nil, nil)
 }
 
 // makeStandardRepo returns a repo that serves one active channel with anthropic pricing
@@ -2351,6 +2351,213 @@ func TestValidatePricingBillingMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateAccountStatsPricingEntries(t *testing.T) {
+	tests := []struct {
+		name    string
+		pricing []ChannelModelPricing
+		wantErr string
+	}{
+		{
+			name: "same model token and responses image",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:    PlatformOpenAI,
+					Models:      []string{"gpt-image-1"},
+					BillingMode: BillingModeToken,
+					InputPrice:  testPtrFloat64(0.000001),
+				},
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationResponses,
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+			},
+		},
+		{
+			name: "same image model generation and edit",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationGeneration,
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationEdit,
+					PerRequestPrice: testPtrFloat64(0.08),
+				},
+			},
+		},
+		{
+			name: "image row nil default and positive 1K tier",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:       PlatformOpenAI,
+					Models:         []string{"gpt-image-1"},
+					BillingMode:    BillingModeImage,
+					ImageOperation: AccountStatsImageOperationGeneration,
+					Intervals: []PricingInterval{
+						{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.04)},
+					},
+				},
+			},
+		},
+		{
+			name: "image row accepts normalized lowercase tier",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:       PlatformOpenAI,
+					Models:         []string{"gpt-image-1"},
+					BillingMode:    BillingModeImage,
+					ImageOperation: AccountStatsImageOperationGeneration,
+					Intervals: []PricingInterval{
+						{TierLabel: " 1k ", PerRequestPrice: testPtrFloat64(0.04)},
+					},
+				},
+			},
+		},
+		{
+			name: "image row rejects unusable HD tier",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:       PlatformOpenAI,
+					Models:         []string{"gpt-image-1"},
+					BillingMode:    BillingModeImage,
+					ImageOperation: AccountStatsImageOperationGeneration,
+					Intervals: []PricingInterval{
+						{TierLabel: "HD", PerRequestPrice: testPtrFloat64(0.04)},
+					},
+				},
+			},
+			wantErr: "INVALID_IMAGE_COST_TIER",
+		},
+		{
+			name: "duplicate same model and same operation",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationGeneration,
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationGeneration,
+					PerRequestPrice: testPtrFloat64(0.05),
+				},
+			},
+			wantErr: "MODEL_PATTERN_CONFLICT",
+		},
+		{
+			name: "same model token and ordinary per request",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:    PlatformOpenAI,
+					Models:      []string{"gpt-image-1"},
+					BillingMode: BillingModeToken,
+					InputPrice:  testPtrFloat64(0.000001),
+				},
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModePerRequest,
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+			},
+			wantErr: "MODEL_PATTERN_CONFLICT",
+		},
+		{
+			name: "operation on token mode",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:       PlatformOpenAI,
+					Models:         []string{"gpt-image-1"},
+					BillingMode:    BillingModeToken,
+					ImageOperation: AccountStatsImageOperationResponses,
+					InputPrice:     testPtrFloat64(0.000001),
+				},
+			},
+			wantErr: "IMAGE_OPERATION_REQUIRES_IMAGE_MODE",
+		},
+		{
+			name: "operation on per request mode",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModePerRequest,
+					ImageOperation:  AccountStatsImageOperationResponses,
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+			},
+			wantErr: "IMAGE_OPERATION_REQUIRES_IMAGE_MODE",
+		},
+		{
+			name: "unknown operation",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperation("other"),
+					PerRequestPrice: testPtrFloat64(0.04),
+				},
+			},
+			wantErr: "INVALID_IMAGE_OPERATION",
+		},
+		{
+			name: "zero default and zero tier",
+			pricing: []ChannelModelPricing{
+				{
+					Platform:        PlatformOpenAI,
+					Models:          []string{"gpt-image-1"},
+					BillingMode:     BillingModeImage,
+					ImageOperation:  AccountStatsImageOperationGeneration,
+					PerRequestPrice: testPtrFloat64(0),
+					Intervals: []PricingInterval{
+						{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0)},
+					},
+				},
+			},
+			wantErr: "IMAGE_COST_MUST_BE_POSITIVE",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAccountStatsPricingEntries(tt.pricing)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestValidatePricingEntriesRejectsPrimaryImageOperation(t *testing.T) {
+	err := validatePricingEntries([]ChannelModelPricing{
+		{
+			Platform:       PlatformOpenAI,
+			Models:         []string{"gpt-image-1"},
+			BillingMode:    BillingModeImage,
+			ImageOperation: AccountStatsImageOperationResponses,
+		},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "IMAGE_OPERATION_UNSUPPORTED")
 }
 
 // ---------------------------------------------------------------------------

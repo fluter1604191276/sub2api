@@ -1000,6 +1000,14 @@ export interface WindowStats {
   user_cost?: number
 }
 
+export interface CacheHitStats {
+  requests: number
+  input_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  cache_hit_rate: number | null
+}
+
 export interface UsageProgress {
   utilization: number // Percentage (0-100+, 100 = 100%)
   resets_at: string | null

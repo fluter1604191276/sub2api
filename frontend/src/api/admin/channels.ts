@@ -8,6 +8,8 @@ import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants
 
 export type { BillingMode } from '@/constants/channel'
 
+export type AccountStatsImageOperation = 'generation' | 'responses' | 'edit'
+
 export interface PricingInterval {
   id?: number
   min_tokens: number
@@ -32,6 +34,7 @@ export interface ChannelModelPricing {
   cache_read_price: number | null
   image_output_price: number | null
   per_request_price: number | null
+  image_operation?: AccountStatsImageOperation | null
   intervals: PricingInterval[]
 }
 
@@ -168,6 +171,60 @@ export interface SyncPricingModelsResult {
   models: string[]
 }
 
+export type ModelCalibrationSkipReason =
+  | 'no_target_models'
+  | 'no_pricing'
+  | 'ambiguous_pricing'
+  | 'would_empty_pricing'
+  | 'channel_mapping_source'
+  | 'model_pattern_conflict'
+
+export interface ModelCalibrationSkippedItem {
+  platform: string
+  model?: string
+  reason: ModelCalibrationSkipReason
+}
+
+export interface ChannelModelCalibrationPlatformPreview {
+  platform: string
+  current_model_count: number
+  target_model_count: number
+  calibrated_model_count: number
+  unchanged_count: number
+  additions: string[]
+  removals: string[]
+  skipped: ModelCalibrationSkippedItem[]
+  applicable: boolean
+  changed: boolean
+}
+
+export interface ChannelModelCalibrationChannelPreview {
+  channel_id: number
+  channel_name: string
+  current_model_count: number
+  target_model_count: number
+  calibrated_model_count: number
+  unchanged_count: number
+  additions: string[]
+  removals: string[]
+  skipped: ModelCalibrationSkippedItem[]
+  applicable: boolean
+  changed: boolean
+  platforms: ChannelModelCalibrationPlatformPreview[]
+}
+
+export interface ChannelModelCalibrationPreview {
+  channels: ChannelModelCalibrationChannelPreview[]
+  total_channels: number
+  applicable_channels: number
+  changed_channels: number
+  addition_count: number
+  removal_count: number
+  skipped_count: number
+  pricing_rows_changed: number
+  applied_pricing_rows: number
+}
+
 /**
  * Fetch the latest model names from the LiteLLM pricing catalog for the given platform
  */
@@ -178,5 +235,25 @@ export async function syncPricingModels(platform: string): Promise<SyncPricingMo
   return data
 }
 
-const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing, syncPricingModels }
+export async function previewModelCalibration(): Promise<ChannelModelCalibrationPreview> {
+  const { data } = await apiClient.get<ChannelModelCalibrationPreview>('/admin/channels/model-calibration/preview')
+  return data
+}
+
+export async function applyModelCalibration(): Promise<ChannelModelCalibrationPreview> {
+  const { data } = await apiClient.post<ChannelModelCalibrationPreview>('/admin/channels/model-calibration/apply')
+  return data
+}
+
+const channelsAPI = {
+  list,
+  getById,
+  create,
+  update,
+  remove,
+  getModelDefaultPricing,
+  syncPricingModels,
+  previewModelCalibration,
+  applyModelCalibration
+}
 export default channelsAPI

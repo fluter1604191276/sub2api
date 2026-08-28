@@ -31,14 +31,14 @@ type createChannelRequest struct {
 	Name                       string                           `json:"name" binding:"required,max=100"`
 	Description                string                           `json:"description"`
 	GroupIDs                   []int64                          `json:"group_ids"`
-	ModelPricing               []channelModelPricingRequest     `json:"model_pricing"`
+	ModelPricing               []channelModelPricingRequest     `json:"model_pricing" binding:"dive"`
 	ModelMapping               map[string]map[string]string     `json:"model_mapping"`
 	BillingModelSource         string                           `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
 	RestrictModels             bool                             `json:"restrict_models"`
 	Features                   string                           `json:"features"`
 	FeaturesConfig             map[string]any                   `json:"features_config"`
 	ApplyPricingToAccountStats bool                             `json:"apply_pricing_to_account_stats"`
-	AccountStatsPricingRules   []accountStatsPricingRuleRequest `json:"account_stats_pricing_rules"`
+	AccountStatsPricingRules   []accountStatsPricingRuleRequest `json:"account_stats_pricing_rules" binding:"dive"`
 }
 
 type updateChannelRequest struct {
@@ -46,20 +46,21 @@ type updateChannelRequest struct {
 	Description                *string                           `json:"description"`
 	Status                     string                            `json:"status" binding:"omitempty,oneof=active disabled"`
 	GroupIDs                   *[]int64                          `json:"group_ids"`
-	ModelPricing               *[]channelModelPricingRequest     `json:"model_pricing"`
+	ModelPricing               *[]channelModelPricingRequest     `json:"model_pricing" binding:"omitempty,dive"`
 	ModelMapping               map[string]map[string]string      `json:"model_mapping"`
 	BillingModelSource         string                            `json:"billing_model_source" binding:"omitempty,oneof=requested upstream channel_mapped"`
 	RestrictModels             *bool                             `json:"restrict_models"`
 	Features                   *string                           `json:"features"`
 	FeaturesConfig             map[string]any                    `json:"features_config"`
 	ApplyPricingToAccountStats *bool                             `json:"apply_pricing_to_account_stats"`
-	AccountStatsPricingRules   *[]accountStatsPricingRuleRequest `json:"account_stats_pricing_rules"`
+	AccountStatsPricingRules   *[]accountStatsPricingRuleRequest `json:"account_stats_pricing_rules" binding:"omitempty,dive"`
 }
 
 type channelModelPricingRequest struct {
 	Platform         string                   `json:"platform" binding:"omitempty,max=50"`
 	Models           []string                 `json:"models" binding:"required,min=1,max=100"`
 	BillingMode      string                   `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
+	ImageOperation   string                   `json:"image_operation,omitempty" binding:"omitempty,oneof=generation responses edit"`
 	InputPrice       *float64                 `json:"input_price" binding:"omitempty,min=0"`
 	OutputPrice      *float64                 `json:"output_price" binding:"omitempty,min=0"`
 	CacheWritePrice  *float64                 `json:"cache_write_price" binding:"omitempty,min=0"`
@@ -85,7 +86,7 @@ type accountStatsPricingRuleRequest struct {
 	Name       string                       `json:"name"`
 	GroupIDs   []int64                      `json:"group_ids"`
 	AccountIDs []int64                      `json:"account_ids"`
-	Pricing    []channelModelPricingRequest `json:"pricing"`
+	Pricing    []channelModelPricingRequest `json:"pricing" binding:"dive"`
 }
 
 type channelResponse struct {
@@ -111,6 +112,7 @@ type channelModelPricingResponse struct {
 	Platform         string                    `json:"platform"`
 	Models           []string                  `json:"models"`
 	BillingMode      string                    `json:"billing_mode"`
+	ImageOperation   string                    `json:"image_operation,omitempty"`
 	InputPrice       *float64                  `json:"input_price"`
 	OutputPrice      *float64                  `json:"output_price"`
 	CacheWritePrice  *float64                  `json:"cache_write_price"`
@@ -218,6 +220,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		Platform:         platform,
 		Models:           models,
 		BillingMode:      billingMode,
+		ImageOperation:   string(p.ImageOperation),
 		InputPrice:       p.InputPrice,
 		OutputPrice:      p.OutputPrice,
 		CacheWritePrice:  p.CacheWritePrice,
@@ -269,6 +272,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest) []service.Channe
 			Platform:         platform,
 			Models:           r.Models,
 			BillingMode:      billingMode,
+			ImageOperation:   service.AccountStatsImageOperation(r.ImageOperation),
 			InputPrice:       r.InputPrice,
 			OutputPrice:      r.OutputPrice,
 			CacheWritePrice:  r.CacheWritePrice,
@@ -532,4 +536,25 @@ func (h *ChannelHandler) SyncPricingModels(c *gin.Context) {
 
 	models := h.pricingService.ListModelNamesByProvider(provider)
 	response.Success(c, gin.H{"models": models})
+}
+
+// PreviewModelCalibration compares channel pricing model lists with active,
+// schedulable account mappings without changing production data.
+func (h *ChannelHandler) PreviewModelCalibration(c *gin.Context) {
+	preview, err := h.channelService.PreviewModelCalibration(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
+
+// ApplyModelCalibration transactionally applies all safe pricing-row model changes.
+func (h *ChannelHandler) ApplyModelCalibration(c *gin.Context) {
+	preview, err := h.channelService.ApplyModelCalibration(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
 }

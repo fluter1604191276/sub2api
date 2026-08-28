@@ -59,7 +59,9 @@ export const getConfiguredTablePageSizeOptions = (): number[] => {
     return [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
   }
 
-  return unique.length > 0 ? unique : [...DEFAULT_TABLE_PAGE_SIZE_OPTIONS]
+  // Existing installations may still persist the legacy 10/20/50 list in
+  // settings. Always expose the requested standard choices after an upgrade.
+  return Array.from(new Set([...DEFAULT_TABLE_PAGE_SIZE_OPTIONS, ...unique])).sort((a, b) => a - b)
 }
 
 export const normalizeTablePageSize = (value: unknown): number => {

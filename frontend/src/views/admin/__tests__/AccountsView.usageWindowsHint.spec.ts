@@ -7,12 +7,14 @@ const {
   listAccounts,
   listWithEtag,
   getBatchTodayStats,
+  listSyncedModels,
   getAllProxies,
   getAllGroups
 } = vi.hoisted(() => ({
   listAccounts: vi.fn(),
   listWithEtag: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  listSyncedModels: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn()
 }))
@@ -23,6 +25,7 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
+      listSyncedModels,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -128,6 +131,7 @@ describe('admin AccountsView usage windows hint', () => {
     listAccounts.mockReset()
     listWithEtag.mockReset()
     getBatchTodayStats.mockReset()
+    listSyncedModels.mockReset()
     getAllProxies.mockReset()
     getAllGroups.mockReset()
 
@@ -144,6 +148,7 @@ describe('admin AccountsView usage windows hint', () => {
       data: null
     })
     getBatchTodayStats.mockResolvedValue({ stats: {} })
+    listSyncedModels.mockResolvedValue([])
     getAllProxies.mockResolvedValue([])
     getAllGroups.mockResolvedValue([])
   })

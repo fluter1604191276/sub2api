@@ -86,6 +86,42 @@ func (r *channelRepository) ReplaceModelPricing(ctx context.Context, channelID i
 	})
 }
 
+// ApplyModelCalibration updates only pricing-row model lists in one transaction.
+// All price and interval columns remain untouched.
+func (r *channelRepository) ApplyModelCalibration(ctx context.Context, updates []service.ChannelPricingModelsUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	return r.runInTx(ctx, func(tx *sql.Tx) error {
+		for _, update := range updates {
+			if update.ChannelID <= 0 || update.PricingID <= 0 || len(update.Models) == 0 {
+				return fmt.Errorf("invalid model calibration update: channel=%d pricing=%d models=%d", update.ChannelID, update.PricingID, len(update.Models))
+			}
+			modelsJSON, err := json.Marshal(update.Models)
+			if err != nil {
+				return fmt.Errorf("marshal calibrated models for pricing %d: %w", update.PricingID, err)
+			}
+			result, err := tx.ExecContext(ctx,
+				`UPDATE channel_model_pricing
+				 SET models = $1, updated_at = NOW()
+				 WHERE id = $2 AND channel_id = $3`,
+				modelsJSON, update.PricingID, update.ChannelID,
+			)
+			if err != nil {
+				return fmt.Errorf("update calibrated models for pricing %d: %w", update.PricingID, err)
+			}
+			rows, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("read calibrated pricing update result %d: %w", update.PricingID, err)
+			}
+			if rows != 1 {
+				return fmt.Errorf("pricing entry not found for calibration: channel=%d pricing=%d", update.ChannelID, update.PricingID)
+			}
+		}
+		return nil
+	})
+}
+
 // --- 批量加载辅助方法 ---
 
 // batchLoadModelPricing 批量加载多个渠道的模型定价（含区间）
