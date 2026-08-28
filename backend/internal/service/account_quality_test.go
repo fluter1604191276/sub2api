@@ -135,6 +135,69 @@ func TestBuildAccountQualityStatsIncludesRealtimeWindowAndActivity(t *testing.T)
 	require.Equal(t, int64(1), stats.Activity.FailedRequestCount)
 	require.Equal(t, &lastSuccess, stats.Activity.LastSuccessAt)
 	require.Equal(t, &lastError, stats.Activity.LastErrorAt)
+	require.NotNil(t, stats.Unified.Score)
+	require.Equal(t, "realtime_blend", stats.Unified.Source)
+	require.Equal(t, 98, *stats.Unified.Score)
+}
+
+func TestBuildAccountUnifiedQuality(t *testing.T) {
+	score := func(value int, samples int64) AccountQualityWindow {
+		return AccountQualityWindow{
+			SampleCount:           samples,
+			FirstTokenSampleCount: samples,
+			QualityScore:          &value,
+		}
+	}
+
+	t.Run("full realtime evidence dominates the stable baseline", func(t *testing.T) {
+		liveScore, stableScore := 80, 60
+		summary := buildAccountUnifiedQuality(
+			AccountQualityPeriod{Last10: score(liveScore, 10)},
+			AccountQualityPeriod{Last100: score(stableScore, 100)},
+		)
+
+		require.NotNil(t, summary.Score)
+		require.Equal(t, 76, *summary.Score)
+		require.Equal(t, "A", summary.Grade)
+		require.Equal(t, 1.0, summary.Confidence)
+		require.Equal(t, "realtime_blend", summary.Source)
+		require.Equal(t, int64(100), summary.SampleCount)
+	})
+
+	t.Run("sparse realtime evidence is blended conservatively", func(t *testing.T) {
+		liveScore, stableScore := 70, 90
+		summary := buildAccountUnifiedQuality(
+			AccountQualityPeriod{Last10: score(liveScore, 3)},
+			AccountQualityPeriod{Last100: score(stableScore, 100)},
+		)
+
+		require.NotNil(t, summary.Score)
+		require.Equal(t, 80, *summary.Score)
+		require.Equal(t, "A+", summary.Grade)
+		require.Equal(t, 0.62, summary.Confidence)
+	})
+
+	t.Run("historical evidence stays visible but has capped confidence", func(t *testing.T) {
+		stableScore := 85
+		summary := buildAccountUnifiedQuality(
+			AccountQualityPeriod{},
+			AccountQualityPeriod{Last100: score(stableScore, 100)},
+		)
+
+		require.NotNil(t, summary.Score)
+		require.Equal(t, 85, *summary.Score)
+		require.Equal(t, "S-", summary.Grade)
+		require.Equal(t, 0.7, summary.Confidence)
+		require.Equal(t, "historical", summary.Source)
+	})
+
+	t.Run("missing scored windows remains unscored", func(t *testing.T) {
+		summary := buildAccountUnifiedQuality(AccountQualityPeriod{}, AccountQualityPeriod{})
+
+		require.Nil(t, summary.Score)
+		require.Equal(t, "unscored", summary.Source)
+		require.Zero(t, summary.Confidence)
+	})
 }
 
 func TestClassifyAccountQualityActivity(t *testing.T) {

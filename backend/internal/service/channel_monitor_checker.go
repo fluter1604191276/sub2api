@@ -601,6 +601,15 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	// These fixed markers let the gateway keep synthetic health probes out of
+	// sticky-session review and smart-scheduler reliability evidence.
+	req.Header.Set(ChannelMonitorProbeHeader, ChannelMonitorProbeHeaderValue)
+	userAgent := strings.TrimSpace(req.Header.Get("User-Agent"))
+	if userAgent == "" {
+		req.Header.Set("User-Agent", channelMonitorProbeUserAgent)
+	} else if !strings.Contains(strings.ToLower(userAgent), channelMonitorProbeUserAgent) {
+		req.Header.Set("User-Agent", userAgent+" "+channelMonitorProbeUserAgent)
+	}
 
 	resp, err := monitorHTTPClient.Do(req)
 	if err != nil {

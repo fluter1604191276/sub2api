@@ -42,6 +42,7 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				AND ul.created_at >= $2
 				AND ul.created_at < $4
 				AND ul.actual_cost > 0
+				AND ul.request_type <> 6
 				AND ul.stream = TRUE
 		), ranked AS (
 			SELECT

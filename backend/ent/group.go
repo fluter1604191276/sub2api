@@ -129,6 +129,32 @@ type Group struct {
 	ProfitMinMargin float64 `json:"profit_min_margin,omitempty"`
 	// 安全缓冲，小数；与 margin 相加后从下游倍率中扣除，默认 0
 	ProfitSafetyBuffer float64 `json:"profit_safety_buffer,omitempty"`
+	// 是否允许智能调度接管本分组的账号候选排序；默认关闭
+	SmartSchedulerEnabled bool `json:"smart_scheduler_enabled,omitempty"`
+	// 是否对本分组中一小时无真实使用记录的账号执行恢复探针；默认关闭
+	RecoveryProbeEnabled bool `json:"recovery_probe_enabled,omitempty"`
+	// 恢复探针模式：manual 固定间隔，smart 按连续失败次数退避
+	RecoveryProbeMode string `json:"recovery_probe_mode,omitempty"`
+	// 恢复探针使用的分组公开模型 ID
+	RecoveryProbeModel string `json:"recovery_probe_model,omitempty"`
+	// 手动模式固定间隔及成功后的复检间隔，单位秒
+	RecoveryProbeIntervalSeconds int `json:"recovery_probe_interval_seconds,omitempty"`
+	// 每轮恢复探针测试次数，范围 1-5
+	RecoveryProbeAttemptsPerRound int `json:"recovery_probe_attempts_per_round,omitempty"`
+	// 账号无真实使用记录多久后进入探针候选；当前固定为一小时
+	RecoveryProbeIdleThresholdSeconds int `json:"recovery_probe_idle_threshold_seconds,omitempty"`
+	// 智能模式瞬时失败退避上限，单位秒
+	RecoveryProbeBackoffCapSeconds int `json:"recovery_probe_backoff_cap_seconds,omitempty"`
+	// 分组级池模式开关；NULL 表示跟随账号
+	PoolModeEnabled *bool `json:"pool_mode_enabled,omitempty"`
+	// 分组级同账号重试次数；NULL 表示跟随账号
+	PoolModeRetryCount *int `json:"pool_mode_retry_count,omitempty"`
+	// 分组级池模式同账号重试状态码；NULL 表示跟随账号，空数组表示清空
+	PoolModeRetryStatusCodes *[]int `json:"pool_mode_retry_status_codes,omitempty"`
+	// 分组级自定义错误码开关；NULL 表示跟随账号
+	CustomErrorCodesEnabled *bool `json:"custom_error_codes_enabled,omitempty"`
+	// 分组级自定义错误码；NULL 表示跟随账号，空数组表示清空
+	CustomErrorCodes *[]int `json:"custom_error_codes,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the GroupQuery when eager-loading is set.
 	Edges        GroupEdges `json:"edges"`
@@ -235,15 +261,15 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldReasoningEffortMappings:
+		case group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelsListConfig, group.FieldReasoningEffortMappings, group.FieldPoolModeRetryStatusCodes, group.FieldCustomErrorCodes:
 			values[i] = new([]byte)
-		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled:
+		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled, group.FieldSmartSchedulerEnabled, group.FieldRecoveryProbeEnabled, group.FieldPoolModeEnabled, group.FieldCustomErrorCodesEnabled:
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
-		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit:
+		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit, group.FieldRecoveryProbeIntervalSeconds, group.FieldRecoveryProbeAttemptsPerRound, group.FieldRecoveryProbeIdleThresholdSeconds, group.FieldRecoveryProbeBackoffCapSeconds, group.FieldPoolModeRetryCount:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort, group.FieldRecoveryProbeMode, group.FieldRecoveryProbeModel:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -623,6 +649,91 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.ProfitSafetyBuffer = value.Float64
 			}
+		case group.FieldSmartSchedulerEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field smart_scheduler_enabled", values[i])
+			} else if value.Valid {
+				_m.SmartSchedulerEnabled = value.Bool
+			}
+		case group.FieldRecoveryProbeEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_enabled", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeEnabled = value.Bool
+			}
+		case group.FieldRecoveryProbeMode:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_mode", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeMode = value.String
+			}
+		case group.FieldRecoveryProbeModel:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_model", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeModel = value.String
+			}
+		case group.FieldRecoveryProbeIntervalSeconds:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_interval_seconds", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeIntervalSeconds = int(value.Int64)
+			}
+		case group.FieldRecoveryProbeAttemptsPerRound:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_attempts_per_round", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeAttemptsPerRound = int(value.Int64)
+			}
+		case group.FieldRecoveryProbeIdleThresholdSeconds:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_idle_threshold_seconds", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeIdleThresholdSeconds = int(value.Int64)
+			}
+		case group.FieldRecoveryProbeBackoffCapSeconds:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field recovery_probe_backoff_cap_seconds", values[i])
+			} else if value.Valid {
+				_m.RecoveryProbeBackoffCapSeconds = int(value.Int64)
+			}
+		case group.FieldPoolModeEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field pool_mode_enabled", values[i])
+			} else if value.Valid {
+				_m.PoolModeEnabled = new(bool)
+				*_m.PoolModeEnabled = value.Bool
+			}
+		case group.FieldPoolModeRetryCount:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field pool_mode_retry_count", values[i])
+			} else if value.Valid {
+				_m.PoolModeRetryCount = new(int)
+				*_m.PoolModeRetryCount = int(value.Int64)
+			}
+		case group.FieldPoolModeRetryStatusCodes:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field pool_mode_retry_status_codes", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.PoolModeRetryStatusCodes); err != nil {
+					return fmt.Errorf("unmarshal field pool_mode_retry_status_codes: %w", err)
+				}
+			}
+		case group.FieldCustomErrorCodesEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field custom_error_codes_enabled", values[i])
+			} else if value.Valid {
+				_m.CustomErrorCodesEnabled = new(bool)
+				*_m.CustomErrorCodesEnabled = value.Bool
+			}
+		case group.FieldCustomErrorCodes:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field custom_error_codes", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.CustomErrorCodes); err != nil {
+					return fmt.Errorf("unmarshal field custom_error_codes: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -893,6 +1004,51 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("profit_safety_buffer=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ProfitSafetyBuffer))
+	builder.WriteString(", ")
+	builder.WriteString("smart_scheduler_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.SmartSchedulerEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_mode=")
+	builder.WriteString(_m.RecoveryProbeMode)
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_model=")
+	builder.WriteString(_m.RecoveryProbeModel)
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_interval_seconds=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeIntervalSeconds))
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_attempts_per_round=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeAttemptsPerRound))
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_idle_threshold_seconds=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeIdleThresholdSeconds))
+	builder.WriteString(", ")
+	builder.WriteString("recovery_probe_backoff_cap_seconds=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeBackoffCapSeconds))
+	builder.WriteString(", ")
+	if v := _m.PoolModeEnabled; v != nil {
+		builder.WriteString("pool_mode_enabled=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.PoolModeRetryCount; v != nil {
+		builder.WriteString("pool_mode_retry_count=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("pool_mode_retry_status_codes=")
+	builder.WriteString(fmt.Sprintf("%v", _m.PoolModeRetryStatusCodes))
+	builder.WriteString(", ")
+	if v := _m.CustomErrorCodesEnabled; v != nil {
+		builder.WriteString("custom_error_codes_enabled=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	builder.WriteString("custom_error_codes=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CustomErrorCodes))
 	builder.WriteByte(')')
 	return builder.String()
 }

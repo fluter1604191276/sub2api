@@ -66,6 +66,65 @@ func (s *GroupRepoSuite) TestCreate() {
 	got, err := s.repo.GetByID(s.ctx, group.ID)
 	s.Require().NoError(err, "GetByID")
 	s.Require().Equal("test-create", got.Name)
+	s.Require().False(got.SmartSchedulerEnabled, "smart scheduler must default off")
+}
+
+func (s *GroupRepoSuite) TestCreateGetUpdate_SmartSchedulerEnabled() {
+	group := &service.Group{
+		Name:                  "test-smart-scheduler",
+		Platform:              service.PlatformOpenAI,
+		RateMultiplier:        1.0,
+		Status:                service.StatusActive,
+		SubscriptionType:      service.SubscriptionTypeStandard,
+		SmartSchedulerEnabled: true,
+	}
+
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().True(got.SmartSchedulerEnabled)
+
+	got.SmartSchedulerEnabled = false
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+
+	reloaded, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().False(reloaded.SmartSchedulerEnabled)
+}
+
+func (s *GroupRepoSuite) TestCreateGetUpdate_RecoveryProbeConfig() {
+	group := &service.Group{
+		Name:                              "test-recovery-probe",
+		Platform:                          service.PlatformAnthropic,
+		RateMultiplier:                    1.0,
+		Status:                            service.StatusActive,
+		SubscriptionType:                  service.SubscriptionTypeStandard,
+		RecoveryProbeEnabled:              true,
+		RecoveryProbeMode:                 service.GroupRecoveryProbeModeSmart,
+		RecoveryProbeModel:                "claude-sonnet-4-6",
+		RecoveryProbeIntervalSeconds:      900,
+		RecoveryProbeAttemptsPerRound:     2,
+		RecoveryProbeIdleThresholdSeconds: service.GroupRecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    1800,
+	}
+
+	s.Require().NoError(s.repo.Create(s.ctx, group))
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(group.RecoveryProbeConfig(), got.RecoveryProbeConfig())
+
+	got.RecoveryProbeEnabled = false
+	got.RecoveryProbeMode = service.GroupRecoveryProbeModeManual
+	got.RecoveryProbeIntervalSeconds = 1200
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+
+	reloaded, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().False(reloaded.RecoveryProbeEnabled)
+	s.Require().Equal(service.GroupRecoveryProbeModeManual, reloaded.RecoveryProbeMode)
+	s.Require().Equal(1200, reloaded.RecoveryProbeIntervalSeconds)
+	s.Require().Equal("claude-sonnet-4-6", reloaded.RecoveryProbeModel)
 }
 
 func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligibleAccounts() {
@@ -112,16 +171,20 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 	}
 
 	duplicate := &service.Group{
-		Name:                 "duplicate-source (Copy)",
-		Platform:             source.Platform,
-		RateMultiplier:       source.RateMultiplier,
-		Status:               "inactive",
-		SubscriptionType:     source.SubscriptionType,
-		RequireOAuthOnly:     true,
-		DuplicateOperationID: strings.Repeat("a", 64),
+		Name:                  "duplicate-source (Copy)",
+		Platform:              source.Platform,
+		RateMultiplier:        source.RateMultiplier,
+		Status:                "inactive",
+		SubscriptionType:      source.SubscriptionType,
+		RequireOAuthOnly:      true,
+		SmartSchedulerEnabled: true,
+		DuplicateOperationID:  strings.Repeat("a", 64),
 	}
 	s.Require().NoError(s.repo.CreateFromSource(s.ctx, duplicate, source.ID))
 	s.Require().EqualValues(1, duplicate.AccountCount)
+	gotDuplicate, err := s.repo.GetByID(s.ctx, duplicate.ID)
+	s.Require().NoError(err)
+	s.Require().True(gotDuplicate.SmartSchedulerEnabled)
 
 	rows, err := s.tx.QueryContext(
 		s.ctx,

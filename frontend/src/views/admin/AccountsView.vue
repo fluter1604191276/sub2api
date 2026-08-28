@@ -7,6 +7,7 @@
             v-model:searchQuery="params.search"
             :filters="params"
             :groups="groups"
+            :model-options="accountModelOptions"
             @update:filters="(newFilters) => Object.assign(params, newFilters)"
             @change="debouncedReload"
             @update:searchQuery="debouncedReload"
@@ -126,6 +127,12 @@
                           <Icon name="shield" size="sm" />
                         </span>
                         <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
+                      </button>
+                      <button class="account-tools-menu-item" :disabled="syncingAllModels" @click="handleSyncAllModels">
+                        <span class="account-tools-menu-icon bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-300">
+                          <Icon name="sync" size="sm" :class="syncingAllModels ? 'animate-spin' : ''" />
+                        </span>
+                        <span class="flex-1 text-left">{{ syncingAllModels ? t('admin.accounts.syncingAllModels') : t('admin.accounts.syncAllModels') }}</span>
                       </button>
                       <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
                         <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
@@ -301,6 +308,21 @@
               :stats="todayStatsByAccountId[String(row.id)] ?? null"
               :loading="todayStatsLoading"
               :error="todayStatsError"
+            />
+          </template>
+          <template #header-unified_quality="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.quality.unified.hint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-unified_quality="{ row }">
+            <AccountUnifiedQualityCell
+              :quality="qualityStatsByAccountId[String(row.id)]?.unified ?? null"
+              :activity="qualityStatsByAccountId[String(row.id)]?.activity ?? null"
+              :activity-state-override="getAccountQualityActivityOverride(row)"
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
             />
           </template>
           <template #header-quality_stats_1h="{ column }">
@@ -543,6 +565,7 @@ import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountQualityCell from '@/components/account/AccountQualityCell.vue'
+import AccountUnifiedQualityCell from '@/components/account/AccountUnifiedQualityCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
@@ -566,6 +589,8 @@ const authStore = useAuthStore()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
+const accountModelOptions = ref<SelectOption[]>([])
+const syncingAllModels = ref(false)
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -584,6 +609,7 @@ type AccountBulkEditTarget =
         group?: string
         search?: string
         privacy_mode?: string
+        model?: string
         sort_by?: string
         sort_order?: AccountSortOrder
       }
@@ -805,7 +831,11 @@ const refreshTodayStatsBatch = async () => {
 }
 
 const refreshAccountQualityBatch = async () => {
-  if (hiddenColumns.has('quality_stats') && hiddenColumns.has('quality_stats_1h')) {
+  if (
+    hiddenColumns.has('unified_quality')
+    && hiddenColumns.has('quality_stats')
+    && hiddenColumns.has('quality_stats_1h')
+  ) {
     qualityStatsLoading.value = false
     qualityStatsError.value = null
     return
@@ -968,7 +998,9 @@ const setAutoRefreshInterval = (seconds: (typeof autoRefreshIntervals)[number]) 
 
 const toggleColumn = (key: string) => {
   const hadVisibleQualityColumn =
-    !hiddenColumns.has('quality_stats_1h') || !hiddenColumns.has('quality_stats')
+    !hiddenColumns.has('unified_quality')
+    || !hiddenColumns.has('quality_stats_1h')
+    || !hiddenColumns.has('quality_stats')
   const wasHidden = hiddenColumns.has(key)
   if (hiddenColumns.has(key)) {
     hiddenColumns.delete(key)
@@ -982,7 +1014,7 @@ const toggleColumn = (key: string) => {
     })
   }
   if (
-    (key === 'quality_stats' || key === 'quality_stats_1h')
+    (key === 'unified_quality' || key === 'quality_stats' || key === 'quality_stats_1h')
     && wasHidden
     && !hadVisibleQualityColumn
   ) {
@@ -1025,6 +1057,7 @@ const {
     status: '',
     privacy_mode: '',
     group: '',
+    model: '',
     search: '',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -1291,6 +1324,7 @@ const refreshAccountsIncrementally = async () => {
         type?: string
         status?: string
         privacy_mode?: string
+        model?: string
         group?: string
         search?: string
         sort_by?: string
@@ -1381,6 +1415,35 @@ const openErrorPassthrough = () => {
 const openTLSFingerprintProfiles = () => {
   closeAccountToolsDropdown()
   showTLSFingerprintProfiles.value = true
+}
+
+const loadAccountModelOptions = async () => {
+  const models = await adminAPI.accounts.listSyncedModels()
+  accountModelOptions.value = models.map(model => ({ value: model.value, label: model.label }))
+}
+
+const handleSyncAllModels = async () => {
+  if (syncingAllModels.value) return
+  closeAccountToolsDropdown()
+  syncingAllModels.value = true
+  try {
+    const summary = await adminAPI.accounts.syncAllModels()
+    await loadAccountModelOptions()
+    await reload()
+    const messageKey = summary.failed > 0
+      ? 'admin.accounts.syncAllModelsPartial'
+      : 'admin.accounts.syncAllModelsSuccess'
+    appStore.showSuccess(t(messageKey, {
+      success: summary.success,
+      failed: summary.failed,
+      unsupported: summary.unsupported
+    }))
+  } catch (error) {
+    console.error('Failed to sync all account models:', error)
+    appStore.showError(t('admin.accounts.syncAllModelsFailed'))
+  } finally {
+    syncingAllModels.value = false
+  }
 }
 
 const syncPendingListChanges = async () => {
@@ -1548,6 +1611,7 @@ const allColumns = computed(() => {
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'unified_quality', label: t('admin.accounts.columns.unifiedQuality'), sortable: false },
     { key: 'quality_stats_1h', label: t('admin.accounts.columns.realtimeQualityStats'), sortable: false },
     { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }
   ]
@@ -1837,6 +1901,7 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    model: typeof rawParams.model === 'string' ? rawParams.model : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -1913,6 +1978,7 @@ const buildAccountQueryFilters = () => ({
   status: params.status || '',
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
+  model: params.model || '',
   search: params.search || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
@@ -1958,6 +2024,13 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
+  const model = String(filters.model || '').trim()
+  if (model) {
+    const availableModels = Array.isArray(account.extra?.available_models)
+      ? account.extra.available_models.filter((value): value is string => typeof value === 'string')
+      : []
+    if (!availableModels.includes(model)) return false
+  }
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
@@ -2295,9 +2368,10 @@ onMounted(async () => {
   load()
   loadUpstreamBillingProbeGlobalState()
   try {
-    const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
+    const [p, g, models] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll(), adminAPI.accounts.listSyncedModels()])
     proxies.value = p
     groups.value = g
+    accountModelOptions.value = models.map(model => ({ value: model.value, label: model.label }))
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }

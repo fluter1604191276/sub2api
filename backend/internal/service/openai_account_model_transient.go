@@ -114,6 +114,42 @@ func (s *openAIAccountModelTransientState) recordFailure(accountID int64, model 
 	}
 }
 
+func (s *openAIAccountModelTransientState) forceBlock(accountID int64, model string, now time.Time, cooldown time.Duration) openAIAccountModelTransientDecision {
+	key, ok := openAIAccountModelTransientKey(accountID, model)
+	if s == nil || !ok || cooldown <= 0 {
+		return openAIAccountModelTransientDecision{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entries == nil {
+		s.entries = make(map[openAIAccountModelKey]openAIAccountModelTransientEntry)
+	}
+	if s.maxEntries <= 0 {
+		s.maxEntries = openAIModelTransientDefaultMax
+	}
+	entry, exists := s.entries[key]
+	if !exists {
+		s.evictOldestLocked()
+	}
+	entry.failureStreak++
+	entry.lastFailure = now
+	entry.lastTouched = now
+	forcedUntil := now.Add(cooldown)
+	if entry.blockUntil.Before(forcedUntil) {
+		entry.blockUntil = forcedUntil
+	}
+	s.entries[key] = entry
+	return openAIAccountModelTransientDecision{
+		FailureStreak: entry.failureStreak,
+		Cooldown:      entry.blockUntil.Sub(now),
+		BlockUntil:    entry.blockUntil,
+	}
+}
+
 func (s *openAIAccountModelTransientState) recordSuccess(accountID int64, model string) {
 	key, ok := openAIAccountModelTransientKey(accountID, model)
 	if s == nil || !ok {
@@ -139,13 +175,35 @@ func (s *openAIAccountModelTransientState) isBlocked(accountID int64, model stri
 	if !exists {
 		return false
 	}
+	if !entry.blockUntil.IsZero() && now.Before(entry.blockUntil) {
+		entry.lastTouched = now
+		s.entries[key] = entry
+		return true
+	}
 	if !entry.lastFailure.IsZero() && now.Sub(entry.lastFailure) > openAIModelTransientFailureWindow {
 		delete(s.entries, key)
 		return false
 	}
 	entry.lastTouched = now
 	s.entries[key] = entry
-	return !entry.blockUntil.IsZero() && now.Before(entry.blockUntil)
+	return false
+}
+
+func (s *openAIAccountModelTransientState) blockInfo(accountID int64, model string, now time.Time) (time.Duration, int, bool) {
+	key, ok := openAIAccountModelTransientKey(accountID, model)
+	if s == nil || !ok {
+		return 0, 0, false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[key]
+	if !exists || entry.blockUntil.IsZero() || !now.Before(entry.blockUntil) {
+		return 0, 0, false
+	}
+	return entry.blockUntil.Sub(now), entry.failureStreak, true
 }
 
 func (s *openAIAccountModelTransientState) size() int {

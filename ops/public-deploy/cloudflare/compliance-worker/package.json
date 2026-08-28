@@ -1,0 +1,13 @@
+{
+  "name": "fluter-region-compliance-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node test/routes.test.js",
+    "verify": "npm run check && npm run test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.104.0"
+  }
+}

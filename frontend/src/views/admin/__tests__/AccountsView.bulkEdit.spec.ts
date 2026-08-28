@@ -36,6 +36,7 @@ vi.mock('@/api/admin', () => ({
       listWithEtag,
       getBatchTodayStats,
       getBatchQualityStats,
+      listSyncedModels: vi.fn().mockResolvedValue([]),
       getUpstreamBillingProbeSettings,
       delete: vi.fn(),
       batchClearError: vi.fn(),

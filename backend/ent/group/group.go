@@ -126,6 +126,32 @@ const (
 	FieldProfitMinMargin = "profit_min_margin"
 	// FieldProfitSafetyBuffer holds the string denoting the profit_safety_buffer field in the database.
 	FieldProfitSafetyBuffer = "profit_safety_buffer"
+	// FieldSmartSchedulerEnabled holds the string denoting the smart_scheduler_enabled field in the database.
+	FieldSmartSchedulerEnabled = "smart_scheduler_enabled"
+	// FieldRecoveryProbeEnabled holds the string denoting the recovery_probe_enabled field in the database.
+	FieldRecoveryProbeEnabled = "recovery_probe_enabled"
+	// FieldRecoveryProbeMode holds the string denoting the recovery_probe_mode field in the database.
+	FieldRecoveryProbeMode = "recovery_probe_mode"
+	// FieldRecoveryProbeModel holds the string denoting the recovery_probe_model field in the database.
+	FieldRecoveryProbeModel = "recovery_probe_model"
+	// FieldRecoveryProbeIntervalSeconds holds the string denoting the recovery_probe_interval_seconds field in the database.
+	FieldRecoveryProbeIntervalSeconds = "recovery_probe_interval_seconds"
+	// FieldRecoveryProbeAttemptsPerRound holds the string denoting the recovery_probe_attempts_per_round field in the database.
+	FieldRecoveryProbeAttemptsPerRound = "recovery_probe_attempts_per_round"
+	// FieldRecoveryProbeIdleThresholdSeconds holds the string denoting the recovery_probe_idle_threshold_seconds field in the database.
+	FieldRecoveryProbeIdleThresholdSeconds = "recovery_probe_idle_threshold_seconds"
+	// FieldRecoveryProbeBackoffCapSeconds holds the string denoting the recovery_probe_backoff_cap_seconds field in the database.
+	FieldRecoveryProbeBackoffCapSeconds = "recovery_probe_backoff_cap_seconds"
+	// FieldPoolModeEnabled holds the string denoting the pool_mode_enabled field in the database.
+	FieldPoolModeEnabled = "pool_mode_enabled"
+	// FieldPoolModeRetryCount holds the string denoting the pool_mode_retry_count field in the database.
+	FieldPoolModeRetryCount = "pool_mode_retry_count"
+	// FieldPoolModeRetryStatusCodes holds the string denoting the pool_mode_retry_status_codes field in the database.
+	FieldPoolModeRetryStatusCodes = "pool_mode_retry_status_codes"
+	// FieldCustomErrorCodesEnabled holds the string denoting the custom_error_codes_enabled field in the database.
+	FieldCustomErrorCodesEnabled = "custom_error_codes_enabled"
+	// FieldCustomErrorCodes holds the string denoting the custom_error_codes field in the database.
+	FieldCustomErrorCodes = "custom_error_codes"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -256,6 +282,19 @@ var Columns = []string{
 	FieldProfitControlEnabled,
 	FieldProfitMinMargin,
 	FieldProfitSafetyBuffer,
+	FieldSmartSchedulerEnabled,
+	FieldRecoveryProbeEnabled,
+	FieldRecoveryProbeMode,
+	FieldRecoveryProbeModel,
+	FieldRecoveryProbeIntervalSeconds,
+	FieldRecoveryProbeAttemptsPerRound,
+	FieldRecoveryProbeIdleThresholdSeconds,
+	FieldRecoveryProbeBackoffCapSeconds,
+	FieldPoolModeEnabled,
+	FieldPoolModeRetryCount,
+	FieldPoolModeRetryStatusCodes,
+	FieldCustomErrorCodesEnabled,
+	FieldCustomErrorCodes,
 }
 
 var (
@@ -381,6 +420,26 @@ var (
 	DefaultProfitMinMargin float64
 	// DefaultProfitSafetyBuffer holds the default value on creation for the "profit_safety_buffer" field.
 	DefaultProfitSafetyBuffer float64
+	// DefaultSmartSchedulerEnabled holds the default value on creation for the "smart_scheduler_enabled" field.
+	DefaultSmartSchedulerEnabled bool
+	// DefaultRecoveryProbeEnabled holds the default value on creation for the "recovery_probe_enabled" field.
+	DefaultRecoveryProbeEnabled bool
+	// DefaultRecoveryProbeMode holds the default value on creation for the "recovery_probe_mode" field.
+	DefaultRecoveryProbeMode string
+	// RecoveryProbeModeValidator is a validator for the "recovery_probe_mode" field. It is called by the builders before save.
+	RecoveryProbeModeValidator func(string) error
+	// DefaultRecoveryProbeModel holds the default value on creation for the "recovery_probe_model" field.
+	DefaultRecoveryProbeModel string
+	// RecoveryProbeModelValidator is a validator for the "recovery_probe_model" field. It is called by the builders before save.
+	RecoveryProbeModelValidator func(string) error
+	// DefaultRecoveryProbeIntervalSeconds holds the default value on creation for the "recovery_probe_interval_seconds" field.
+	DefaultRecoveryProbeIntervalSeconds int
+	// DefaultRecoveryProbeAttemptsPerRound holds the default value on creation for the "recovery_probe_attempts_per_round" field.
+	DefaultRecoveryProbeAttemptsPerRound int
+	// DefaultRecoveryProbeIdleThresholdSeconds holds the default value on creation for the "recovery_probe_idle_threshold_seconds" field.
+	DefaultRecoveryProbeIdleThresholdSeconds int
+	// DefaultRecoveryProbeBackoffCapSeconds holds the default value on creation for the "recovery_probe_backoff_cap_seconds" field.
+	DefaultRecoveryProbeBackoffCapSeconds int
 )
 
 // OrderOption defines the ordering options for the Group queries.
@@ -639,6 +698,61 @@ func ByProfitMinMargin(opts ...sql.OrderTermOption) OrderOption {
 // ByProfitSafetyBuffer orders the results by the profit_safety_buffer field.
 func ByProfitSafetyBuffer(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProfitSafetyBuffer, opts...).ToFunc()
+}
+
+// BySmartSchedulerEnabled orders the results by the smart_scheduler_enabled field.
+func BySmartSchedulerEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSmartSchedulerEnabled, opts...).ToFunc()
+}
+
+// ByRecoveryProbeEnabled orders the results by the recovery_probe_enabled field.
+func ByRecoveryProbeEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeEnabled, opts...).ToFunc()
+}
+
+// ByRecoveryProbeMode orders the results by the recovery_probe_mode field.
+func ByRecoveryProbeMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeMode, opts...).ToFunc()
+}
+
+// ByRecoveryProbeModel orders the results by the recovery_probe_model field.
+func ByRecoveryProbeModel(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeModel, opts...).ToFunc()
+}
+
+// ByRecoveryProbeIntervalSeconds orders the results by the recovery_probe_interval_seconds field.
+func ByRecoveryProbeIntervalSeconds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeIntervalSeconds, opts...).ToFunc()
+}
+
+// ByRecoveryProbeAttemptsPerRound orders the results by the recovery_probe_attempts_per_round field.
+func ByRecoveryProbeAttemptsPerRound(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeAttemptsPerRound, opts...).ToFunc()
+}
+
+// ByRecoveryProbeIdleThresholdSeconds orders the results by the recovery_probe_idle_threshold_seconds field.
+func ByRecoveryProbeIdleThresholdSeconds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeIdleThresholdSeconds, opts...).ToFunc()
+}
+
+// ByRecoveryProbeBackoffCapSeconds orders the results by the recovery_probe_backoff_cap_seconds field.
+func ByRecoveryProbeBackoffCapSeconds(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRecoveryProbeBackoffCapSeconds, opts...).ToFunc()
+}
+
+// ByPoolModeEnabled orders the results by the pool_mode_enabled field.
+func ByPoolModeEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPoolModeEnabled, opts...).ToFunc()
+}
+
+// ByPoolModeRetryCount orders the results by the pool_mode_retry_count field.
+func ByPoolModeRetryCount(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPoolModeRetryCount, opts...).ToFunc()
+}
+
+// ByCustomErrorCodesEnabled orders the results by the custom_error_codes_enabled field.
+func ByCustomErrorCodesEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCustomErrorCodesEnabled, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

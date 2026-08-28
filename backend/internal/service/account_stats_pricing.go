@@ -52,7 +52,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, usage.Tokens)
+		return tryModelFilePricingWithServiceTier(billingService, upstreamModel, usage.Tokens, usage.ServiceTier)
 	}
 
 	return nil
@@ -60,12 +60,17 @@ func resolveAccountStatsCost(
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
 func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens) *float64 {
+	return tryModelFilePricingWithServiceTier(billingService, model, tokens, "")
+}
+
+func tryModelFilePricingWithServiceTier(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
 	pricing, err := billingService.GetModelPricing(model)
 	if err != nil || pricing == nil {
 		return nil
 	}
-	if billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
-		breakdown, err := billingService.CalculateCost(model, tokens, 1)
+	normalizedTier := normalizeBillingServiceTier(serviceTier)
+	if billingService.shouldApplySessionLongContextPricing(tokens, pricing) || normalizedTier == "priority" || normalizedTier == "flex" {
+		breakdown, err := billingService.CalculateCostWithServiceTier(model, tokens, 1, normalizedTier)
 		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 			return nil
 		}
@@ -235,7 +240,12 @@ func calculateStatsCost(pricing *ChannelModelPricing, usage AccountStatsUsageCon
 	case BillingModePerRequest:
 		return calculatePerRequestStatsCost(pricing, usage.RequestCount())
 	default:
-		return calculateTokenStatsCost(pricing, usage.Tokens)
+		cost := calculateTokenStatsCost(pricing, usage.Tokens)
+		if cost == nil {
+			return nil
+		}
+		adjusted := *cost * serviceTierCostMultiplier(usage.ServiceTier)
+		return &adjusted
 	}
 }
 
@@ -300,6 +310,9 @@ func applyAccountStatsCost(
 	}
 	usage := AccountStatsUsageContext{Tokens: tokens}
 	if usageLog != nil {
+		if usageLog.ServiceTier != nil {
+			usage.ServiceTier = strings.TrimSpace(*usageLog.ServiceTier)
+		}
 		usage.ImageCount = usageLog.ImageCount
 		if usageLog.ImageSize != nil {
 			usage.ImageSize = strings.TrimSpace(*usageLog.ImageSize)

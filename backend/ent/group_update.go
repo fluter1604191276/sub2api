@@ -1009,6 +1009,237 @@ func (_u *GroupUpdate) AddProfitSafetyBuffer(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (_u *GroupUpdate) SetSmartSchedulerEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetSmartSchedulerEnabled(v)
+	return _u
+}
+
+// SetNillableSmartSchedulerEnabled sets the "smart_scheduler_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableSmartSchedulerEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetSmartSchedulerEnabled(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (_u *GroupUpdate) SetRecoveryProbeEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetRecoveryProbeEnabled(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeEnabled sets the "recovery_probe_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeEnabled(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (_u *GroupUpdate) SetRecoveryProbeMode(v string) *GroupUpdate {
+	_u.mutation.SetRecoveryProbeMode(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeMode sets the "recovery_probe_mode" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeMode(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeMode(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (_u *GroupUpdate) SetRecoveryProbeModel(v string) *GroupUpdate {
+	_u.mutation.SetRecoveryProbeModel(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeModel sets the "recovery_probe_model" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeModel(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeModel(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (_u *GroupUpdate) SetRecoveryProbeIntervalSeconds(v int) *GroupUpdate {
+	_u.mutation.ResetRecoveryProbeIntervalSeconds()
+	_u.mutation.SetRecoveryProbeIntervalSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeIntervalSeconds(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeIntervalSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeIntervalSeconds adds value to the "recovery_probe_interval_seconds" field.
+func (_u *GroupUpdate) AddRecoveryProbeIntervalSeconds(v int) *GroupUpdate {
+	_u.mutation.AddRecoveryProbeIntervalSeconds(v)
+	return _u
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (_u *GroupUpdate) SetRecoveryProbeAttemptsPerRound(v int) *GroupUpdate {
+	_u.mutation.ResetRecoveryProbeAttemptsPerRound()
+	_u.mutation.SetRecoveryProbeAttemptsPerRound(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeAttemptsPerRound(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeAttemptsPerRound(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeAttemptsPerRound adds value to the "recovery_probe_attempts_per_round" field.
+func (_u *GroupUpdate) AddRecoveryProbeAttemptsPerRound(v int) *GroupUpdate {
+	_u.mutation.AddRecoveryProbeAttemptsPerRound(v)
+	return _u
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (_u *GroupUpdate) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupUpdate {
+	_u.mutation.ResetRecoveryProbeIdleThresholdSeconds()
+	_u.mutation.SetRecoveryProbeIdleThresholdSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeIdleThresholdSeconds(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeIdleThresholdSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds value to the "recovery_probe_idle_threshold_seconds" field.
+func (_u *GroupUpdate) AddRecoveryProbeIdleThresholdSeconds(v int) *GroupUpdate {
+	_u.mutation.AddRecoveryProbeIdleThresholdSeconds(v)
+	return _u
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (_u *GroupUpdate) SetRecoveryProbeBackoffCapSeconds(v int) *GroupUpdate {
+	_u.mutation.ResetRecoveryProbeBackoffCapSeconds()
+	_u.mutation.SetRecoveryProbeBackoffCapSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableRecoveryProbeBackoffCapSeconds(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetRecoveryProbeBackoffCapSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds value to the "recovery_probe_backoff_cap_seconds" field.
+func (_u *GroupUpdate) AddRecoveryProbeBackoffCapSeconds(v int) *GroupUpdate {
+	_u.mutation.AddRecoveryProbeBackoffCapSeconds(v)
+	return _u
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (_u *GroupUpdate) SetPoolModeEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetPoolModeEnabled(v)
+	return _u
+}
+
+// SetNillablePoolModeEnabled sets the "pool_mode_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillablePoolModeEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetPoolModeEnabled(*v)
+	}
+	return _u
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (_u *GroupUpdate) ClearPoolModeEnabled() *GroupUpdate {
+	_u.mutation.ClearPoolModeEnabled()
+	return _u
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (_u *GroupUpdate) SetPoolModeRetryCount(v int) *GroupUpdate {
+	_u.mutation.ResetPoolModeRetryCount()
+	_u.mutation.SetPoolModeRetryCount(v)
+	return _u
+}
+
+// SetNillablePoolModeRetryCount sets the "pool_mode_retry_count" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillablePoolModeRetryCount(v *int) *GroupUpdate {
+	if v != nil {
+		_u.SetPoolModeRetryCount(*v)
+	}
+	return _u
+}
+
+// AddPoolModeRetryCount adds value to the "pool_mode_retry_count" field.
+func (_u *GroupUpdate) AddPoolModeRetryCount(v int) *GroupUpdate {
+	_u.mutation.AddPoolModeRetryCount(v)
+	return _u
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (_u *GroupUpdate) ClearPoolModeRetryCount() *GroupUpdate {
+	_u.mutation.ClearPoolModeRetryCount()
+	return _u
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (_u *GroupUpdate) SetPoolModeRetryStatusCodes(v *[]int) *GroupUpdate {
+	_u.mutation.SetPoolModeRetryStatusCodes(v)
+	return _u
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (_u *GroupUpdate) ClearPoolModeRetryStatusCodes() *GroupUpdate {
+	_u.mutation.ClearPoolModeRetryStatusCodes()
+	return _u
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (_u *GroupUpdate) SetCustomErrorCodesEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetCustomErrorCodesEnabled(v)
+	return _u
+}
+
+// SetNillableCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCustomErrorCodesEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetCustomErrorCodesEnabled(*v)
+	}
+	return _u
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (_u *GroupUpdate) ClearCustomErrorCodesEnabled() *GroupUpdate {
+	_u.mutation.ClearCustomErrorCodesEnabled()
+	return _u
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (_u *GroupUpdate) SetCustomErrorCodes(v *[]int) *GroupUpdate {
+	_u.mutation.SetCustomErrorCodes(v)
+	return _u
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (_u *GroupUpdate) ClearCustomErrorCodes() *GroupUpdate {
+	_u.mutation.ClearCustomErrorCodes()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -1314,6 +1545,16 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.RecoveryProbeMode(); ok {
+		if err := group.RecoveryProbeModeValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_mode", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RecoveryProbeModel(); ok {
+		if err := group.RecoveryProbeModelValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_model", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_model": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -1614,6 +1855,75 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedProfitSafetyBuffer(); ok {
 		_spec.AddField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SmartSchedulerEnabled(); ok {
+		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeEnabled(); ok {
+		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeMode(); ok {
+		_spec.SetField(group.FieldRecoveryProbeMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeModel(); ok {
+		_spec.SetField(group.FieldRecoveryProbeModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeIntervalSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeIntervalSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeAttemptsPerRound(); ok {
+		_spec.SetField(group.FieldRecoveryProbeAttemptsPerRound, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeAttemptsPerRound(); ok {
+		_spec.AddField(group.FieldRecoveryProbeAttemptsPerRound, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeIdleThresholdSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIdleThresholdSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeIdleThresholdSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeIdleThresholdSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeBackoffCapSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeBackoffCapSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeBackoffCapSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeBackoffCapSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.PoolModeEnabled(); ok {
+		_spec.SetField(group.FieldPoolModeEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.PoolModeEnabledCleared() {
+		_spec.ClearField(group.FieldPoolModeEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.PoolModeRetryCount(); ok {
+		_spec.SetField(group.FieldPoolModeRetryCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedPoolModeRetryCount(); ok {
+		_spec.AddField(group.FieldPoolModeRetryCount, field.TypeInt, value)
+	}
+	if _u.mutation.PoolModeRetryCountCleared() {
+		_spec.ClearField(group.FieldPoolModeRetryCount, field.TypeInt)
+	}
+	if value, ok := _u.mutation.PoolModeRetryStatusCodes(); ok {
+		_spec.SetField(group.FieldPoolModeRetryStatusCodes, field.TypeJSON, value)
+	}
+	if _u.mutation.PoolModeRetryStatusCodesCleared() {
+		_spec.ClearField(group.FieldPoolModeRetryStatusCodes, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.CustomErrorCodesEnabled(); ok {
+		_spec.SetField(group.FieldCustomErrorCodesEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.CustomErrorCodesEnabledCleared() {
+		_spec.ClearField(group.FieldCustomErrorCodesEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.CustomErrorCodes(); ok {
+		_spec.SetField(group.FieldCustomErrorCodes, field.TypeJSON, value)
+	}
+	if _u.mutation.CustomErrorCodesCleared() {
+		_spec.ClearField(group.FieldCustomErrorCodes, field.TypeJSON)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -2902,6 +3212,237 @@ func (_u *GroupUpdateOne) AddProfitSafetyBuffer(v float64) *GroupUpdateOne {
 	return _u
 }
 
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (_u *GroupUpdateOne) SetSmartSchedulerEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetSmartSchedulerEnabled(v)
+	return _u
+}
+
+// SetNillableSmartSchedulerEnabled sets the "smart_scheduler_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableSmartSchedulerEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetSmartSchedulerEnabled(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetRecoveryProbeEnabled(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeEnabled sets the "recovery_probe_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeEnabled(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeMode(v string) *GroupUpdateOne {
+	_u.mutation.SetRecoveryProbeMode(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeMode sets the "recovery_probe_mode" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeMode(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeMode(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeModel(v string) *GroupUpdateOne {
+	_u.mutation.SetRecoveryProbeModel(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeModel sets the "recovery_probe_model" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeModel(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeModel(*v)
+	}
+	return _u
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeIntervalSeconds(v int) *GroupUpdateOne {
+	_u.mutation.ResetRecoveryProbeIntervalSeconds()
+	_u.mutation.SetRecoveryProbeIntervalSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeIntervalSeconds(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeIntervalSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeIntervalSeconds adds value to the "recovery_probe_interval_seconds" field.
+func (_u *GroupUpdateOne) AddRecoveryProbeIntervalSeconds(v int) *GroupUpdateOne {
+	_u.mutation.AddRecoveryProbeIntervalSeconds(v)
+	return _u
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeAttemptsPerRound(v int) *GroupUpdateOne {
+	_u.mutation.ResetRecoveryProbeAttemptsPerRound()
+	_u.mutation.SetRecoveryProbeAttemptsPerRound(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeAttemptsPerRound(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeAttemptsPerRound(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeAttemptsPerRound adds value to the "recovery_probe_attempts_per_round" field.
+func (_u *GroupUpdateOne) AddRecoveryProbeAttemptsPerRound(v int) *GroupUpdateOne {
+	_u.mutation.AddRecoveryProbeAttemptsPerRound(v)
+	return _u
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupUpdateOne {
+	_u.mutation.ResetRecoveryProbeIdleThresholdSeconds()
+	_u.mutation.SetRecoveryProbeIdleThresholdSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeIdleThresholdSeconds(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeIdleThresholdSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds value to the "recovery_probe_idle_threshold_seconds" field.
+func (_u *GroupUpdateOne) AddRecoveryProbeIdleThresholdSeconds(v int) *GroupUpdateOne {
+	_u.mutation.AddRecoveryProbeIdleThresholdSeconds(v)
+	return _u
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (_u *GroupUpdateOne) SetRecoveryProbeBackoffCapSeconds(v int) *GroupUpdateOne {
+	_u.mutation.ResetRecoveryProbeBackoffCapSeconds()
+	_u.mutation.SetRecoveryProbeBackoffCapSeconds(v)
+	return _u
+}
+
+// SetNillableRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableRecoveryProbeBackoffCapSeconds(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetRecoveryProbeBackoffCapSeconds(*v)
+	}
+	return _u
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds value to the "recovery_probe_backoff_cap_seconds" field.
+func (_u *GroupUpdateOne) AddRecoveryProbeBackoffCapSeconds(v int) *GroupUpdateOne {
+	_u.mutation.AddRecoveryProbeBackoffCapSeconds(v)
+	return _u
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (_u *GroupUpdateOne) SetPoolModeEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetPoolModeEnabled(v)
+	return _u
+}
+
+// SetNillablePoolModeEnabled sets the "pool_mode_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillablePoolModeEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetPoolModeEnabled(*v)
+	}
+	return _u
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (_u *GroupUpdateOne) ClearPoolModeEnabled() *GroupUpdateOne {
+	_u.mutation.ClearPoolModeEnabled()
+	return _u
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (_u *GroupUpdateOne) SetPoolModeRetryCount(v int) *GroupUpdateOne {
+	_u.mutation.ResetPoolModeRetryCount()
+	_u.mutation.SetPoolModeRetryCount(v)
+	return _u
+}
+
+// SetNillablePoolModeRetryCount sets the "pool_mode_retry_count" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillablePoolModeRetryCount(v *int) *GroupUpdateOne {
+	if v != nil {
+		_u.SetPoolModeRetryCount(*v)
+	}
+	return _u
+}
+
+// AddPoolModeRetryCount adds value to the "pool_mode_retry_count" field.
+func (_u *GroupUpdateOne) AddPoolModeRetryCount(v int) *GroupUpdateOne {
+	_u.mutation.AddPoolModeRetryCount(v)
+	return _u
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (_u *GroupUpdateOne) ClearPoolModeRetryCount() *GroupUpdateOne {
+	_u.mutation.ClearPoolModeRetryCount()
+	return _u
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (_u *GroupUpdateOne) SetPoolModeRetryStatusCodes(v *[]int) *GroupUpdateOne {
+	_u.mutation.SetPoolModeRetryStatusCodes(v)
+	return _u
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (_u *GroupUpdateOne) ClearPoolModeRetryStatusCodes() *GroupUpdateOne {
+	_u.mutation.ClearPoolModeRetryStatusCodes()
+	return _u
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (_u *GroupUpdateOne) SetCustomErrorCodesEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetCustomErrorCodesEnabled(v)
+	return _u
+}
+
+// SetNillableCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCustomErrorCodesEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCustomErrorCodesEnabled(*v)
+	}
+	return _u
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (_u *GroupUpdateOne) ClearCustomErrorCodesEnabled() *GroupUpdateOne {
+	_u.mutation.ClearCustomErrorCodesEnabled()
+	return _u
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (_u *GroupUpdateOne) SetCustomErrorCodes(v *[]int) *GroupUpdateOne {
+	_u.mutation.SetCustomErrorCodes(v)
+	return _u
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (_u *GroupUpdateOne) ClearCustomErrorCodes() *GroupUpdateOne {
+	_u.mutation.ClearCustomErrorCodes()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -3218,6 +3759,16 @@ func (_u *GroupUpdateOne) check() error {
 	if v, ok := _u.mutation.MaxReasoningEffort(); ok {
 		if err := group.MaxReasoningEffortValidator(v); err != nil {
 			return &ValidationError{Name: "max_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "Group.max_reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RecoveryProbeMode(); ok {
+		if err := group.RecoveryProbeModeValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_mode", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_mode": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RecoveryProbeModel(); ok {
+		if err := group.RecoveryProbeModelValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_model", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_model": %w`, err)}
 		}
 	}
 	return nil
@@ -3537,6 +4088,75 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedProfitSafetyBuffer(); ok {
 		_spec.AddField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.SmartSchedulerEnabled(); ok {
+		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeEnabled(); ok {
+		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeMode(); ok {
+		_spec.SetField(group.FieldRecoveryProbeMode, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeModel(); ok {
+		_spec.SetField(group.FieldRecoveryProbeModel, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeIntervalSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeIntervalSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeIntervalSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeAttemptsPerRound(); ok {
+		_spec.SetField(group.FieldRecoveryProbeAttemptsPerRound, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeAttemptsPerRound(); ok {
+		_spec.AddField(group.FieldRecoveryProbeAttemptsPerRound, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeIdleThresholdSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIdleThresholdSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeIdleThresholdSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeIdleThresholdSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.RecoveryProbeBackoffCapSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeBackoffCapSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedRecoveryProbeBackoffCapSeconds(); ok {
+		_spec.AddField(group.FieldRecoveryProbeBackoffCapSeconds, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.PoolModeEnabled(); ok {
+		_spec.SetField(group.FieldPoolModeEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.PoolModeEnabledCleared() {
+		_spec.ClearField(group.FieldPoolModeEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.PoolModeRetryCount(); ok {
+		_spec.SetField(group.FieldPoolModeRetryCount, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedPoolModeRetryCount(); ok {
+		_spec.AddField(group.FieldPoolModeRetryCount, field.TypeInt, value)
+	}
+	if _u.mutation.PoolModeRetryCountCleared() {
+		_spec.ClearField(group.FieldPoolModeRetryCount, field.TypeInt)
+	}
+	if value, ok := _u.mutation.PoolModeRetryStatusCodes(); ok {
+		_spec.SetField(group.FieldPoolModeRetryStatusCodes, field.TypeJSON, value)
+	}
+	if _u.mutation.PoolModeRetryStatusCodesCleared() {
+		_spec.ClearField(group.FieldPoolModeRetryStatusCodes, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.CustomErrorCodesEnabled(); ok {
+		_spec.SetField(group.FieldCustomErrorCodesEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.CustomErrorCodesEnabledCleared() {
+		_spec.ClearField(group.FieldCustomErrorCodesEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.CustomErrorCodes(); ok {
+		_spec.SetField(group.FieldCustomErrorCodes, field.TypeJSON, value)
+	}
+	if _u.mutation.CustomErrorCodesCleared() {
+		_spec.ClearField(group.FieldCustomErrorCodes, field.TypeJSON)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

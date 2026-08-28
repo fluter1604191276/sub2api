@@ -29,11 +29,38 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 	return accounts, result.Total, nil
 }
 
+func (s *adminServiceImpl) ListAccountsWithModel(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, model, sortBy, sortOrder string) ([]Account, int64, error) {
+	if strings.TrimSpace(model) == "" {
+		return s.ListAccounts(ctx, page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	}
+	repo, ok := s.accountRepo.(AccountModelFilterRepository)
+	if !ok {
+		return nil, 0, errors.New("account model filtering is not supported")
+	}
+	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
+	accounts, result, err := repo.ListWithModelFilter(ctx, params, platform, accountType, status, search, groupID, privacyMode, model)
+	if err != nil {
+		return nil, 0, err
+	}
+	return accounts, result.Total, nil
+}
+
 func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
 	if s == nil || s.accountRepo == nil {
 		return nil, nil
 	}
 	return s.accountRepo.ListAllWithFilters(ctx, platform, accountType, status, search, groupID, privacyMode)
+}
+
+func (s *adminServiceImpl) ListAccountsForSchedulerScoreFilterWithModel(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]Account, error) {
+	if strings.TrimSpace(model) == "" {
+		return s.ListAccountsForSchedulerScoreFilter(ctx, platform, accountType, status, search, groupID, privacyMode)
+	}
+	repo, ok := s.accountRepo.(AccountModelFilterRepository)
+	if !ok {
+		return nil, errors.New("account model filtering is not supported")
+	}
+	return repo.ListAllWithModelFilter(ctx, platform, accountType, status, search, groupID, privacyMode, model)
 }
 
 func (s *adminServiceImpl) ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error) {
@@ -1229,6 +1256,9 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 			"",
 			"",
 		)
+		if strings.TrimSpace(filters.Model) != "" {
+			accounts, total, err = s.ListAccountsWithModel(ctx, page, pageSize, filters.Platform, filters.Type, filters.Status, filters.Search, groupID, filters.PrivacyMode, filters.Model, "", "")
+		}
 		if err != nil {
 			return nil, err
 		}

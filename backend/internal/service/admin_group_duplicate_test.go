@@ -130,6 +130,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 		PeakStart:                       "09:00",
 		PeakEnd:                         "18:00",
 		PeakRateMultiplier:              1.2,
+		SmartSchedulerEnabled:           true,
 		IsExclusive:                     true,
 		Status:                          StatusActive,
 		Hydrated:                        true,
@@ -212,6 +213,7 @@ func TestDuplicateGroupCopiesConfigurationDeeplyAndResetsRuntimeState(t *testing
 	require.Equal(t, source.RPMLimit, duplicate.RPMLimit)
 	require.Equal(t, source.MaxReasoningEffort, duplicate.MaxReasoningEffort)
 	require.Equal(t, source.ReasoningEffortMappings, duplicate.ReasoningEffortMappings)
+	require.Equal(t, source.SmartSchedulerEnabled, duplicate.SmartSchedulerEnabled)
 	require.EqualValues(t, 2, duplicate.AccountCount)
 	require.EqualValues(t, 2, duplicate.ActiveAccountCount)
 	require.NotEmpty(t, duplicate.DuplicateOperationID)

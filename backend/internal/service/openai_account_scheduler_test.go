@@ -2659,6 +2659,155 @@ func TestOpenAIAccountScheduler_SkipsAccountBlockedForRequestedModel(t *testing.
 	require.True(t, scheduler.isAccountRequestCompatible(context.Background(), account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.6-sol"}))
 }
 
+func TestOpenAIGatewayService_SelectAccountWithScheduler_FailsOpenWhenAllModelsTemporarilyBlocked(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	now := time.Now()
+	accounts := []Account{
+		{ID: 21634, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		{ID: 21635, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
+	}
+	state := newOpenAIAccountModelTransientState(128)
+	for i := 0; i < 3; i++ {
+		state.recordFailure(accounts[0].ID, "gpt-5.6-sol", now.Add(time.Duration(i)*time.Millisecond))
+		state.recordFailure(accounts[1].ID, "gpt-5.6-sol", now.Add(10*time.Second+time.Duration(i)*time.Millisecond))
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:          schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                  &config.Config{},
+		rateLimitService:     newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService:   NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiModelTransient: state,
+	}
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		context.Background(), nil, "", "", "gpt-5.6-sol", nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.NoError(t, err, "temporary model cooldowns must fail open when they cover the whole otherwise-valid pool")
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[0].ID, selection.Account.ID, "shortest remaining cooldown should be the least-bad fallback")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_ModelBlockFailOpenStillHonorsRequestExclusions(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+
+	now := time.Now()
+	account := Account{ID: 21637, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1}
+	state := newOpenAIAccountModelTransientState(128)
+	state.recordFailure(account.ID, "gpt-5.6-sol", now)
+	state.recordFailure(account.ID, "gpt-5.6-sol", now.Add(time.Millisecond))
+	svc := &OpenAIGatewayService{
+		accountRepo:          schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cfg:                  &config.Config{},
+		rateLimitService:     newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService:   NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiModelTransient: state,
+	}
+
+	selection, _, err := svc.SelectAccountWithScheduler(
+		context.Background(), nil, "", "", "gpt-5.6-sol", map[int64]struct{}{account.ID: {}}, OpenAIUpstreamTransportAny, false,
+	)
+	require.Error(t, err)
+	require.Nil(t, selection, "request-scoped exclusions must never be bypassed by model cooldown fail-open")
+}
+
+func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_FailsOpenWhenAllModelsTemporarilyBlocked(t *testing.T) {
+	now := time.Now()
+	accounts := []Account{
+		{ID: 21638, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		{ID: 21639, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
+	}
+	state := newOpenAIAccountModelTransientState(128)
+	state.forceBlock(accounts[0].ID, "gpt-5.6-sol", now, 90*time.Second)
+	state.forceBlock(accounts[1].ID, "gpt-5.6-sol", now, 20*time.Second)
+	svc := &OpenAIGatewayService{
+		accountRepo:          schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                  &config.Config{},
+		openaiModelTransient: state,
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), nil, "", "gpt-5.6-sol", nil)
+	require.NoError(t, err, "legacy load-aware selection must fail open for model-only cooldowns")
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[1].ID, selection.Account.ID, "the shortest model cooldown is the least-bad bounded fallback")
+}
+
+func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_LoadBatchFailsOpenWhenAllModelsTemporarilyBlocked(t *testing.T) {
+	now := time.Now()
+	accounts := []Account{
+		{ID: 21642, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		{ID: 21643, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 2},
+	}
+	state := newOpenAIAccountModelTransientState(128)
+	state.forceBlock(accounts[0].ID, "gpt-5.6-sol", now, 75*time.Second)
+	state.forceBlock(accounts[1].ID, "gpt-5.6-sol", now, 15*time.Second)
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &OpenAIGatewayService{
+		accountRepo:          schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                  cfg,
+		concurrencyService:   NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		openaiModelTransient: state,
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), nil, "", "gpt-5.6-sol", nil)
+	require.NoError(t, err, "batch load selection must preserve model-cooldown fail-open capacity")
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[1].ID, selection.Account.ID, "batch load selection must try the shortest cooldown first")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_LoadBatchAllAccountsExcludedFailsBoundedly(t *testing.T) {
+	accounts := []Account{
+		{ID: 21644, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1},
+		{ID: 21645, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1},
+	}
+	cfg := &config.Config{}
+	cfg.Gateway.Scheduling.LoadBatchEnabled = true
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                cfg,
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	excluded := map[int64]struct{}{
+		accounts[0].ID: {},
+		accounts[1].ID: {},
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), nil, "", "gpt-5.6-sol", excluded)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection, "request-scoped exclusions must remain a hard bound after every account was tried")
+}
+
+func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_FailOpenKeepsHardAccountBlock(t *testing.T) {
+	now := time.Now()
+	accounts := []Account{
+		{ID: 21640, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1},
+		{ID: 21641, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1},
+	}
+	state := newOpenAIAccountModelTransientState(128)
+	state.forceBlock(accounts[0].ID, "gpt-5.6-sol", now, 20*time.Second)
+	state.forceBlock(accounts[1].ID, "gpt-5.6-sol", now, 40*time.Second)
+	svc := &OpenAIGatewayService{
+		accountRepo:          schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                  &config.Config{},
+		openaiModelTransient: state,
+	}
+	svc.BlockAccountScheduling(&accounts[0], time.Now().Add(time.Minute), "test_hard_block")
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), nil, "", "gpt-5.6-sol", nil)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, accounts[1].ID, selection.Account.ID, "hard account runtime blocks must never be bypassed")
+}
+
 func TestReportOpenAIAccountScheduleResult_SuccessClearsModelTransientState(t *testing.T) {
 	svc := &OpenAIGatewayService{openaiModelTransient: newOpenAIAccountModelTransientState(128)}
 	now := time.Now()

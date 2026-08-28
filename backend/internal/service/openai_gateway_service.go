@@ -274,8 +274,9 @@ type OpenAIForwardResult struct {
 	VideoResolution string
 	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
 	VideoDurationSeconds int
-	// WebSearchCalls 是 Codex alpha/search 网页搜索调用次数（每次成功请求为 1）。
-	// 上游不返回 usage 字段，>0 时走按次计费（分组单价 × 次数 × 倍率）。
+	// WebSearchCalls 是上游实际执行的网页搜索调用次数。它可以来自
+	// Codex alpha/search，也可以来自兼容上游返回的显式计数或
+	// Responses web_search_call 输出项；>0 时走现有按次计费链路。
 	WebSearchCalls int
 
 	wsReplayInput       []json.RawMessage
@@ -399,6 +400,7 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
 	accountRepo           AccountRepository
+	groupRepo             GroupRepository
 	usageLogRepo          UsageLogRepository
 	usageBillingRepo      UsageBillingRepository
 	userRepo              UserRepository
@@ -425,6 +427,7 @@ type OpenAIGatewayService struct {
 	userPlatformQuotaRepo UserPlatformQuotaRepository
 	liveAttestation       liveattestation.Provider
 	liveAttestationCipher SecretEncryptor
+	smartScheduler        smartSchedulerCandidateOrderer
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
@@ -447,6 +450,8 @@ type OpenAIGatewayService struct {
 	openaiAccountRuntimeBlockLocks      sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiAccountRuntimeBlockGeneration sync.Map // key: int64(accountID), value: uint64
 	openaiAccountRuntimeBlockSequence   atomic.Uint64
+	smartStickyReviewMu                 sync.Mutex
+	smartStickyReviews                  map[string]smartStickyReviewState
 	grokCredentialMutationLocks         sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiOAuth429WindowStartUnixNano   atomic.Int64
 	openaiOAuth429WindowCount           atomic.Int64
@@ -525,6 +530,10 @@ func NewOpenAIGatewayService(
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		smartScheduler:        NewSmartSchedulerPreviewService(nil, NewDashboardService(usageLogRepo, nil, nil, cfg), concurrencyService),
+	}
+	if channelService != nil {
+		svc.groupRepo = channelService.groupRepo
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)

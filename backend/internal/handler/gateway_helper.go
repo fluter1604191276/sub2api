@@ -19,6 +19,14 @@ import (
 // claudeCodeValidator is a singleton validator for Claude Code client detection
 var claudeCodeValidator = service.NewClaudeCodeValidator()
 
+func withSmartSchedulerRequestContext(c *gin.Context, ctx context.Context, endpoint string) context.Context {
+	ctx = service.WithSmartSchedulerEndpoint(ctx, endpoint)
+	if c != nil && c.GetHeader(service.ChannelMonitorProbeHeader) == service.ChannelMonitorProbeHeaderValue {
+		ctx = service.WithChannelMonitorProbe(ctx)
+	}
+	return ctx
+}
+
 // SetClaudeCodeClientContext 检查请求是否来自 Claude Code 客户端，并设置到 context 中
 // 返回更新后的 context
 func SetClaudeCodeClientContext(c *gin.Context, body []byte, parsedReq *service.ParsedRequest) {

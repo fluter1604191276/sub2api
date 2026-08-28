@@ -1,0 +1,927 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FluterAPI 使用教程</title>
+    <meta
+      name="description"
+      content="FluterAPI 新手教程：充值兑换、API Key、Codex、CCSwitch、生图、模型选择、常见报错，以及中英文地区合规公告。FluterAPI beginner guide with bilingual region access notice."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f8fb;
+        --paper: #ffffff;
+        --ink: #172033;
+        --muted: #5d6878;
+        --soft: #778294;
+        --line: #dde5ef;
+        --line-strong: #c7d4e4;
+        --api: #1469d8;
+        --api-dark: #0d438c;
+        --green: #087b64;
+        --green-dark: #075744;
+        --amber: #b46a18;
+        --red: #b42318;
+        --code: #111827;
+        --code-text: #d1fae5;
+        --shadow: 0 18px 48px rgba(25, 38, 61, 0.1);
+        --mint: #0fa896;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        min-width: 320px;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 248, 251, 0.98) 40%, #edf3f8 100%),
+          var(--bg);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        line-height: 1.75;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        content: "";
+        background-image:
+          linear-gradient(rgba(20, 32, 51, 0.045) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(20, 32, 51, 0.045) 1px, transparent 1px);
+        background-size: 42px 42px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.52), transparent 72%);
+      }
+
+      a {
+        color: var(--api-dark);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 282px minmax(0, 1fr);
+        gap: 28px;
+        width: min(1280px, calc(100% - 40px));
+        margin: 0 auto;
+        padding: 26px 0 54px;
+      }
+
+      aside {
+        position: sticky;
+        top: 18px;
+        height: calc(100vh - 36px);
+        overflow: auto;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: var(--shadow);
+      }
+
+
+      .compliance-note {
+        margin-bottom: 18px;
+        padding: 14px 14px 15px;
+        border: 1px solid rgba(180, 35, 24, 0.18);
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(180, 35, 24, 0.08), rgba(255, 255, 255, 0.92));
+      }
+
+      .compliance-label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        border-radius: 999px;
+        background: rgba(180, 35, 24, 0.12);
+        color: #9f1d12;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+      }
+
+      .compliance-note strong {
+        display: block;
+        margin-top: 10px;
+        color: #7f1d1d;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .compliance-note p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .logo {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--api), var(--green));
+        font-weight: 900;
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 17px;
+        line-height: 1.2;
+      }
+
+      .brand span {
+        display: block;
+        color: var(--soft);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      nav a {
+        display: block;
+        margin: 3px 0;
+        padding: 9px 12px;
+        border-radius: 8px;
+        color: #344054;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      nav a:hover {
+        background: #edf5ff;
+        text-decoration: none;
+      }
+
+      .nav-primary {
+        margin-bottom: 12px;
+        padding: 13px 14px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--api), var(--green));
+        font-weight: 850;
+        box-shadow: 0 12px 24px rgba(20, 105, 216, 0.2);
+      }
+
+      .nav-primary:hover {
+        color: #fff;
+        background: linear-gradient(135deg, var(--api-dark), var(--green-dark));
+      }
+
+      main {
+        min-width: 0;
+      }
+
+      .hero {
+        min-height: 340px;
+        display: grid;
+        align-content: center;
+        padding: 50px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(135deg, rgba(20, 105, 216, 0.1), rgba(8, 123, 100, 0.1)),
+          var(--paper);
+        box-shadow: var(--shadow);
+      }
+
+      .eyebrow {
+        margin: 0 0 12px;
+        color: var(--green-dark);
+        font-size: 14px;
+        font-weight: 850;
+      }
+
+      h1 {
+        max-width: 820px;
+        margin: 0;
+        font-size: 48px;
+        line-height: 1.12;
+        letter-spacing: 0;
+      }
+
+      .lead {
+        max-width: 820px;
+        margin: 18px 0 0;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .quick-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 24px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 15px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        background: #fff;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 820;
+      }
+
+      .button.primary {
+        border-color: var(--api);
+        color: #fff;
+        background: var(--api);
+      }
+
+      .button.green {
+        border-color: var(--green);
+        color: #fff;
+        background: var(--green);
+      }
+
+      section.doc-section {
+        margin-top: 24px;
+        padding: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        box-shadow: 0 12px 32px rgba(25, 38, 61, 0.06);
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 28px;
+        line-height: 1.25;
+        letter-spacing: 0;
+      }
+
+      h3 {
+        margin: 26px 0 10px;
+        font-size: 20px;
+        line-height: 1.3;
+      }
+
+      p {
+        margin: 10px 0;
+      }
+
+      ul,
+      ol {
+        padding-left: 22px;
+      }
+
+      li {
+        margin: 7px 0;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 16px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      table {
+        width: 100%;
+        margin: 16px 0;
+        border-collapse: collapse;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        font-size: 14px;
+      }
+
+      th,
+      td {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        background: #f3f7fb;
+        font-weight: 850;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      code,
+      pre {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 6px;
+        background: #edf2f7;
+      }
+
+      pre {
+        overflow: auto;
+        margin: 14px 0;
+        padding: 16px;
+        border-radius: 8px;
+        color: var(--code-text);
+        background: var(--code);
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      pre code {
+        padding: 0;
+        background: transparent;
+      }
+
+      .callout {
+        margin: 18px 0;
+        padding: 15px 16px;
+        border: 1px solid rgba(20, 105, 216, 0.2);
+        border-radius: 8px;
+        background: #edf5ff;
+        color: #244466;
+      }
+
+      .callout.warn {
+        border-color: rgba(180, 106, 24, 0.24);
+        background: #fff8eb;
+        color: #5c3b13;
+      }
+
+      .callout.good {
+        border-color: rgba(8, 123, 100, 0.22);
+        background: #effbf7;
+        color: var(--green-dark);
+      }
+
+      .redeem-preview {
+        margin: 18px 0;
+        padding: 18px;
+        border: 1px solid rgba(15, 168, 150, 0.26);
+        border-radius: 8px;
+        background: linear-gradient(180deg, #ecfffb 0%, #f8fffd 100%);
+      }
+
+      .redeem-balance {
+        display: grid;
+        min-height: 132px;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: linear-gradient(135deg, #20b8aa, #079681);
+        text-align: center;
+      }
+
+      .redeem-balance span {
+        display: block;
+        font-size: 13px;
+        opacity: 0.9;
+      }
+
+      .redeem-balance strong {
+        display: block;
+        margin: 5px 0;
+        font-size: 34px;
+        line-height: 1.1;
+      }
+
+      .redeem-form {
+        margin-top: 14px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fff;
+      }
+
+      .redeem-input {
+        display: flex;
+        align-items: center;
+        min-height: 46px;
+        margin-top: 8px;
+        padding: 0 14px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        color: var(--soft);
+        background: #fff;
+      }
+
+      .redeem-button {
+        display: grid;
+        min-height: 42px;
+        margin-top: 12px;
+        place-items: center;
+        border-radius: 8px;
+        color: #fff;
+        background: rgba(15, 168, 150, 0.62);
+        font-weight: 850;
+      }
+
+      .mini-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+      }
+
+      .mini-list div {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        background: #f4f8fb;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 16px;
+      }
+
+      figure {
+        margin: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+      }
+
+      figure img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      figcaption {
+        padding: 11px 13px;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .faq {
+        display: grid;
+        gap: 12px;
+      }
+
+      details {
+        padding: 16px 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfdff;
+      }
+
+      summary {
+        cursor: pointer;
+        font-weight: 850;
+      }
+
+      details p {
+        color: var(--muted);
+      }
+
+      footer {
+        margin-top: 26px;
+        color: var(--soft);
+        font-size: 13px;
+      }
+
+      @media (max-width: 980px) {
+        .layout {
+          grid-template-columns: 1fr;
+          width: min(100% - 28px, 760px);
+        }
+
+        aside {
+          position: static;
+          height: auto;
+        }
+
+        nav {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 4px;
+        }
+
+        .hero {
+          padding: 34px;
+        }
+
+        h1 {
+          font-size: 38px;
+        }
+
+        .cards,
+        .gallery {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .layout {
+          width: min(100% - 20px, 540px);
+          padding-top: 14px;
+        }
+
+        nav {
+          grid-template-columns: 1fr;
+        }
+
+        .hero,
+        section.doc-section {
+          padding: 22px;
+        }
+
+        h1 {
+          font-size: 31px;
+        }
+
+        h2 {
+          font-size: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside>
+        <div class="compliance-note">
+          <div class="compliance-label">Region Access Notice</div>
+          <strong>因政策与合规要求，部分地区将不再提供 AI 中转服务。</strong>
+          <p>支持地区用户不受影响；受影响地区访问会先看到提示页。退款事项请联系管理员。</p>
+          <p>Due to policy and compliance requirements, AI relay services are no longer available in certain regions. Users in supported regions are unaffected; please contact the administrator for refund matters.</p>
+        </div>
+        <div class="brand">
+          <div class="logo">F</div>
+          <div>
+            <strong>FluterAPI 教程</strong>
+            <span>新手接入与常见问题</span>
+          </div>
+        </div>
+        <nav aria-label="教程目录">
+          <a class="nav-primary" href="https://api.fluterapi.top/custom/fluterapi-guide">回到站内教程</a>
+          <a href="#start">快速开始</a>
+          <a href="#topup">充值和兑换</a>
+          <a href="#key">创建 API Key</a>
+          <a href="#codex">Codex 和 CCSwitch</a>
+          <a href="#manual">手动配置</a>
+          <a href="#models">模型选择</a>
+          <a href="#image">图片生成</a>
+          <a href="#errors">常见报错</a>
+          <a href="#screenshots">截图示例</a>
+          <a href="#community">技术经验分享群</a>
+        </nav>
+      </aside>
+
+      <main>
+        <header class="hero" id="start">
+          <p class="eyebrow">FluterAPI 新手说明书</p>
+          <h1>从买卡密到接入 Codex Desktop，一页走完</h1>
+          <p class="lead">
+            这份教程给第一次使用的用户看。支持地区用户可以按原流程使用；受影响地区用户请先查看合规提示。你只需要完成四件事：买卡密、兑换额度、创建 API Key、把 API Key 和 Base URL 填进 Codex Desktop 或其他客户端。
+            <br />This guide is for first-time users. Users in supported regions can follow the normal flow; affected regions should review the compliance notice first. Complete four steps: purchase a top-up code, redeem balance, create an API Key, and enter the API Key plus Base URL in Codex Desktop or another client.
+          </p>
+          <div class="quick-actions">
+            <a class="button primary" href="https://api.fluterapi.top">进入 API 控制台</a>
+            <a class="button green" href="https://catfk.com/shop/VYYIQSK9" target="_blank" rel="noopener noreferrer">购买额度卡密（无手续费）</a>
+            <a class="button" href="https://pay.ldxp.cn/shop/IMZJ600N" target="_blank" rel="noopener noreferrer">原支付小店（有手续费）</a>
+            <a class="button" href="https://chatgpt.com/zh-Hans-CN/codex/">安装 Codex Desktop</a>
+            <a class="button" href="https://api.fluterapi.top/keys">创建 API Key</a>
+            <a class="button" href="https://api.fluterapi.top/available-channels">查看可用模型</a>
+          </div>
+        </header>
+
+        <section class="doc-section">
+          <h2>最短路径</h2>
+          <div class="cards">
+            <div class="card">
+              <strong>1. 购买卡密</strong>
+              <p>优先到卡密购买小店购买额度卡密（无手续费）。付款后复制卡密，不要发给别人。</p>
+            </div>
+            <div class="card">
+              <strong>2. 兑换余额</strong>
+              <p>回到控制台的兑换页面，把卡密兑换成站内余额或并发权限。</p>
+            </div>
+            <div class="card">
+              <strong>3. 填入客户端</strong>
+              <p>创建 API Key，然后把 Key 和 Base URL 填到 Codex Desktop、CCSwitch 或其他客户端。</p>
+            </div>
+          </div>
+          <div class="callout good">
+            技术经验分享群：<strong>229863202</strong>。新用户遇到配置问题可以带上模型名、报错截图和大概时间进群交流；如涉及退款或地区访问限制，也可以一起说明。
+            <br />Technical experience sharing group: <strong>229863202</strong>. For configuration issues, include the model name, error screenshot, and approximate time; for refund or region-access questions, mention that context as well.
+          </div>
+        </section>
+
+        <section class="doc-section" id="topup">
+          <h2>充值和兑换</h2>
+          <p>
+            兑换页面顶部会显示你的当前余额和并发数；中间是兑换码输入框；下方最近活动会显示余额充值、并发增加等记录。数字以你自己的页面为准。
+          </p>
+          <div class="redeem-preview" aria-label="兑换额度页面示意">
+            <div class="redeem-balance">
+              <div>
+                <span>当前余额</span>
+                <strong>$ 你的余额</strong>
+                <span>并发数：你的并发请求数</span>
+              </div>
+            </div>
+            <div class="redeem-form">
+              <strong>兑换码</strong>
+              <div class="redeem-input">请输入兑换码</div>
+              <p>兑换码区分大小写。</p>
+              <div class="redeem-button">兑换</div>
+            </div>
+            <div class="mini-list">
+              <div><span>余额充值</span><strong>+$ 兑换额度</strong></div>
+              <div><span>并发增加</span><strong>+ 请求数</strong></div>
+            </div>
+          </div>
+          <ol>
+            <li>优先打开 <a href="https://catfk.com/shop/VYYIQSK9" target="_blank" rel="noopener noreferrer">卡密购买小店（无手续费）</a>，选择额度商品并付款；原 <a href="https://pay.ldxp.cn/shop/IMZJ600N" target="_blank" rel="noopener noreferrer">支付小店（有手续费）</a> 可作为备用入口。</li>
+            <li>复制小店给你的卡密。</li>
+            <li>回到 <a href="https://api.fluterapi.top/redeem">兑换码页面</a>，粘贴卡密并兑换。</li>
+            <li>兑换成功后，刷新控制台，顶部余额或并发数会更新；最近活动里也会出现一条新记录。</li>
+          </ol>
+          <div class="callout warn">
+            如果余额没有变化，先刷新页面；如果仍然不对，进技术经验分享群说明“购买时间、商品、是否兑换过”，不要在群里发送 API Key。
+          </div>
+        </section>
+
+        <section class="doc-section" id="key">
+          <h2>创建 API Key</h2>
+          <p>
+            API Key 是你的调用凭证，可以理解成“接口密码”。别人拿到你的 Key 后，可能会消耗你的余额，所以不要把 Key 发到群聊、截图、公开代码仓库或视频里。
+          </p>
+          <ol>
+            <li>打开 <a href="https://api.fluterapi.top/keys">API 密钥页面</a>。</li>
+            <li>点击创建 API Key。</li>
+            <li>复制生成的 Key。</li>
+            <li>把 Key 填到客户端的 API Key / Token 位置。</li>
+          </ol>
+          <table>
+            <tr>
+              <th>项目</th>
+              <th>填写内容</th>
+            </tr>
+            <tr>
+              <td>Base URL</td>
+              <td><code>https://api.fluterapi.top/v1</code></td>
+            </tr>
+            <tr>
+              <td>API Key</td>
+              <td>你在 API 密钥页面创建的 Key</td>
+            </tr>
+            <tr>
+              <td>鉴权格式</td>
+              <td><code>Authorization: Bearer 你的_API_Key</code></td>
+            </tr>
+          </table>
+        </section>
+
+        <section class="doc-section" id="codex">
+          <h2>Codex 和 CCSwitch</h2>
+          <p>
+            如果你是为了使用 Codex，推荐安装 Codex Desktop，并配合 CCSwitch 管理本站的 API Key、Base URL 和模型。新手不需要安装命令行版 Codex，也不需要手动改复杂配置文件。
+          </p>
+          <h3>安装 Codex Desktop</h3>
+          <ol>
+            <li>打开 OpenAI 官方 Codex 页面：<a href="https://chatgpt.com/zh-Hans-CN/codex/">https://chatgpt.com/zh-Hans-CN/codex/</a>。</li>
+            <li>按页面提示下载并安装 Codex Desktop。</li>
+            <li>安装完成后先打开一次 Codex Desktop，确认软件能正常启动。</li>
+          </ol>
+          <div class="callout warn">
+            这份教程面向 Codex Desktop 用户，不要求安装 CLI，也不要求执行命令行安装步骤。
+          </div>
+          <h3>安装 CCSwitch</h3>
+          <p>
+            下载地址可以从 <a href="https://ccswitch.ai/">CCSwitch 官网</a> 进入。Windows 优先选 MSI，macOS 优先选 DMG。
+          </p>
+          <h3>用本站一键导入</h3>
+          <ol>
+            <li>登录本站控制台。</li>
+            <li>打开 API 密钥页面。</li>
+            <li>创建或复制你的 API Key。</li>
+            <li>点击“导入到 CCS”。</li>
+            <li>浏览器询问是否打开 CCSwitch 时，选择允许。</li>
+            <li>导入后关闭并重新打开 Codex Desktop，让新配置生效。</li>
+          </ol>
+          <div class="callout">
+            你给用户解释时可以这么说：先安装 Codex Desktop，再用 CCSwitch 导入本站 API Key 和 Base URL。本站负责提供可调用的 API，CCSwitch 负责把配置填到 Codex Desktop 里。
+          </div>
+        </section>
+
+        <section class="doc-section" id="manual">
+          <h2>手动配置</h2>
+          <p>如果你的客户端没有一键导入，就手动填下面几项。</p>
+          <table>
+            <tr>
+              <th>字段</th>
+              <th>值</th>
+            </tr>
+            <tr>
+              <td>Base URL / API Host</td>
+              <td><code>https://api.fluterapi.top/v1</code></td>
+            </tr>
+            <tr>
+              <td>API Key / Token</td>
+              <td>你自己创建的 API Key</td>
+            </tr>
+            <tr>
+              <td>文本接口</td>
+              <td>优先 Responses，不支持时用 Chat Completions</td>
+            </tr>
+            <tr>
+              <td>图片接口</td>
+              <td><code>/v1/images/generations</code></td>
+            </tr>
+          </table>
+          <pre><code>model = "gpt-5.4"
+model_provider = "fluterapi"
+model_reasoning_effort = "medium"
+disable_response_storage = true
+
+[model_providers.fluterapi]
+name = "fluterAPI"
+base_url = "https://api.fluterapi.top/v1"
+wire_api = "responses"
+requires_openai_auth = true
+experimental_bearer_token = "YOUR_API_KEY"</code></pre>
+          <div class="callout warn">
+            <code>/v1</code> 必须小写，不要写成 <code>/V1</code>。Base URL 也不要漏掉最后的 <code>/v1</code>。
+          </div>
+        </section>
+
+        <section class="doc-section" id="models">
+          <h2>模型选择</h2>
+          <p>看不懂模型名时，先按场景选。完整列表以 <a href="https://api.fluterapi.top/available-channels">可用渠道页面</a> 为准。</p>
+          <table>
+            <tr>
+              <th>场景</th>
+              <th>推荐模型</th>
+            </tr>
+            <tr>
+              <td>便宜、快速、小任务</td>
+              <td><code>gpt-5.4-mini</code></td>
+            </tr>
+            <tr>
+              <td>日常主力、写作、代码</td>
+              <td><code>gpt-5.4</code>、<code>gpt-5.5</code></td>
+            </tr>
+            <tr>
+              <td>Codex 代码任务</td>
+              <td><code>gpt-5.3-codex</code>、<code>gpt-5.3-codex-spark</code></td>
+            </tr>
+            <tr>
+              <td>Claude 写作/代码</td>
+              <td><code>claude-sonnet-4-6</code>、<code>claude-opus-4-7</code></td>
+            </tr>
+            <tr>
+              <td>DeepSeek 高性价比</td>
+              <td><code>deepseek-v4-flash</code>、<code>deepseek-v4-pro</code></td>
+            </tr>
+            <tr>
+              <td>图片生成</td>
+              <td><code>gpt-image-2</code></td>
+            </tr>
+          </table>
+        </section>
+
+        <section class="doc-section" id="image">
+          <h2>图片生成</h2>
+          <p>
+            生图需要 API Key 所在分组开启图片生成能力。当前推荐模型名是 <code>gpt-image-2</code>。
+          </p>
+          <pre><code>curl https://api.fluterapi.top/v1/images/generations \
+  -H "Authorization: Bearer 你的_API_Key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-image-2",
+    "prompt": "一张干净科技风的 API 服务宣传海报，中文标题 FluterAPI",
+    "size": "1024x1024"
+  }'</code></pre>
+          <div class="callout">
+            生图耗时可能比文字请求长，尤其是 2K/4K。本站单独提供了长超时图片入口，但普通用户通常仍填写 <code>https://api.fluterapi.top/v1</code> 即可。
+          </div>
+          <div class="callout warn">
+            如果提示 <code>Image generation is not enabled for this group</code>，说明当前 Key 的分组没开生图。请换生图分组的 Key，或联系管理员调整。
+          </div>
+        </section>
+
+        <section class="doc-section" id="errors">
+          <h2>常见报错</h2>
+          <div class="faq">
+            <details open>
+              <summary>401 Unauthorized / INVALID_API_KEY</summary>
+              <p>API Key 填错、复制不完整、Key 被删除，或者把登录密码当成 API Key 了。回到 API 密钥页面重新复制 Key。</p>
+            </details>
+            <details>
+              <summary>429 Too Many Requests</summary>
+              <p>请求太频繁、并发太高，或者上游临时限流。等一会儿再试，降低并发，或换更稳定的通道。</p>
+            </details>
+            <details>
+              <summary>502 / 503</summary>
+              <p>通常表示上游服务临时不可用、账号池异常或请求时间太长。先等 1 分钟重试；持续出现时，把模型名、请求路径、报错时间发到群里。</p>
+            </details>
+            <details>
+              <summary>模型列表能看到，但调用失败</summary>
+              <p>模型列表说明站点知道这个模型名，实际调用还要看你的 Key 分组和上游是否可用。可以先换同系列模型测试。</p>
+            </details>
+            <details>
+              <summary>生图返回只有 URL，b64_json 为空</summary>
+              <p>这取决于上游返回方式。有些上游只给 URL，有些会上返回 b64_json。客户端如果必须读取 b64_json，需要换支持 b64_json 的生图通道。</p>
+            </details>
+          </div>
+        </section>
+
+        <section class="doc-section" id="screenshots">
+          <h2>截图示例</h2>
+          <p>下面是常见操作位置示意。不同版本界面可能略有不同，主要看红框和箭头指向的位置。</p>
+          <div class="gallery">
+            <figure>
+              <img src="assets/ccswitch-api-key-base-url.png" alt="CCSwitch 中填写 API Key 和 Base URL 的位置" loading="lazy" />
+              <figcaption>在 CCSwitch 供应商列表里选中 fluterAPI，然后点击“启用”，让 Codex Desktop 使用本站配置。</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/import-to-ccswitch.png" alt="从站内 API Key 页面导入到 CCSwitch" loading="lazy" />
+              <figcaption>进入控制台后，先点击左侧“API 密钥”，到这里创建或管理自己的 API Key。</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/api-key-create.png" alt="API Key 创建和管理页面" loading="lazy" />
+              <figcaption>控制台首页左侧可以进入“充值与教程”；右侧快捷操作里也能进入创建 API 密钥。</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/available-channels.png" alt="可用渠道页面" loading="lazy" />
+              <figcaption>点击“导入到 CCS”后，CCSwitch 会弹出确认窗口；确认供应商、API 端点、API Key 和模型后点击“导入”。</figcaption>
+            </figure>
+            <figure>
+              <img src="assets/image-generation.png" alt="图片生成设置示例" loading="lazy" />
+              <figcaption>创建 API Key 时选择合适分组；需要生图时选择带“生图+文字”的分组，再使用 <code>gpt-image-2</code>。</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="doc-section" id="community">
+          <h2>技术经验分享群</h2>
+          <p>
+            QQ 群：<strong>229863202</strong>。这个群用于新手配置、模型选择、Codex/CCSwitch 使用经验、生图问题和报错排查。
+          </p>
+          <div class="callout good">
+            进群提问时，最好带上：模型名、请求路径、报错截图或完整报错、大概出错时间。不要发送自己的 API Key。
+          </div>
+        </section>
+
+        <footer>
+          FluterAPI 教程页。总入口：<a href="https://fluterapi.top">fluterapi.top</a>，控制台：<a href="https://api.fluterapi.top">api.fluterapi.top</a>。
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

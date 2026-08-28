@@ -331,6 +331,28 @@ func TestRunCheckForModel_OpenAIResponses_SkipsLeadingReasoningItem(t *testing.T
 	}
 }
 
+func TestMonitorTimeoutBudget_AllowsSlowResponseToDegrade(t *testing.T) {
+	if monitorResponseHeaderTimeout <= 30*time.Second {
+		t.Fatalf("response-header timeout must allow responses slower than 30s, got %s", monitorResponseHeaderTimeout)
+	}
+	if monitorRequestTimeout <= monitorResponseHeaderTimeout {
+		t.Fatalf(
+			"total request timeout must exceed response-header timeout: total=%s headers=%s",
+			monitorRequestTimeout,
+			monitorResponseHeaderTimeout,
+		)
+	}
+
+	latency := 45 * time.Second
+	res := finalizeOperationalOrDegraded(&CheckResult{}, latency, int(latency/time.Millisecond))
+	if res.Status != MonitorStatusDegraded {
+		t.Fatalf("a slow completed response should be degraded, got %s", res.Status)
+	}
+	if !strings.Contains(res.Message, "slow response") {
+		t.Fatalf("degraded response should retain a latency message, got %q", res.Message)
+	}
+}
+
 func TestRunCheckForModel_OpenAIResponsesReplaceMissingInstructionsFailsLocally(t *testing.T) {
 	h := &openAICaptureHandler{}
 	endpoint := setupFakeOpenAI(t, h)
@@ -355,7 +377,7 @@ func TestRunCheckForModel_OpenAIResponsesReplaceMissingInstructionsFailsLocally(
 	}
 }
 
-func TestRunCheckForModel_MergeMode_UserFieldsWinButDenyListProtects(t *testing.T) {
+func TestRunCheckForModel_MergeMode_UserFieldsWinButInternalMarkersAndDenyListProtect(t *testing.T) {
 	h := &captureHandler{respondText: "the answer is 42"}
 	endpoint := setupFakeAnthropic(t, h)
 
@@ -391,9 +413,12 @@ func TestRunCheckForModel_MergeMode_UserFieldsWinButDenyListProtects(t *testing.
 	if len(msgs) == 0 {
 		t.Error("messages should be protected by deny list (kept default, non-empty)")
 	}
-	// header 合并
-	if h.lastHeaders.Get("User-Agent") != "claude-cli/1.0" {
-		t.Errorf("extra User-Agent should override, got %q", h.lastHeaders.Get("User-Agent"))
+	// 普通自定义 header 保持用户优先，但内部探针标记不可被模板覆盖。
+	if h.lastHeaders.Get("User-Agent") != "claude-cli/1.0 "+channelMonitorProbeUserAgent {
+		t.Errorf("monitor User-Agent should preserve the custom product and append its marker, got %q", h.lastHeaders.Get("User-Agent"))
+	}
+	if h.lastHeaders.Get(ChannelMonitorProbeHeader) != ChannelMonitorProbeHeaderValue {
+		t.Errorf("monitor marker should be present, got %q", h.lastHeaders.Get(ChannelMonitorProbeHeader))
 	}
 	if h.lastHeaders.Get("x-custom") != "ok" {
 		t.Errorf("extra custom header should be present, got %q", h.lastHeaders.Get("x-custom"))

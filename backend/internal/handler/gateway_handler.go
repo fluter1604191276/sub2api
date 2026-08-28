@@ -197,6 +197,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
+	pricingCtx = withSmartSchedulerRequestContext(c, pricingCtx, "messages")
 	c.Request = c.Request.WithContext(pricingCtx)
 
 	// 验证 model 必填

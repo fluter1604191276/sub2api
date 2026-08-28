@@ -738,6 +738,7 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	smartScheduler        smartSchedulerCandidateOrderer
 }
 
 // NewGatewayService creates a new GatewayService
@@ -807,6 +808,7 @@ func NewGatewayService(
 		compositeResolver:     compositeResolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		smartScheduler:        NewSmartSchedulerPreviewService(nil, NewDashboardService(usageLogRepo, nil, nil, cfg), concurrencyService),
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,

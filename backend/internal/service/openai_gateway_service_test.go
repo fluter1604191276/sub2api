@@ -1517,6 +1517,50 @@ func TestOpenAIStreamingPostOutputDisconnectQuarantinesSharedProxyWithoutSameStr
 	require.Equal(t, "proxy_stream_quarantined", reason)
 }
 
+func TestOpenAIStreamingPostOutputOverloadClearsStickyAndCoolsOnlyFailingAccountModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(81011)
+	account := &Account{ID: 469811, Name: "overloaded", Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	currentHash, legacyHash := deriveOpenAISessionHashes("session-overloaded")
+	cache := &stubGatewayCache{sessionBindings: map[string]int64{
+		"openai:" + currentHash: account.ID,
+		"openai:" + legacyHash:  account.ID,
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:                  &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		cache:                cache,
+		openaiModelTransient: newOpenAIAccountModelTransientState(128),
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set("session_id", "session-overloaded")
+	c.Set("api_key", &APIKey{GroupID: &groupID})
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			"event: response.output_text.delta",
+			`data: {"type":"response.output_text.delta","delta":"partial"}`,
+			"",
+			"event: response.failed",
+			`data: {"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded."}}}`,
+			"",
+		}, "\n"))),
+		Header: http.Header{"X-Request-Id": []string{"rid-overloaded"}},
+	}
+
+	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.False(t, errors.As(err, &failoverErr), "a committed stream must never splice a second upstream response")
+	require.Contains(t, rec.Body.String(), "partial")
+	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-terra"))
+	require.Equal(t, 1, cache.deletedSessions["openai:"+currentHash])
+	require.Equal(t, 1, cache.deletedSessions["openai:"+legacyHash])
+}
+
 func TestOpenAIStreamingTerminalAndClientCancellationDoNotQuarantineProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	proxyID := int64(4699)

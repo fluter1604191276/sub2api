@@ -385,6 +385,26 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	if err := ValidateProfitControlConfig(platform, profitControlEnabled, profitMinMargin, profitSafetyBuffer); err != nil {
 		return nil, err
 	}
+	recoveryProbeConfig, err := NormalizeGroupRecoveryProbeConfig(GroupRecoveryProbeConfig{
+		Enabled:              input.RecoveryProbeEnabled,
+		Mode:                 input.RecoveryProbeMode,
+		Model:                input.RecoveryProbeModel,
+		IntervalSeconds:      input.RecoveryProbeIntervalSeconds,
+		AttemptsPerRound:     input.RecoveryProbeAttemptsPerRound,
+		IdleThresholdSeconds: input.RecoveryProbeIdleThresholdSeconds,
+		BackoffCapSeconds:    input.RecoveryProbeBackoffCapSeconds,
+	})
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_RECOVERY_PROBE_CONFIG", "%v", err)
+	}
+	poolModeRetryCount, poolModeRetryStatusCodes, customErrorCodes, err := NormalizeGroupPoolErrorPolicy(
+		input.PoolModeRetryCount,
+		input.PoolModeRetryStatusCodes,
+		input.CustomErrorCodes,
+	)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_GROUP_POOL_ERROR_POLICY", "%v", err)
+	}
 
 	// 校验降级分组
 	if input.FallbackGroupID != nil {
@@ -470,6 +490,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ProfitControlEnabled:            profitControlEnabled,
 		ProfitMinMargin:                 profitMinMargin,
 		ProfitSafetyBuffer:              profitSafetyBuffer,
+		SmartSchedulerEnabled:           input.SmartSchedulerEnabled,
 		ImagePrice1K:                    imagePrice1K,
 		ImagePrice2K:                    imagePrice2K,
 		ImagePrice4K:                    imagePrice4K,
@@ -493,7 +514,13 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
+		PoolModeEnabled:                 input.PoolModeEnabled,
+		PoolModeRetryCount:              poolModeRetryCount,
+		PoolModeRetryStatusCodes:        poolModeRetryStatusCodes,
+		CustomErrorCodesEnabled:         input.CustomErrorCodesEnabled,
+		CustomErrorCodes:                customErrorCodes,
 	}
+	group.ApplyRecoveryProbeConfig(recoveryProbeConfig)
 	sanitizeGroupMessagesDispatchFields(group)
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
@@ -730,6 +757,76 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ProfitSafetyBuffer != nil {
 		group.ProfitSafetyBuffer = *input.ProfitSafetyBuffer
+	}
+	if input.SmartSchedulerEnabled != nil {
+		group.SmartSchedulerEnabled = *input.SmartSchedulerEnabled
+	}
+	if input.PoolModeEnabled != nil {
+		group.PoolModeEnabled = input.PoolModeEnabled
+	} else if input.PoolModeEnabledClear {
+		group.PoolModeEnabled = nil
+	}
+	if input.PoolModeRetryCount != nil || input.PoolModeRetryStatusCodes != nil || input.CustomErrorCodes != nil ||
+		input.PoolModeRetryCountClear || input.PoolModeRetryStatusCodesClear || input.CustomErrorCodesClear {
+		poolModeRetryCount, poolModeRetryStatusCodes, customErrorCodes, policyErr := NormalizeGroupPoolErrorPolicy(
+			input.PoolModeRetryCount,
+			input.PoolModeRetryStatusCodes,
+			input.CustomErrorCodes,
+		)
+		if policyErr != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_GROUP_POOL_ERROR_POLICY", "%v", policyErr)
+		}
+		if input.PoolModeRetryCount != nil {
+			group.PoolModeRetryCount = poolModeRetryCount
+		} else if input.PoolModeRetryCountClear {
+			group.PoolModeRetryCount = nil
+		}
+		if input.PoolModeRetryStatusCodes != nil {
+			group.PoolModeRetryStatusCodes = poolModeRetryStatusCodes
+		} else if input.PoolModeRetryStatusCodesClear {
+			group.PoolModeRetryStatusCodes = nil
+		}
+		if input.CustomErrorCodes != nil {
+			group.CustomErrorCodes = customErrorCodes
+		} else if input.CustomErrorCodesClear {
+			group.CustomErrorCodes = nil
+		}
+	}
+	if input.CustomErrorCodesEnabled != nil {
+		group.CustomErrorCodesEnabled = input.CustomErrorCodesEnabled
+	} else if input.CustomErrorCodesEnabledClear {
+		group.CustomErrorCodesEnabled = nil
+	}
+	if input.RecoveryProbeEnabled != nil || input.RecoveryProbeMode != nil || input.RecoveryProbeModel != nil ||
+		input.RecoveryProbeIntervalSeconds != nil || input.RecoveryProbeAttemptsPerRound != nil ||
+		input.RecoveryProbeIdleThresholdSeconds != nil || input.RecoveryProbeBackoffCapSeconds != nil {
+		recoveryProbeConfig := group.RecoveryProbeConfig()
+		if input.RecoveryProbeEnabled != nil {
+			recoveryProbeConfig.Enabled = *input.RecoveryProbeEnabled
+		}
+		if input.RecoveryProbeMode != nil {
+			recoveryProbeConfig.Mode = *input.RecoveryProbeMode
+		}
+		if input.RecoveryProbeModel != nil {
+			recoveryProbeConfig.Model = *input.RecoveryProbeModel
+		}
+		if input.RecoveryProbeIntervalSeconds != nil {
+			recoveryProbeConfig.IntervalSeconds = *input.RecoveryProbeIntervalSeconds
+		}
+		if input.RecoveryProbeAttemptsPerRound != nil {
+			recoveryProbeConfig.AttemptsPerRound = *input.RecoveryProbeAttemptsPerRound
+		}
+		if input.RecoveryProbeIdleThresholdSeconds != nil {
+			recoveryProbeConfig.IdleThresholdSeconds = *input.RecoveryProbeIdleThresholdSeconds
+		}
+		if input.RecoveryProbeBackoffCapSeconds != nil {
+			recoveryProbeConfig.BackoffCapSeconds = *input.RecoveryProbeBackoffCapSeconds
+		}
+		recoveryProbeConfig, err = NormalizeGroupRecoveryProbeConfig(recoveryProbeConfig)
+		if err != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_RECOVERY_PROBE_CONFIG", "%v", err)
+		}
+		group.ApplyRecoveryProbeConfig(recoveryProbeConfig)
 	}
 	// 利润控制与高峰同一收口：按合并后的最终平台归一化（转到不支持平台时静默重置），
 	// 再对合并后的最终配置统一校验，防止部分字段更新拼出非法组合入库。

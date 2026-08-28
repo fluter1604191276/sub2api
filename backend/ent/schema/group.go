@@ -248,7 +248,56 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(0).
 			Comment("安全缓冲，小数；与 margin 相加后从下游倍率中扣除，默认 0"),
-	}
+		field.Bool("smart_scheduler_enabled").
+			Default(false).
+			Comment("是否允许智能调度接管本分组的账号候选排序；默认关闭"),
+		field.Bool("recovery_probe_enabled").
+			Default(false).
+			Comment("是否对本分组中一小时无真实使用记录的账号执行恢复探针；默认关闭"),
+		field.String("recovery_probe_mode").
+			MaxLen(16).
+			Default("smart").
+			Comment("恢复探针模式：manual 固定间隔，smart 按连续失败次数退避"),
+		field.String("recovery_probe_model").
+			MaxLen(200).
+			Default("").
+			Comment("恢复探针使用的分组公开模型 ID"),
+		field.Int("recovery_probe_interval_seconds").
+			Default(900).
+			Comment("手动模式固定间隔及成功后的复检间隔，单位秒"),
+		field.Int("recovery_probe_attempts_per_round").
+			Default(1).
+			Comment("每轮恢复探针测试次数，范围 1-5"),
+		field.Int("recovery_probe_idle_threshold_seconds").
+			Default(3600).
+			Comment("账号无真实使用记录多久后进入探针候选；当前固定为一小时"),
+		field.Int("recovery_probe_backoff_cap_seconds").
+			Default(1800).
+			Comment("智能模式瞬时失败退避上限，单位秒"),
+
+		// API Key/Bedrock 池模式与错误码策略。NULL 表示跟随账号显式配置，
+		// 账号也未配置时再使用系统默认；空数组是有意的显式清空。
+		field.Bool("pool_mode_enabled").
+			Optional().
+			Nillable().
+			Comment("分组级池模式开关；NULL 表示跟随账号"),
+		field.Int("pool_mode_retry_count").
+			Optional().
+			Nillable().
+			Comment("分组级同账号重试次数；NULL 表示跟随账号"),
+		field.JSON("pool_mode_retry_status_codes", (*[]int)(nil)).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组级池模式同账号重试状态码；NULL 表示跟随账号，空数组表示清空"),
+		field.Bool("custom_error_codes_enabled").
+			Optional().
+			Nillable().
+			Comment("分组级自定义错误码开关；NULL 表示跟随账号"),
+		field.JSON("custom_error_codes", (*[]int)(nil)).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组级自定义错误码；NULL 表示跟随账号，空数组表示清空"),
+		}
 }
 
 func (Group) Edges() []ent.Edge {

@@ -86,6 +86,12 @@ export default {
       allTypes: '全部类型',
       allStatus: '全部状态',
       allGroups: '全部分组',
+      allModels: '全部模型',
+      syncAllModels: '同步所有账号模型',
+      syncingAllModels: '正在同步账号模型...',
+      syncAllModelsSuccess: '模型同步完成：成功 {success}，不支持 {unsupported}',
+      syncAllModelsPartial: '模型同步完成：成功 {success}，失败 {failed}，不支持 {unsupported}',
+      syncAllModelsFailed: '同步账号模型失败',
       ungroupedGroup: '未分配分组',
       oauthType: 'OAuth',
       // Schedulable toggle
@@ -111,6 +117,8 @@ export default {
         status: '状态',
         schedulable: '调度',
         todayStats: '今日统计',
+        cacheHitRate: '24h缓存命中率',
+        unifiedQuality: '综合评分',
         realtimeQualityStats: '1h质量',
         qualityStats: '24h质量',
         groups: '分组',
@@ -138,6 +146,17 @@ export default {
         ttftOnly: '仅按首字评分',
         hint: '基于最近 24 小时真实成功流式流水，分别取最新 10 次和 100 次。评分 v2 按本站历史流水分布使用分段线性曲线：首字权重 85%，总耗时权重 15%；首字样本少于 3 条时仅按总耗时评分且最高 69 分。S+/S/S-/A+/A/A-/B+/B/B-/C 与百分制同时展示，仅供人工调度参考，不会自动改变账号优先级。',
         realtimeHint: '仅统计最近 1 小时的流式请求。参与状态结合成功与失败次数判断；“未参与”表示该账号最近 1 小时没有真实流量，不代表账号已故障。1 小时没有成功请求时，24 小时历史评分会弱化为灰色基线，方便区分当前活跃质量与历史表现。',
+        unified: {
+          hint: '账号级综合评分跨分组合并统计，避免同一账号因加入多个分组而出现多套互相矛盾的总览分。优先融合最近 1 小时实时质量与 24 小时稳定基线；样本不足时降低置信度。该列用于人工总览，智能调度仍按具体模型、端点和候选池评分。',
+          confidence: '{percent}%置信',
+          title: '{grade} 级 / {score} 分，{source}，置信度 {confidence}%，有效样本 {count} 条，首字样本 {firstCount} 条',
+          sources: {
+            realtime_blend: '实时+基线',
+            realtime_only: '仅实时',
+            historical: '24h基线',
+            unscored: '待评分'
+          }
+        },
         activity: {
           active: '活跃',
           low_sample: '样本少',
@@ -154,6 +173,7 @@ export default {
         }
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
+      cacheHitRateTooltip: '近24小时 {requests} 次请求 · 未缓存 {input} · 创建缓存 {creation} · 读取缓存 {read}',
       ollamaCloud: {
         title: 'Ollama Cloud 用量',
         sessionSecurityHint: '浏览器会话会加密落库，且只发送到固定的 Ollama 官方设置页。',

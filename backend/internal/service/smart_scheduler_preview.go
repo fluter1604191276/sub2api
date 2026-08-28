@@ -4,33 +4,47 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
-const SmartSchedulerPreviewAlgorithmVersion = "preview-v2"
+const SmartSchedulerPreviewAlgorithmVersion = "preview-v5"
+
+const smartSchedulerOrderingCacheTTL = 15 * time.Second
 
 const (
-	smartSchedulerRecentWeight      = 0.45
-	smartSchedulerStableWeight      = 0.20
-	smartSchedulerErrorWeight       = 0.15
-	smartSchedulerCostWeight        = 0.15
-	smartSchedulerLoadWeight        = 0.05
-	smartSchedulerRecentLast10      = 0.70
-	smartSchedulerRecentLast100     = 0.30
-	smartSchedulerStableLast10      = 0.30
-	smartSchedulerStableLast100     = 0.70
-	smartSchedulerRobustMedian      = 0.70
-	smartSchedulerRobustTail        = 0.30
-	smartSchedulerTTFTWeight        = 0.90
-	smartSchedulerGenerationWeight  = 0.10
-	smartSchedulerRecentErrorWeight = 0.60
-	smartSchedulerStableErrorWeight = 0.40
-	smartSchedulerExplorationBase   = 0.05
-	smartSchedulerExplorationMax    = 0.10
+	smartSchedulerRecentWeight                  = 0.45
+	smartSchedulerStableWeight                  = 0.20
+	smartSchedulerErrorWeight                   = 0.15
+	smartSchedulerCostWeight                    = 0.15
+	smartSchedulerLoadWeight                    = 0.05
+	smartSchedulerRecentLast10                  = 0.70
+	smartSchedulerRecentLast100                 = 0.30
+	smartSchedulerStableLast10                  = 0.30
+	smartSchedulerStableLast100                 = 0.70
+	smartSchedulerRobustMedian                  = 0.70
+	smartSchedulerRobustTail                    = 0.30
+	smartSchedulerTTFTWeight                    = 0.90
+	smartSchedulerGenerationWeight              = 0.10
+	smartSchedulerRecentErrorWeight             = 0.60
+	smartSchedulerStableErrorWeight             = 0.40
+	smartSchedulerExplorationBase               = 0.05
+	smartSchedulerExplorationMax                = 0.10
+	smartSchedulerProbeBootstrapExplorationRate = 0.20
+	smartSchedulerProbeBootstrapConfidence      = 0.30
+	smartSchedulerProbeBootstrapScoreMin        = 35.0
+	smartSchedulerProbeBootstrapScoreMax        = 79.0
+	smartSchedulerProbeBootstrapQualityWeight   = 0.80
+	smartSchedulerProbeBootstrapCostWeight      = 0.20
+	smartSchedulerCostTolerance                 = 3.0
+	smartSchedulerHysteresisLead                = 4.0
+	smartSchedulerImmediateFailures             = 3
 )
 
 const (
@@ -56,17 +70,21 @@ var smartSchedulerGenerationCurve = []accountQualityCurvePoint{
 }
 
 type SmartSchedulerErrorStats struct {
-	SuccessfulRequestCount        int64 `json:"successful_request_count"`
-	ProviderFailureCount          int64 `json:"provider_failure_count"`
-	ProviderTransientFailureCount int64 `json:"provider_transient_failure_count"`
-	RateLimitCount                int64 `json:"rate_limit_count"`
-	ClientExcludedCount           int64 `json:"client_excluded_count"`
-	PlatformFailureCount          int64 `json:"platform_failure_count"`
-	UncertainFailureCount         int64 `json:"uncertain_failure_count"`
-	RecentProviderFailureCount    int64 `json:"recent_provider_failure_count"`
-	RecentProviderTransientCount  int64 `json:"recent_provider_transient_count"`
-	RecentRateLimitCount          int64 `json:"recent_rate_limit_count"`
-	RecentUncertainFailureCount   int64 `json:"recent_uncertain_failure_count"`
+	SuccessfulRequestCount          int64 `json:"successful_request_count"`
+	ProviderFailureCount            int64 `json:"provider_failure_count"`
+	ProviderTransientFailureCount   int64 `json:"provider_transient_failure_count"`
+	RateLimitCount                  int64 `json:"rate_limit_count"`
+	ClientExcludedCount             int64 `json:"client_excluded_count"`
+	PlatformFailureCount            int64 `json:"platform_failure_count"`
+	UncertainFailureCount           int64 `json:"uncertain_failure_count"`
+	RecentProviderFailureCount      int64 `json:"recent_provider_failure_count"`
+	RecentProviderTransientCount    int64 `json:"recent_provider_transient_count"`
+	RecentRateLimitCount            int64 `json:"recent_rate_limit_count"`
+	RecentUncertainFailureCount     int64 `json:"recent_uncertain_failure_count"`
+	ImmediateProviderFailureCount   int64 `json:"immediate_provider_failure_count"`
+	ImmediateProviderTransientCount int64 `json:"immediate_provider_transient_count"`
+	ImmediateRateLimitCount         int64 `json:"immediate_rate_limit_count"`
+	ImmediateUncertainFailureCount  int64 `json:"immediate_uncertain_failure_count"`
 }
 
 type smartSchedulerQualityStatsReader interface {
@@ -75,6 +93,17 @@ type smartSchedulerQualityStatsReader interface {
 
 type smartSchedulerErrorStatsReader interface {
 	GetSmartSchedulerErrorStatsBatch(ctx context.Context, accountIDs []int64, startTime, endTime time.Time, requestedModel, endpoint string) (map[int64]SmartSchedulerErrorStats, error)
+}
+
+type smartSchedulerCapacityStatsReader interface {
+	GetSmartSchedulerCapacityLimitedCount(ctx context.Context, groupID int64, startTime, endTime time.Time, requestedModel, endpoint string) (int64, error)
+}
+
+type smartSchedulerStatsService interface {
+	GetSmartSchedulerQualityStatsBatch(ctx context.Context, accountIDs []int64, now time.Time, requestedModel, endpoint string) (map[int64]AccountQualityStats, error)
+	GetSmartSchedulerErrorStatsBatch(ctx context.Context, accountIDs []int64, now time.Time, requestedModel, endpoint string) (map[int64]SmartSchedulerErrorStats, error)
+	GetSmartSchedulerAccountCircuitStatsBatch(ctx context.Context, accountIDs []int64, now time.Time) (map[int64]SmartSchedulerErrorStats, error)
+	GetSmartSchedulerCapacityLimitedCount(ctx context.Context, groupID int64, now time.Time, requestedModel, endpoint string) (int64, error)
 }
 
 // GetSmartSchedulerErrorStatsBatch reads only classified streaming errors for
@@ -95,6 +124,36 @@ func (s *DashboardService) GetSmartSchedulerErrorStatsBatch(ctx context.Context,
 		return nil, fmt.Errorf("get smart scheduler error stats failed: %w", err)
 	}
 	return stats, nil
+}
+
+func (s *DashboardService) GetSmartSchedulerAccountCircuitStatsBatch(ctx context.Context, accountIDs []int64, now time.Time) (map[int64]SmartSchedulerErrorStats, error) {
+	result := make(map[int64]SmartSchedulerErrorStats, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return result, nil
+	}
+	reader, ok := s.usageRepo.(smartSchedulerErrorStatsReader)
+	if !ok {
+		return result, nil
+	}
+	end := now.UTC()
+	stats, err := reader.GetSmartSchedulerErrorStatsBatch(ctx, accountIDs, end.Add(-5*time.Minute), end, "", "any")
+	if err != nil {
+		return nil, fmt.Errorf("get smart scheduler account circuit stats failed: %w", err)
+	}
+	return stats, nil
+}
+
+func (s *DashboardService) GetSmartSchedulerCapacityLimitedCount(ctx context.Context, groupID int64, now time.Time, requestedModel, endpoint string) (int64, error) {
+	reader, ok := s.usageRepo.(smartSchedulerCapacityStatsReader)
+	if !ok {
+		return 0, nil
+	}
+	end := now.UTC()
+	count, err := reader.GetSmartSchedulerCapacityLimitedCount(ctx, groupID, end.Add(-time.Hour), end, requestedModel, smartSchedulerStoredEndpoint(endpoint))
+	if err != nil {
+		return 0, fmt.Errorf("get smart scheduler capacity stats failed: %w", err)
+	}
+	return count, nil
 }
 
 func (s *DashboardService) GetSmartSchedulerQualityStatsBatch(ctx context.Context, accountIDs []int64, now time.Time, requestedModel, endpoint string) (map[int64]AccountQualityStats, error) {
@@ -156,6 +215,7 @@ type SmartSchedulerPreview struct {
 	ExplorationRate         float64                     `json:"exploration_rate"`
 	ProductionControlActive bool                        `json:"production_control_active"`
 	LoadSnapshotAvailable   bool                        `json:"load_snapshot_available"`
+	CapacityLimitedCount1h  int64                       `json:"capacity_limited_count_1h"`
 	Warnings                []string                    `json:"warnings"`
 	Items                   []SmartSchedulerPreviewItem `json:"items"`
 }
@@ -166,43 +226,51 @@ type SmartSchedulerGroupSummary struct {
 }
 
 type SmartSchedulerPreviewItem struct {
-	Rank                          int                    `json:"rank"`
-	AccountID                     int64                  `json:"account_id"`
-	AccountName                   string                 `json:"account_name"`
-	Platform                      string                 `json:"platform"`
-	Priority                      *int                   `json:"priority,omitempty"`
-	Status                        string                 `json:"status"`
-	Schedulable                   bool                   `json:"schedulable"`
-	Pool                          string                 `json:"pool"`
-	Decision                      string                 `json:"decision"`
-	Reason                        string                 `json:"reason"`
-	Score                         *float64               `json:"score,omitempty"`
-	RawScore                      *float64               `json:"raw_score,omitempty"`
-	Confidence                    float64                `json:"confidence"`
-	ConfidenceLabel               string                 `json:"confidence_label"`
-	EvidenceScope                 string                 `json:"evidence_scope"`
-	EvidenceFallback              bool                   `json:"evidence_fallback"`
-	ExplorationCandidate          bool                   `json:"exploration_candidate"`
-	Quality1h                     AccountQualityPeriod   `json:"quality_1h"`
-	Quality24h                    AccountQualityPeriod   `json:"quality_24h"`
-	Activity                      AccountQualityActivity `json:"activity"`
-	ErrorSuccessfulRequestCount   int64                  `json:"error_successful_request_count"`
-	ProviderFailureCount          int64                  `json:"provider_failure_count"`
-	ProviderTransientFailureCount int64                  `json:"provider_transient_failure_count"`
-	RateLimitCount                int64                  `json:"rate_limit_count"`
-	ClientExcludedCount           int64                  `json:"client_excluded_count"`
-	PlatformFailureCount          int64                  `json:"platform_failure_count"`
-	UncertainFailureCount         int64                  `json:"uncertain_failure_count"`
-	RecentProviderFailureCount    int64                  `json:"recent_provider_failure_count"`
-	RecentProviderTransientCount  int64                  `json:"recent_provider_transient_count"`
-	RecentRateLimitCount          int64                  `json:"recent_rate_limit_count"`
-	RecentUncertainFailureCount   int64                  `json:"recent_uncertain_failure_count"`
-	CostMultiplier                float64                `json:"cost_multiplier"`
-	Load                          *SmartSchedulerLoad    `json:"load,omitempty"`
-	ModelSupported                bool                   `json:"model_supported"`
-	EndpointSupported             bool                   `json:"endpoint_supported"`
-	ModelMapping                  string                 `json:"model_mapping,omitempty"`
-	LastUsedAt                    *time.Time             `json:"last_used_at,omitempty"`
+	Rank                            int                      `json:"rank"`
+	AccountID                       int64                    `json:"account_id"`
+	AccountName                     string                   `json:"account_name"`
+	Platform                        string                   `json:"platform"`
+	Priority                        *int                     `json:"priority,omitempty"`
+	Status                          string                   `json:"status"`
+	Schedulable                     bool                     `json:"schedulable"`
+	Pool                            string                   `json:"pool"`
+	Decision                        string                   `json:"decision"`
+	Reason                          string                   `json:"reason"`
+	Score                           *float64                 `json:"score,omitempty"`
+	RawScore                        *float64                 `json:"raw_score,omitempty"`
+	Confidence                      float64                  `json:"confidence"`
+	ConfidenceLabel                 string                   `json:"confidence_label"`
+	EvidenceScope                   string                   `json:"evidence_scope"`
+	EvidenceFallback                bool                     `json:"evidence_fallback"`
+	ExplorationCandidate            bool                     `json:"exploration_candidate"`
+	ProbeBootstrap                  bool                     `json:"probe_bootstrap"`
+	Quality1h                       AccountQualityPeriod     `json:"quality_1h"`
+	Quality24h                      AccountQualityPeriod     `json:"quality_24h"`
+	Activity                        AccountQualityActivity   `json:"activity"`
+	ErrorSuccessfulRequestCount     int64                    `json:"error_successful_request_count"`
+	ProviderFailureCount            int64                    `json:"provider_failure_count"`
+	ProviderTransientFailureCount   int64                    `json:"provider_transient_failure_count"`
+	RateLimitCount                  int64                    `json:"rate_limit_count"`
+	ClientExcludedCount             int64                    `json:"client_excluded_count"`
+	PlatformFailureCount            int64                    `json:"platform_failure_count"`
+	UncertainFailureCount           int64                    `json:"uncertain_failure_count"`
+	RecentProviderFailureCount      int64                    `json:"recent_provider_failure_count"`
+	RecentProviderTransientCount    int64                    `json:"recent_provider_transient_count"`
+	RecentRateLimitCount            int64                    `json:"recent_rate_limit_count"`
+	RecentUncertainFailureCount     int64                    `json:"recent_uncertain_failure_count"`
+	ImmediateProviderFailureCount   int64                    `json:"immediate_provider_failure_count"`
+	ImmediateProviderTransientCount int64                    `json:"immediate_provider_transient_count"`
+	ImmediateRateLimitCount         int64                    `json:"immediate_rate_limit_count"`
+	ImmediateUncertainFailureCount  int64                    `json:"immediate_uncertain_failure_count"`
+	CostMultiplier                  float64                  `json:"cost_multiplier"`
+	Load                            *SmartSchedulerLoad      `json:"load,omitempty"`
+	ModelSupported                  bool                     `json:"model_supported"`
+	EndpointSupported               bool                     `json:"endpoint_supported"`
+	ModelMapping                    string                   `json:"model_mapping,omitempty"`
+	LastUsedAt                      *time.Time               `json:"last_used_at,omitempty"`
+	RecoveryProbe                   *GroupRecoveryProbeState `json:"recovery_probe,omitempty"`
+	SoftIsolation                   bool                     `json:"-"`
+	SoftIsolationFailureCount       int64                    `json:"-"`
 }
 
 type smartSchedulerQualityScope struct {
@@ -224,10 +292,61 @@ type SmartSchedulerLoad struct {
 	MaxConcurrency     int `json:"max_concurrency"`
 }
 
+type smartSchedulerAdminService interface {
+	GetGroup(ctx context.Context, id int64) (*Group, error)
+	ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
+}
+
 type SmartSchedulerPreviewService struct {
-	adminService     AdminService
-	dashboardService *DashboardService
+	adminService     smartSchedulerAdminService
+	dashboardService smartSchedulerStatsService
 	concurrency      *ConcurrencyService
+	recoveryProbe    GroupRecoveryProbeRepository
+	cacheMu          sync.Mutex
+	orderingCache    map[string]smartSchedulerOrderingCacheEntry
+	hysteresis       map[string]smartSchedulerHysteresisState
+	exploration      map[string]smartSchedulerExplorationState
+	randomFloat      func() float64
+}
+
+func (s *SmartSchedulerPreviewService) SetRecoveryProbeRepository(repo GroupRecoveryProbeRepository) {
+	if s != nil {
+		s.recoveryProbe = repo
+	}
+}
+
+func (s *SmartSchedulerPreviewService) InvalidateOrderingCache() {
+	if s == nil {
+		return
+	}
+	s.cacheMu.Lock()
+	s.orderingCache = make(map[string]smartSchedulerOrderingCacheEntry)
+	s.cacheMu.Unlock()
+}
+
+type SmartSchedulerOrdering struct {
+	Active            bool
+	AlgorithmVersion  string
+	RankByAccountID   map[int64]int
+	ItemByAccountID   map[int64]SmartSchedulerPreviewItem
+	Exploration       bool
+	ExplorationRate   float64
+	OrderedAccountIDs []int64
+}
+
+type smartSchedulerOrderingCacheEntry struct {
+	expiresAt time.Time
+	ordering  *SmartSchedulerOrdering
+}
+
+type smartSchedulerHysteresisState struct {
+	accountID int64
+	updatedAt time.Time
+}
+
+type smartSchedulerExplorationState struct {
+	accountID int64
+	updatedAt time.Time
 }
 
 func NewSmartSchedulerPreviewService(adminService AdminService, dashboardService *DashboardService, concurrency *ConcurrencyService) *SmartSchedulerPreviewService {
@@ -235,7 +354,352 @@ func NewSmartSchedulerPreviewService(adminService AdminService, dashboardService
 		adminService:     adminService,
 		dashboardService: dashboardService,
 		concurrency:      concurrency,
+		orderingCache:    make(map[string]smartSchedulerOrderingCacheEntry),
+		hysteresis:       make(map[string]smartSchedulerHysteresisState),
+		exploration:      make(map[string]smartSchedulerExplorationState),
+		randomFloat:      rand.Float64,
 	}
+}
+
+// OrderCandidates ranks only the candidates that already passed the gateway's
+// existing admission checks. A disabled group never reads statistics, while a
+// statistics error is returned so the caller can preserve legacy scheduling.
+func (s *SmartSchedulerPreviewService) OrderCandidates(
+	ctx context.Context,
+	group *Group,
+	requestedModel string,
+	endpoint string,
+	accounts []*Account,
+	now time.Time,
+) (*SmartSchedulerOrdering, error) {
+	if group == nil || !group.SmartSchedulerEnabled {
+		return &SmartSchedulerOrdering{Active: false}, nil
+	}
+	if s == nil || s.dashboardService == nil {
+		return nil, fmt.Errorf("smart scheduler statistics service is unavailable")
+	}
+
+	requestedModel = strings.TrimSpace(requestedModel)
+	endpoint = normalizeSmartSchedulerEndpoint(endpoint)
+	cacheKey := smartSchedulerOrderingCacheKey(group.ID, requestedModel, endpoint, accounts)
+	if cached := s.loadCachedOrdering(cacheKey, now); cached != nil {
+		if smartSchedulerStableOrderingRequested(ctx) {
+			return cached, nil
+		}
+		return s.applySmartSchedulerExploration(cached, cacheKey, now), nil
+	}
+
+	accountIDs := make([]int64, 0, len(accounts))
+	loadRequests := make([]AccountWithConcurrency, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		accountIDs = append(accountIDs, account.ID)
+		loadRequests = append(loadRequests, AccountWithConcurrency{ID: account.ID, MaxConcurrency: account.EffectiveLoadFactor()})
+	}
+	if len(accountIDs) == 0 {
+		ordering := &SmartSchedulerOrdering{
+			Active:            true,
+			AlgorithmVersion:  SmartSchedulerPreviewAlgorithmVersion,
+			RankByAccountID:   map[int64]int{},
+			ItemByAccountID:   map[int64]SmartSchedulerPreviewItem{},
+			OrderedAccountIDs: []int64{},
+		}
+		s.storeCachedOrdering(cacheKey, ordering, now)
+		return cloneSmartSchedulerOrdering(ordering), nil
+	}
+
+	qualityScopes := smartSchedulerQualityScopes(requestedModel, endpoint)
+	scopedQuality := make([]smartSchedulerScopedQuality, 0, len(qualityScopes))
+	for _, scope := range qualityScopes {
+		quality, err := s.dashboardService.GetSmartSchedulerQualityStatsBatch(ctx, accountIDs, now, scope.RequestedModel, scope.Endpoint)
+		if err != nil {
+			return nil, err
+		}
+		scopedQuality = append(scopedQuality, smartSchedulerScopedQuality{Scope: scope, Stats: quality})
+	}
+	exactScope := qualityScopes[0]
+	errorStats, err := s.dashboardService.GetSmartSchedulerErrorStatsBatch(ctx, accountIDs, now, exactScope.RequestedModel, exactScope.Endpoint)
+	if err != nil {
+		return nil, err
+	}
+	accountErrorStats := errorStats
+	if exactScope.RequestedModel != "" || exactScope.Endpoint != "any" {
+		accountErrorStats, err = s.dashboardService.GetSmartSchedulerAccountCircuitStatsBatch(ctx, accountIDs, now)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	loads := make(map[int64]*AccountLoadInfo)
+	if s.concurrency != nil && len(loadRequests) > 0 {
+		if snapshot, loadErr := s.concurrency.GetAccountsLoadBatch(ctx, loadRequests); loadErr == nil {
+			loads = snapshot
+		}
+	}
+	recoveryProbeStates := make(map[int64]GroupRecoveryProbeState)
+	if probeModel, ok := smartSchedulerRecoveryProbeModel(group); ok && s.recoveryProbe != nil {
+		states, stateErr := s.recoveryProbe.ListStates(ctx, group.ID, accountIDs, probeModel)
+		if stateErr != nil {
+			logger.LegacyPrintf("service.smart_scheduler", "[SmartScheduler] recovery probe state load failed: group=%d model=%s err=%v", group.ID, probeModel, stateErr)
+		} else {
+			recoveryProbeStates = states
+		}
+	}
+
+	items := make([]SmartSchedulerPreviewItem, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		quality, evidenceScope, evidenceFallback := selectSmartSchedulerQualityEvidence(account.ID, scopedQuality)
+		item := buildSmartSchedulerPreviewItem(account, group, requestedModel, endpoint, quality, errorStats[account.ID], loads[account.ID])
+		item.EvidenceScope = evidenceScope
+		item.EvidenceFallback = evidenceFallback
+		applySmartSchedulerEvidencePolicy(&item)
+		applySmartSchedulerAccountCircuitBreaker(&item, accountErrorStats[account.ID])
+		if state, ok := recoveryProbeStates[account.ID]; ok {
+			applyGroupRecoveryProbeStateToSchedulerItem(&item, &state)
+		}
+		items = append(items, item)
+	}
+	for i := range items {
+		items[i].RawScore = smartSchedulerScore(items[i], items)
+		items[i].Confidence = smartSchedulerConfidence(items[i])
+		items[i].ConfidenceLabel = smartSchedulerConfidenceLabel(items[i].Confidence)
+	}
+	applySmartSchedulerConfidenceAdjustment(items)
+	explorationRate := applySmartSchedulerExplorationPreview(items)
+	sortSmartSchedulerItems(items)
+	s.applySmartSchedulerHysteresis(cacheKey, items, now)
+
+	ordering := &SmartSchedulerOrdering{
+		Active:            true,
+		AlgorithmVersion:  SmartSchedulerPreviewAlgorithmVersion,
+		RankByAccountID:   make(map[int64]int, len(items)),
+		ItemByAccountID:   make(map[int64]SmartSchedulerPreviewItem, len(items)),
+		ExplorationRate:   explorationRate,
+		OrderedAccountIDs: make([]int64, 0, len(items)),
+	}
+	for _, item := range items {
+		ordering.ItemByAccountID[item.AccountID] = item
+		if item.Pool == "isolated" {
+			continue
+		}
+		rank := len(ordering.OrderedAccountIDs) + 1
+		ordering.RankByAccountID[item.AccountID] = rank
+		ordering.OrderedAccountIDs = append(ordering.OrderedAccountIDs, item.AccountID)
+	}
+	s.storeCachedOrdering(cacheKey, ordering, now)
+	if smartSchedulerStableOrderingRequested(ctx) {
+		return cloneSmartSchedulerOrdering(ordering), nil
+	}
+	return s.applySmartSchedulerExploration(cloneSmartSchedulerOrdering(ordering), cacheKey, now), nil
+}
+
+func (s *SmartSchedulerPreviewService) applySmartSchedulerExploration(ordering *SmartSchedulerOrdering, key string, now time.Time) *SmartSchedulerOrdering {
+	if ordering == nil || !ordering.Active || ordering.ExplorationRate <= 0 || s.smartSchedulerRandomFloat() >= ordering.ExplorationRate {
+		return ordering
+	}
+	candidates := make([]int64, 0, len(ordering.OrderedAccountIDs))
+	bootstrapCandidates := make([]int64, 0, len(ordering.OrderedAccountIDs))
+	for _, accountID := range ordering.OrderedAccountIDs {
+		item := ordering.ItemByAccountID[accountID]
+		if item.Pool == "warm" && item.ExplorationCandidate {
+			candidates = append(candidates, accountID)
+			if item.ProbeBootstrap {
+				bootstrapCandidates = append(bootstrapCandidates, accountID)
+			}
+		}
+	}
+	if len(bootstrapCandidates) > 0 {
+		candidates = bootstrapCandidates
+	}
+	if len(candidates) == 0 {
+		return ordering
+	}
+
+	s.cacheMu.Lock()
+	if s.exploration == nil {
+		s.exploration = make(map[string]smartSchedulerExplorationState)
+	}
+	selected := candidates[0]
+	if previous, ok := s.exploration[key]; ok {
+		for i, accountID := range candidates {
+			if accountID == previous.accountID {
+				selected = candidates[(i+1)%len(candidates)]
+				break
+			}
+		}
+	}
+	s.exploration[key] = smartSchedulerExplorationState{accountID: selected, updatedAt: now}
+	s.pruneSmartSchedulerStateLocked(now)
+	s.cacheMu.Unlock()
+
+	selectedIndex := -1
+	for i, accountID := range ordering.OrderedAccountIDs {
+		if accountID == selected {
+			selectedIndex = i
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		return ordering
+	}
+	copy(ordering.OrderedAccountIDs[1:selectedIndex+1], ordering.OrderedAccountIDs[0:selectedIndex])
+	ordering.OrderedAccountIDs[0] = selected
+	ordering.RankByAccountID = make(map[int64]int, len(ordering.OrderedAccountIDs))
+	for index, orderedID := range ordering.OrderedAccountIDs {
+		ordering.RankByAccountID[orderedID] = index + 1
+	}
+	ordering.Exploration = true
+	return ordering
+}
+
+func (s *SmartSchedulerPreviewService) applySmartSchedulerHysteresis(key string, items []SmartSchedulerPreviewItem, now time.Time) {
+	if len(items) == 0 {
+		return
+	}
+	challenger := items[0]
+	if challenger.Pool != "primary" || challenger.Score == nil {
+		return
+	}
+
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.hysteresis == nil {
+		s.hysteresis = make(map[string]smartSchedulerHysteresisState)
+	}
+	state, ok := s.hysteresis[key]
+	if !ok {
+		s.hysteresis[key] = smartSchedulerHysteresisState{accountID: challenger.AccountID, updatedAt: now}
+		s.pruneSmartSchedulerStateLocked(now)
+		return
+	}
+	incumbentIndex := -1
+	for i := range items {
+		if items[i].AccountID == state.accountID && items[i].Pool == "primary" && items[i].Score != nil {
+			incumbentIndex = i
+			break
+		}
+	}
+	if incumbentIndex < 0 {
+		s.hysteresis[key] = smartSchedulerHysteresisState{accountID: challenger.AccountID, updatedAt: now}
+		return
+	}
+	incumbent := items[incumbentIndex]
+	if challenger.AccountID != incumbent.AccountID && *challenger.Score-*incumbent.Score < smartSchedulerHysteresisLead {
+		copy(items[1:incumbentIndex+1], items[0:incumbentIndex])
+		items[0] = incumbent
+		state.updatedAt = now
+		s.hysteresis[key] = state
+		return
+	}
+	s.hysteresis[key] = smartSchedulerHysteresisState{accountID: challenger.AccountID, updatedAt: now}
+}
+
+func (s *SmartSchedulerPreviewService) pruneSmartSchedulerStateLocked(now time.Time) {
+	const stateTTL = 24 * time.Hour
+	if len(s.hysteresis) > 512 {
+		for key, state := range s.hysteresis {
+			if now.Sub(state.updatedAt) >= stateTTL {
+				delete(s.hysteresis, key)
+			}
+		}
+		for key := range s.hysteresis {
+			if len(s.hysteresis) <= 512 {
+				break
+			}
+			delete(s.hysteresis, key)
+		}
+	}
+	if len(s.exploration) > 512 {
+		for key, state := range s.exploration {
+			if now.Sub(state.updatedAt) >= stateTTL {
+				delete(s.exploration, key)
+			}
+		}
+		for key := range s.exploration {
+			if len(s.exploration) <= 512 {
+				break
+			}
+			delete(s.exploration, key)
+		}
+	}
+}
+
+func (s *SmartSchedulerPreviewService) smartSchedulerRandomFloat() float64 {
+	if s.randomFloat != nil {
+		return s.randomFloat()
+	}
+	return rand.Float64()
+}
+
+func smartSchedulerOrderingCacheKey(groupID int64, requestedModel, endpoint string, accounts []*Account) string {
+	accountIDs := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			accountIDs = append(accountIDs, account.ID)
+		}
+	}
+	sort.Slice(accountIDs, func(i, j int) bool { return accountIDs[i] < accountIDs[j] })
+	return fmt.Sprintf("%d|%s|%s|%v", groupID, strings.ToLower(requestedModel), endpoint, accountIDs)
+}
+
+func (s *SmartSchedulerPreviewService) loadCachedOrdering(key string, now time.Time) *SmartSchedulerOrdering {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	entry, ok := s.orderingCache[key]
+	if !ok || !now.Before(entry.expiresAt) {
+		if ok {
+			delete(s.orderingCache, key)
+		}
+		return nil
+	}
+	return cloneSmartSchedulerOrdering(entry.ordering)
+}
+
+func (s *SmartSchedulerPreviewService) storeCachedOrdering(key string, ordering *SmartSchedulerOrdering, now time.Time) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	if s.orderingCache == nil {
+		s.orderingCache = make(map[string]smartSchedulerOrderingCacheEntry)
+	}
+	if len(s.orderingCache) >= 512 {
+		for cachedKey, entry := range s.orderingCache {
+			if !now.Before(entry.expiresAt) {
+				delete(s.orderingCache, cachedKey)
+			}
+		}
+		for cachedKey := range s.orderingCache {
+			if len(s.orderingCache) < 512 {
+				break
+			}
+			delete(s.orderingCache, cachedKey)
+		}
+	}
+	s.orderingCache[key] = smartSchedulerOrderingCacheEntry{
+		expiresAt: now.Add(smartSchedulerOrderingCacheTTL),
+		ordering:  cloneSmartSchedulerOrdering(ordering),
+	}
+}
+
+func cloneSmartSchedulerOrdering(ordering *SmartSchedulerOrdering) *SmartSchedulerOrdering {
+	if ordering == nil {
+		return nil
+	}
+	cloned := *ordering
+	cloned.RankByAccountID = make(map[int64]int, len(ordering.RankByAccountID))
+	for accountID, rank := range ordering.RankByAccountID {
+		cloned.RankByAccountID[accountID] = rank
+	}
+	cloned.ItemByAccountID = make(map[int64]SmartSchedulerPreviewItem, len(ordering.ItemByAccountID))
+	for accountID, item := range ordering.ItemByAccountID {
+		cloned.ItemByAccountID[accountID] = item
+	}
+	cloned.OrderedAccountIDs = append([]int64(nil), ordering.OrderedAccountIDs...)
+	return &cloned
 }
 
 func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int64, requestedModel, endpoint string, now time.Time) (*SmartSchedulerPreview, error) {
@@ -274,9 +738,22 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		}
 	}
 	errors := make(map[int64]SmartSchedulerErrorStats, len(accounts))
+	accountErrors := make(map[int64]SmartSchedulerErrorStats, len(accounts))
+	capacityLimitedCount := int64(0)
 	if s.dashboardService != nil {
 		exactScope := qualityScopes[0]
 		errors, err = s.dashboardService.GetSmartSchedulerErrorStatsBatch(ctx, accountIDs, now, exactScope.RequestedModel, exactScope.Endpoint)
+		if err != nil {
+			return nil, err
+		}
+		accountErrors = errors
+		if exactScope.RequestedModel != "" || exactScope.Endpoint != "any" {
+			accountErrors, err = s.dashboardService.GetSmartSchedulerAccountCircuitStatsBatch(ctx, accountIDs, now)
+			if err != nil {
+				return nil, err
+			}
+		}
+		capacityLimitedCount, err = s.dashboardService.GetSmartSchedulerCapacityLimitedCount(ctx, groupID, now, requestedModel, endpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +774,15 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 	} else if len(loadRequests) > 0 {
 		warnings = append(warnings, "实时负载服务不可用，本次评分已剔除负载因子")
 	}
-
+	recoveryProbeStates := make(map[int64]GroupRecoveryProbeState)
+	if probeModel, ok := smartSchedulerRecoveryProbeModel(group); ok && s.recoveryProbe != nil {
+		states, stateErr := s.recoveryProbe.ListStates(ctx, group.ID, accountIDs, probeModel)
+		if stateErr != nil {
+			warnings = append(warnings, "恢复探针状态读取失败，本次预览沿用既有智能调度结果")
+		} else {
+			recoveryProbeStates = states
+		}
+	}
 	items := make([]SmartSchedulerPreviewItem, 0, len(accounts))
 	for i := range accounts {
 		quality, evidenceScope, evidenceFallback := selectSmartSchedulerQualityEvidence(accounts[i].ID, scopedQuality)
@@ -305,6 +790,10 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		item.EvidenceScope = evidenceScope
 		item.EvidenceFallback = evidenceFallback
 		applySmartSchedulerEvidencePolicy(&item)
+		applySmartSchedulerAccountCircuitBreaker(&item, accountErrors[accounts[i].ID])
+		if state, ok := recoveryProbeStates[accounts[i].ID]; ok {
+			applyGroupRecoveryProbeStateToSchedulerItem(&item, &state)
+		}
 		items = append(items, item)
 	}
 	for i := range items {
@@ -328,8 +817,9 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		GeneratedAt:             now.UTC(),
 		TotalAccounts:           len(items),
 		ExplorationRate:         explorationRate,
-		ProductionControlActive: false,
+		ProductionControlActive: group.SmartSchedulerEnabled,
 		LoadSnapshotAvailable:   loadSnapshotAvailable,
+		CapacityLimitedCount1h:  capacityLimitedCount,
 		Warnings:                warnings,
 		Items:                   items,
 	}
@@ -385,9 +875,25 @@ func smartSchedulerStoredEndpoint(endpoint string) string {
 		return "/v1/responses"
 	case "messages":
 		return "/v1/messages"
+	case "gemini_models":
+		return "/v1beta/models"
 	default:
 		return "any"
 	}
+}
+
+func smartSchedulerRecoveryProbeModel(group *Group) (string, bool) {
+	if group == nil || !group.RecoveryProbeEnabled {
+		return "", false
+	}
+	configured := strings.TrimSpace(group.RecoveryProbeModel)
+	if configured == "" {
+		return "", false
+	}
+	// The configured probe is the account-level recovery gate for the whole
+	// group. Its state must therefore apply even when live traffic requests a
+	// different model from the inexpensive model used by the probe itself.
+	return configured, true
 }
 
 func selectSmartSchedulerQualityEvidence(accountID int64, scoped []smartSchedulerScopedQuality) (AccountQualityStats, string, bool) {
@@ -434,6 +940,8 @@ func normalizeSmartSchedulerEndpoint(endpoint string) string {
 		return "responses"
 	case "messages", "/v1/messages":
 		return "messages"
+	case "gemini", "gemini_models", "/v1beta/models":
+		return "gemini_models"
 	case "any":
 		return "any"
 	default:
@@ -443,33 +951,37 @@ func normalizeSmartSchedulerEndpoint(endpoint string) string {
 
 func buildSmartSchedulerPreviewItem(account *Account, group *Group, requestedModel, endpoint string, quality AccountQualityStats, errors SmartSchedulerErrorStats, load *AccountLoadInfo) SmartSchedulerPreviewItem {
 	item := SmartSchedulerPreviewItem{
-		AccountID:                     account.ID,
-		AccountName:                   account.Name,
-		Platform:                      account.Platform,
-		Priority:                      accountGroupPriority(account, group.ID),
-		Status:                        account.Status,
-		Schedulable:                   account.Schedulable,
-		Pool:                          "warm",
-		Decision:                      "observe",
-		Reason:                        "近1小时无足够真实流式样本",
-		Quality1h:                     quality.Recent1h,
-		Quality24h:                    AccountQualityPeriod{Last10: quality.Last10, Last100: quality.Last100, WindowHours: quality.WindowHours},
-		Activity:                      quality.Activity,
-		ErrorSuccessfulRequestCount:   errors.SuccessfulRequestCount,
-		ProviderFailureCount:          errors.ProviderFailureCount,
-		ProviderTransientFailureCount: errors.ProviderTransientFailureCount,
-		RateLimitCount:                errors.RateLimitCount,
-		ClientExcludedCount:           errors.ClientExcludedCount,
-		PlatformFailureCount:          errors.PlatformFailureCount,
-		UncertainFailureCount:         errors.UncertainFailureCount,
-		RecentProviderFailureCount:    errors.RecentProviderFailureCount,
-		RecentProviderTransientCount:  errors.RecentProviderTransientCount,
-		RecentRateLimitCount:          errors.RecentRateLimitCount,
-		RecentUncertainFailureCount:   errors.RecentUncertainFailureCount,
-		CostMultiplier:                account.BillingRateMultiplier(),
-		LastUsedAt:                    account.LastUsedAt,
-		ModelSupported:                true,
-		EndpointSupported:             true,
+		AccountID:                       account.ID,
+		AccountName:                     account.Name,
+		Platform:                        account.Platform,
+		Priority:                        accountGroupPriority(account, group.ID),
+		Status:                          account.Status,
+		Schedulable:                     account.Schedulable,
+		Pool:                            "warm",
+		Decision:                        "observe",
+		Reason:                          "近1小时无足够真实流式样本",
+		Quality1h:                       quality.Recent1h,
+		Quality24h:                      AccountQualityPeriod{Last10: quality.Last10, Last100: quality.Last100, WindowHours: quality.WindowHours},
+		Activity:                        quality.Activity,
+		ErrorSuccessfulRequestCount:     errors.SuccessfulRequestCount,
+		ProviderFailureCount:            errors.ProviderFailureCount,
+		ProviderTransientFailureCount:   errors.ProviderTransientFailureCount,
+		RateLimitCount:                  errors.RateLimitCount,
+		ClientExcludedCount:             errors.ClientExcludedCount,
+		PlatformFailureCount:            errors.PlatformFailureCount,
+		UncertainFailureCount:           errors.UncertainFailureCount,
+		RecentProviderFailureCount:      errors.RecentProviderFailureCount,
+		RecentProviderTransientCount:    errors.RecentProviderTransientCount,
+		RecentRateLimitCount:            errors.RecentRateLimitCount,
+		RecentUncertainFailureCount:     errors.RecentUncertainFailureCount,
+		ImmediateProviderFailureCount:   errors.ImmediateProviderFailureCount,
+		ImmediateProviderTransientCount: errors.ImmediateProviderTransientCount,
+		ImmediateRateLimitCount:         errors.ImmediateRateLimitCount,
+		ImmediateUncertainFailureCount:  errors.ImmediateUncertainFailureCount,
+		CostMultiplier:                  account.BillingRateMultiplier(),
+		LastUsedAt:                      account.LastUsedAt,
+		ModelSupported:                  true,
+		EndpointSupported:               true,
 	}
 	if load != nil {
 		item.Load = &SmartSchedulerLoad{
@@ -490,6 +1002,11 @@ func buildSmartSchedulerPreviewItem(account *Account, group *Group, requestedMod
 		item.ModelSupported = false
 		return isolateSmartSchedulerItem(item, "模型不支持")
 	}
+	capabilityCtx := WithSmartSchedulerEndpoint(context.Background(), endpoint)
+	if account.getDynamicModelCapabilityRemainingWithContext(capabilityCtx, requestedModel) > 0 {
+		item.ModelSupported = false
+		return isolateSmartSchedulerItem(item, "模型能力暂时未验证，冷却后自动重试")
+	}
 	if !smartSchedulerEndpointSupported(account, endpoint) {
 		item.EndpointSupported = false
 		return isolateSmartSchedulerItem(item, "账号不支持所选端点")
@@ -498,12 +1015,20 @@ func buildSmartSchedulerPreviewItem(account *Account, group *Group, requestedMod
 		return isolateSmartSchedulerItem(item, smartSchedulerUnschedulableReason(account))
 	}
 	if quality.Activity.SuccessfulRequestCount == 0 && smartSchedulerRecentSupplierFailures(errors) >= accountQualityFailingMinErrors {
-		return isolateSmartSchedulerItem(item, "近1小时上游持续失败")
+		if smartSchedulerRecentHardFailures(errors) > 0 {
+			return isolateSmartSchedulerItem(item, "近1小时上游持续失败")
+		}
+		return isolateSmartSchedulerSoftFailure(item, "近1小时上游持续失败")
 	}
 	if quality.Recent1h.Last10.QualityScore != nil || quality.Recent1h.Last100.QualityScore != nil {
 		item.Pool = "primary"
 		item.Decision = "primary_candidate"
 		item.Reason = "有近期真实流式质量证据"
+	}
+	if item.Pool == "primary" && smartSchedulerImmediateSupplierFailures(errors) >= smartSchedulerImmediateFailures {
+		item.Pool = "warm"
+		item.Decision = "observe"
+		item.Reason = "近5分钟上游连续失败，临时降级观察"
 	}
 	if item.Load != nil && (item.Load.LoadRate >= 90 || item.Load.WaitingCount > 0) {
 		item.Pool = "warm"
@@ -517,7 +1042,37 @@ func isolateSmartSchedulerItem(item SmartSchedulerPreviewItem, reason string) Sm
 	item.Pool = "isolated"
 	item.Decision = "excluded"
 	item.Reason = reason
+	item.SoftIsolation = false
 	return item
+}
+
+func isolateSmartSchedulerSoftFailure(item SmartSchedulerPreviewItem, reason string) SmartSchedulerPreviewItem {
+	item = isolateSmartSchedulerItem(item, reason)
+	item.SoftIsolation = true
+	return item
+}
+
+func applySmartSchedulerAccountCircuitBreaker(item *SmartSchedulerPreviewItem, stats SmartSchedulerErrorStats) {
+	if item == nil || (item.Pool == "isolated" && !item.SoftIsolation) {
+		return
+	}
+	hardFailures := smartSchedulerImmediateHardFailures(stats)
+	softFailures := smartSchedulerImmediateSoftFailures(stats)
+	totalFailures := hardFailures + softFailures
+	if totalFailures >= smartSchedulerImmediateFailures {
+		if hardFailures > 0 {
+			*item = isolateSmartSchedulerItem(*item, "账号近5分钟跨模型连续硬失败，短暂熔断")
+			return
+		}
+		*item = isolateSmartSchedulerSoftFailure(*item, "账号近5分钟跨模型连续上游失败，短暂熔断")
+		item.SoftIsolationFailureCount = totalFailures
+		return
+	}
+	if softFailures >= smartSchedulerImmediateFailures-1 && item.Pool == "primary" {
+		item.Pool = "warm"
+		item.Decision = "observe"
+		item.Reason = "账号级熔断恢复观察，等待单次探测"
+	}
 }
 
 func accountGroupPriority(account *Account, groupID int64) *int {
@@ -581,7 +1136,23 @@ func setSmartSchedulerModelMapping(mappingOut *string, requestedModel, mappedMod
 }
 
 func smartSchedulerRecentSupplierFailures(stats SmartSchedulerErrorStats) int64 {
-	return stats.RecentProviderFailureCount + stats.RecentProviderTransientCount + stats.RecentRateLimitCount
+	return stats.RecentProviderFailureCount + stats.RecentProviderTransientCount + stats.RecentRateLimitCount + stats.RecentUncertainFailureCount
+}
+
+func smartSchedulerRecentHardFailures(stats SmartSchedulerErrorStats) int64 {
+	return stats.RecentProviderFailureCount + stats.RecentRateLimitCount
+}
+
+func smartSchedulerImmediateHardFailures(stats SmartSchedulerErrorStats) int64 {
+	return stats.ImmediateProviderFailureCount + stats.ImmediateRateLimitCount
+}
+
+func smartSchedulerImmediateSoftFailures(stats SmartSchedulerErrorStats) int64 {
+	return stats.ImmediateProviderTransientCount + stats.ImmediateUncertainFailureCount
+}
+
+func smartSchedulerImmediateSupplierFailures(stats SmartSchedulerErrorStats) int64 {
+	return stats.ImmediateProviderFailureCount + stats.ImmediateProviderTransientCount + stats.ImmediateRateLimitCount + stats.ImmediateUncertainFailureCount
 }
 
 func smartSchedulerEndpointSupported(account *Account, endpoint string) bool {
@@ -639,6 +1210,9 @@ func smartSchedulerScore(item SmartSchedulerPreviewItem, all []SmartSchedulerPre
 	stable := weightedQualityScore(item.Quality24h.Last10, item.Quality24h.Last100, smartSchedulerStableLast10, smartSchedulerStableLast100)
 	qualityScore := smartSchedulerQualityComponent(recent, stable)
 	if qualityScore == nil {
+		if item.ProbeBootstrap {
+			return smartSchedulerProbeBootstrapScore(item, all)
+		}
 		return nil
 	}
 	errorScore := smartSchedulerReliabilityScore(item)
@@ -663,6 +1237,21 @@ func smartSchedulerScore(item SmartSchedulerPreviewItem, all []SmartSchedulerPre
 	if score > 100 {
 		score = 100
 	}
+	score = math.Round(score*100) / 100
+	return &score
+}
+
+func smartSchedulerProbeBootstrapScore(item SmartSchedulerPreviewItem, all []SmartSchedulerPreviewItem) *float64 {
+	probeQuality := 60.0
+	if item.RecoveryProbe != nil && item.RecoveryProbe.LatencyMs > 0 {
+		latency := float64(item.RecoveryProbe.LatencyMs)
+		if score, ok := qualityCurveScore(&latency, accountQualityTTFTCurve); ok {
+			probeQuality = score
+		}
+	}
+	costScore := relativeCostScore(item, all)
+	score := probeQuality*smartSchedulerProbeBootstrapQualityWeight + costScore*smartSchedulerProbeBootstrapCostWeight
+	score = math.Max(smartSchedulerProbeBootstrapScoreMin, math.Min(smartSchedulerProbeBootstrapScoreMax, score))
 	score = math.Round(score*100) / 100
 	return &score
 }
@@ -812,6 +1401,9 @@ func smartSchedulerConfidence(item SmartSchedulerPreviewItem) float64 {
 	if item.Pool == "isolated" {
 		return 0
 	}
+	if item.ProbeBootstrap {
+		return smartSchedulerProbeBootstrapConfidence
+	}
 	count1h := item.Quality1h.Last100.SampleCount
 	count24h := item.Quality24h.Last100.SampleCount
 	confidence := math.Sqrt(math.Min(1, float64(count1h)/100)*0.6 + math.Min(1, float64(count24h)/100)*0.4)
@@ -856,6 +1448,9 @@ func applySmartSchedulerConfidenceAdjustment(items []SmartSchedulerPreviewItem) 
 		}
 		confidence := math.Max(0, math.Min(1, items[i].Confidence))
 		adjusted := median + confidence*(*items[i].RawScore-median)
+		if items[i].ProbeBootstrap {
+			adjusted = math.Min(adjusted, smartSchedulerProbeBootstrapScoreMax)
+		}
 		adjusted = math.Round(math.Max(0, math.Min(100, adjusted))*100) / 100
 		items[i].Score = &adjusted
 	}
@@ -864,6 +1459,7 @@ func applySmartSchedulerConfidenceAdjustment(items []SmartSchedulerPreviewItem) 
 func applySmartSchedulerExplorationPreview(items []SmartSchedulerPreviewItem) float64 {
 	eligibleCount := 0
 	candidateCount := 0
+	bootstrapCandidateCount := 0
 	for i := range items {
 		item := &items[i]
 		if !smartSchedulerExplorationEligible(*item) {
@@ -873,13 +1469,19 @@ func applySmartSchedulerExplorationPreview(items []SmartSchedulerPreviewItem) fl
 		if item.Pool == "warm" {
 			item.ExplorationCandidate = true
 			candidateCount++
+			if item.ProbeBootstrap {
+				bootstrapCandidateCount++
+			}
 		}
 	}
 	if candidateCount == 0 || eligibleCount == 0 {
 		return 0
 	}
 	rate := smartSchedulerExplorationBase + (smartSchedulerExplorationMax-smartSchedulerExplorationBase)*float64(candidateCount)/float64(eligibleCount)
-	return math.Round(math.Min(smartSchedulerExplorationMax, rate)*1000) / 1000
+	if bootstrapCandidateCount > 0 {
+		rate = math.Max(rate, smartSchedulerProbeBootstrapExplorationRate)
+	}
+	return math.Round(math.Min(smartSchedulerProbeBootstrapExplorationRate, rate)*1000) / 1000
 }
 
 func smartSchedulerExplorationEligible(item SmartSchedulerPreviewItem) bool {
@@ -903,41 +1505,85 @@ func smartSchedulerConfidenceLabel(confidence float64) string {
 }
 
 func sortSmartSchedulerItems(items []SmartSchedulerPreviewItem) {
+	poolRank := func(pool string) int {
+		switch pool {
+		case "primary":
+			return 0
+		case "warm":
+			return 1
+		default:
+			return 2
+		}
+	}
 	sort.SliceStable(items, func(i, j int) bool {
-		poolRank := func(pool string) int {
-			switch pool {
-			case "primary":
-				return 0
-			case "warm":
-				return 1
-			default:
-				return 2
+		return poolRank(items[i].Pool) < poolRank(items[j].Pool)
+	})
+	for start := 0; start < len(items); {
+		end := start + 1
+		for end < len(items) && poolRank(items[end].Pool) == poolRank(items[start].Pool) {
+			end++
+		}
+		sortSmartSchedulerPool(items[start:end])
+		start = end
+	}
+}
+
+func sortSmartSchedulerPool(items []SmartSchedulerPreviewItem) {
+	for position := 0; position < len(items); position++ {
+		bestScore := -1.0
+		for i := position; i < len(items); i++ {
+			if items[i].Score != nil {
+				bestScore = math.Max(bestScore, *items[i].Score)
 			}
 		}
-		leftPool, rightPool := poolRank(items[i].Pool), poolRank(items[j].Pool)
-		if leftPool != rightPool {
-			return leftPool < rightPool
+		selected := -1
+		for i := position; i < len(items); i++ {
+			score := -1.0
+			if items[i].Score != nil {
+				score = *items[i].Score
+			}
+			if bestScore >= 0 && (score < 0 || bestScore-score > smartSchedulerCostTolerance) {
+				continue
+			}
+			if selected < 0 || smartSchedulerItemPreferred(items[i], items[selected]) {
+				selected = i
+			}
 		}
-		leftScore, rightScore := -1.0, -1.0
-		if items[i].Score != nil {
-			leftScore = *items[i].Score
+		if selected < 0 {
+			selected = position
 		}
-		if items[j].Score != nil {
-			rightScore = *items[j].Score
+		if selected == position {
+			continue
 		}
-		if leftScore != rightScore {
-			return leftScore > rightScore
-		}
-		leftPriority, rightPriority := 1<<30, 1<<30
-		if items[i].Priority != nil {
-			leftPriority = *items[i].Priority
-		}
-		if items[j].Priority != nil {
-			rightPriority = *items[j].Priority
-		}
-		if leftPriority != rightPriority {
-			return leftPriority < rightPriority
-		}
-		return items[i].AccountID < items[j].AccountID
-	})
+		chosen := items[selected]
+		copy(items[position+1:selected+1], items[position:selected])
+		items[position] = chosen
+	}
+}
+
+func smartSchedulerItemPreferred(left, right SmartSchedulerPreviewItem) bool {
+	if left.CostMultiplier > 0 && right.CostMultiplier > 0 && left.CostMultiplier != right.CostMultiplier {
+		return left.CostMultiplier < right.CostMultiplier
+	}
+	leftScore, rightScore := -1.0, -1.0
+	if left.Score != nil {
+		leftScore = *left.Score
+	}
+	if right.Score != nil {
+		rightScore = *right.Score
+	}
+	if leftScore != rightScore {
+		return leftScore > rightScore
+	}
+	leftPriority, rightPriority := 1<<30, 1<<30
+	if left.Priority != nil {
+		leftPriority = *left.Priority
+	}
+	if right.Priority != nil {
+		rightPriority = *right.Priority
+	}
+	if leftPriority != rightPriority {
+		return leftPriority < rightPriority
+	}
+	return left.AccountID < right.AccountID
 }

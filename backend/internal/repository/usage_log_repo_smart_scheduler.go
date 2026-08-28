@@ -32,7 +32,9 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 				AND ul.created_at >= $2
 				AND ul.created_at < $3
 				AND ul.actual_cost > 0
+				AND ul.request_type <> 6
 				AND ul.stream = TRUE
+				AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 				AND ($4 = '' OR LOWER(COALESCE(NULLIF(ul.requested_model, ''), ul.model)) = LOWER($4))
 				AND ($5 = 'any' OR LOWER(COALESCE(NULLIF(ul.inbound_endpoint, ''), '')) = LOWER($5))
 			GROUP BY ul.account_id
@@ -41,8 +43,10 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 				oe.account_id,
 				COALESCE(NULLIF(oe.request_id, ''), oe.id::text) AS request_key,
 				oe.created_at >= ($3 - INTERVAL '1 hour') AS is_recent,
+				oe.created_at >= ($3 - INTERVAL '5 minutes') AS is_immediate,
 				CASE
 					WHEN oe.is_business_limited = TRUE OR LOWER(COALESCE(oe.error_owner, '')) = 'client' THEN 'client_excluded'
+					WHEN oe.status_code = 499 OR oe.upstream_status_code = 499 THEN 'client_excluded'
 					WHEN COALESCE(oe.upstream_status_code, oe.status_code) IN (429, 529) THEN 'rate_limit'
 					WHEN LOWER(COALESCE(oe.error_owner, '')) = 'provider' OR LOWER(COALESCE(oe.error_phase, '')) IN ('upstream', 'account_auth') THEN
 						CASE WHEN COALESCE(oe.upstream_status_code, oe.status_code) >= 500 OR COALESCE(oe.upstream_status_code, oe.status_code) = 0 THEN 'provider_transient' ELSE 'provider_failure' END
@@ -54,10 +58,32 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 				AND oe.created_at >= $2
 				AND oe.created_at < $3
 				AND oe.stream = TRUE
+				AND LOWER(COALESCE(oe.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 				AND ($4 = '' OR LOWER(COALESCE(NULLIF(oe.requested_model, ''), oe.model)) = LOWER($4))
 				AND ($5 = 'any' OR LOWER(COALESCE(NULLIF(oe.inbound_endpoint, ''), '')) = LOWER($5))
 		), deduplicated AS (
-			SELECT DISTINCT account_id, request_key, category, is_recent FROM classified
+			SELECT
+				account_id,
+				request_key,
+				CASE MAX(CASE category
+					WHEN 'client_excluded' THEN 6
+					WHEN 'rate_limit' THEN 5
+					WHEN 'provider_transient' THEN 4
+					WHEN 'provider_failure' THEN 3
+					WHEN 'platform_failure' THEN 2
+					ELSE 1
+				END)
+					WHEN 6 THEN 'client_excluded'
+					WHEN 5 THEN 'rate_limit'
+					WHEN 4 THEN 'provider_transient'
+					WHEN 3 THEN 'provider_failure'
+					WHEN 2 THEN 'platform_failure'
+					ELSE 'uncertain'
+				END AS category,
+				BOOL_OR(is_recent) AS is_recent,
+				BOOL_OR(is_immediate) AS is_immediate
+			FROM classified
+			GROUP BY account_id, request_key
 		), failures AS (
 			SELECT
 				account_id,
@@ -70,7 +96,11 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 				COUNT(*) FILTER (WHERE category = 'provider_failure' AND is_recent) AS recent_provider_failure_count,
 				COUNT(*) FILTER (WHERE category = 'provider_transient' AND is_recent) AS recent_provider_transient_count,
 				COUNT(*) FILTER (WHERE category = 'rate_limit' AND is_recent) AS recent_rate_limit_count,
-				COUNT(*) FILTER (WHERE category = 'uncertain' AND is_recent) AS recent_uncertain_count
+				COUNT(*) FILTER (WHERE category = 'uncertain' AND is_recent) AS recent_uncertain_count,
+				COUNT(*) FILTER (WHERE category = 'provider_failure' AND is_immediate) AS immediate_provider_failure_count,
+				COUNT(*) FILTER (WHERE category = 'provider_transient' AND is_immediate) AS immediate_provider_transient_count,
+				COUNT(*) FILTER (WHERE category = 'rate_limit' AND is_immediate) AS immediate_rate_limit_count,
+				COUNT(*) FILTER (WHERE category = 'uncertain' AND is_immediate) AS immediate_uncertain_count
 			FROM deduplicated
 			GROUP BY account_id
 		)
@@ -86,7 +116,11 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 			COALESCE(f.recent_provider_failure_count, 0),
 			COALESCE(f.recent_provider_transient_count, 0),
 			COALESCE(f.recent_rate_limit_count, 0),
-			COALESCE(f.recent_uncertain_count, 0)
+			COALESCE(f.recent_uncertain_count, 0),
+			COALESCE(f.immediate_provider_failure_count, 0),
+			COALESCE(f.immediate_provider_transient_count, 0),
+			COALESCE(f.immediate_rate_limit_count, 0),
+			COALESCE(f.immediate_uncertain_count, 0)
 		FROM successful s
 		FULL OUTER JOIN failures f ON f.account_id = s.account_id
 	`
@@ -98,7 +132,7 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 	for rows.Next() {
 		var accountID int64
 		var stats service.SmartSchedulerErrorStats
-		var counts [11]sql.NullInt64
+		var counts [15]sql.NullInt64
 		values := make([]any, 0, len(counts)+1)
 		values = append(values, &accountID)
 		for i := range counts {
@@ -118,10 +152,43 @@ func (r *usageLogRepository) GetSmartSchedulerErrorStatsBatch(
 		stats.RecentProviderTransientCount = counts[8].Int64
 		stats.RecentRateLimitCount = counts[9].Int64
 		stats.RecentUncertainFailureCount = counts[10].Int64
+		stats.ImmediateProviderFailureCount = counts[11].Int64
+		stats.ImmediateProviderTransientCount = counts[12].Int64
+		stats.ImmediateRateLimitCount = counts[13].Int64
+		stats.ImmediateUncertainFailureCount = counts[14].Int64
 		result[accountID] = stats
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// GetSmartSchedulerCapacityLimitedCount returns group-level routing capacity
+// failures. Account-level failures are deliberately excluded so this signal is
+// visible to operators without affecting any individual account's score.
+func (r *usageLogRepository) GetSmartSchedulerCapacityLimitedCount(
+	ctx context.Context,
+	groupID int64,
+	startTime, endTime time.Time,
+	requestedModel, endpoint string,
+) (int64, error) {
+	query := `
+		SELECT COUNT(DISTINCT COALESCE(NULLIF(request_id, ''), id::text))
+		FROM ops_error_logs
+		WHERE group_id = $1
+			AND created_at >= $2
+			AND created_at < $3
+			AND is_business_limited = TRUE
+			AND account_id IS NULL
+			AND LOWER(COALESCE(error_phase, '')) = 'routing'
+			AND LOWER(COALESCE(user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
+			AND ($4 = '' OR LOWER(COALESCE(NULLIF(requested_model, ''), model)) = LOWER($4))
+			AND ($5 = 'any' OR LOWER(COALESCE(NULLIF(inbound_endpoint, ''), '')) = LOWER($5))
+	`
+	var count int64
+	if err := scanSingleRow(ctx, r.sql, query, []any{groupID, startTime, endTime, requestedModel, endpoint}, &count); err != nil {
+		return 0, err
+	}
+	return count, nil
 }

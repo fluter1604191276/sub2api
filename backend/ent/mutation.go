@@ -21844,111 +21844,129 @@ func (m *ErrorPassthroughRuleMutation) ResetEdge(name string) error {
 // GroupMutation represents an operation that mutates the Group nodes in the graph.
 type GroupMutation struct {
 	config
-	op                                      Op
-	typ                                     string
-	id                                      *int64
-	created_at                              *time.Time
-	updated_at                              *time.Time
-	deleted_at                              *time.Time
-	name                                    *string
-	description                             *string
-	rate_multiplier                         *float64
-	addrate_multiplier                      *float64
-	peak_rate_enabled                       *bool
-	peak_start                              *string
-	peak_end                                *string
-	peak_rate_multiplier                    *float64
-	addpeak_rate_multiplier                 *float64
-	is_exclusive                            *bool
-	status                                  *string
-	duplicate_operation_id                  *string
-	platform                                *string
-	subscription_type                       *string
-	daily_limit_usd                         *float64
-	adddaily_limit_usd                      *float64
-	weekly_limit_usd                        *float64
-	addweekly_limit_usd                     *float64
-	monthly_limit_usd                       *float64
-	addmonthly_limit_usd                    *float64
-	default_validity_days                   *int
-	adddefault_validity_days                *int
-	allow_image_generation                  *bool
-	allow_batch_image_generation            *bool
-	image_rate_independent                  *bool
-	image_rate_multiplier                   *float64
-	addimage_rate_multiplier                *float64
-	image_price_1k                          *float64
-	addimage_price_1k                       *float64
-	image_price_2k                          *float64
-	addimage_price_2k                       *float64
-	image_price_4k                          *float64
-	addimage_price_4k                       *float64
-	batch_image_discount_multiplier         *float64
-	addbatch_image_discount_multiplier      *float64
-	batch_image_hold_multiplier             *float64
-	addbatch_image_hold_multiplier          *float64
-	video_rate_independent                  *bool
-	video_rate_multiplier                   *float64
-	addvideo_rate_multiplier                *float64
-	video_price_480p                        *float64
-	addvideo_price_480p                     *float64
-	video_price_720p                        *float64
-	addvideo_price_720p                     *float64
-	video_price_1080p                       *float64
-	addvideo_price_1080p                    *float64
-	web_search_price_per_call               *float64
-	addweb_search_price_per_call            *float64
-	claude_code_only                        *bool
-	fallback_group_id                       *int64
-	addfallback_group_id                    *int64
-	fallback_group_id_on_invalid_request    *int64
-	addfallback_group_id_on_invalid_request *int64
-	model_routing                           *map[string][]int64
-	model_routing_enabled                   *bool
-	mcp_xml_inject                          *bool
-	supported_model_scopes                  *[]string
-	appendsupported_model_scopes            []string
-	sort_order                              *int
-	addsort_order                           *int
-	allow_messages_dispatch                 *bool
-	allow_live                              *bool
-	require_oauth_only                      *bool
-	require_privacy_set                     *bool
-	default_mapped_model                    *string
-	messages_dispatch_model_config          *domain.OpenAIMessagesDispatchModelConfig
-	models_list_config                      *domain.GroupModelsListConfig
-	rpm_limit                               *int
-	addrpm_limit                            *int
-	max_reasoning_effort                    *string
-	reasoning_effort_mappings               *[]domain.ReasoningEffortMapping
-	appendreasoning_effort_mappings         []domain.ReasoningEffortMapping
-	profit_control_enabled                  *bool
-	profit_min_margin                       *float64
-	addprofit_min_margin                    *float64
-	profit_safety_buffer                    *float64
-	addprofit_safety_buffer                 *float64
-	clearedFields                           map[string]struct{}
-	api_keys                                map[int64]struct{}
-	removedapi_keys                         map[int64]struct{}
-	clearedapi_keys                         bool
-	redeem_codes                            map[int64]struct{}
-	removedredeem_codes                     map[int64]struct{}
-	clearedredeem_codes                     bool
-	subscriptions                           map[int64]struct{}
-	removedsubscriptions                    map[int64]struct{}
-	clearedsubscriptions                    bool
-	usage_logs                              map[int64]struct{}
-	removedusage_logs                       map[int64]struct{}
-	clearedusage_logs                       bool
-	accounts                                map[int64]struct{}
-	removedaccounts                         map[int64]struct{}
-	clearedaccounts                         bool
-	allowed_users                           map[int64]struct{}
-	removedallowed_users                    map[int64]struct{}
-	clearedallowed_users                    bool
-	done                                    bool
-	oldValue                                func(context.Context) (*Group, error)
-	predicates                              []predicate.Group
+	op                                       Op
+	typ                                      string
+	id                                       *int64
+	created_at                               *time.Time
+	updated_at                               *time.Time
+	deleted_at                               *time.Time
+	name                                     *string
+	description                              *string
+	rate_multiplier                          *float64
+	addrate_multiplier                       *float64
+	peak_rate_enabled                        *bool
+	peak_start                               *string
+	peak_end                                 *string
+	peak_rate_multiplier                     *float64
+	addpeak_rate_multiplier                  *float64
+	is_exclusive                             *bool
+	status                                   *string
+	duplicate_operation_id                   *string
+	platform                                 *string
+	subscription_type                        *string
+	daily_limit_usd                          *float64
+	adddaily_limit_usd                       *float64
+	weekly_limit_usd                         *float64
+	addweekly_limit_usd                      *float64
+	monthly_limit_usd                        *float64
+	addmonthly_limit_usd                     *float64
+	default_validity_days                    *int
+	adddefault_validity_days                 *int
+	allow_image_generation                   *bool
+	allow_batch_image_generation             *bool
+	image_rate_independent                   *bool
+	image_rate_multiplier                    *float64
+	addimage_rate_multiplier                 *float64
+	image_price_1k                           *float64
+	addimage_price_1k                        *float64
+	image_price_2k                           *float64
+	addimage_price_2k                        *float64
+	image_price_4k                           *float64
+	addimage_price_4k                        *float64
+	batch_image_discount_multiplier          *float64
+	addbatch_image_discount_multiplier       *float64
+	batch_image_hold_multiplier              *float64
+	addbatch_image_hold_multiplier           *float64
+	video_rate_independent                   *bool
+	video_rate_multiplier                    *float64
+	addvideo_rate_multiplier                 *float64
+	video_price_480p                         *float64
+	addvideo_price_480p                      *float64
+	video_price_720p                         *float64
+	addvideo_price_720p                      *float64
+	video_price_1080p                        *float64
+	addvideo_price_1080p                     *float64
+	web_search_price_per_call                *float64
+	addweb_search_price_per_call             *float64
+	claude_code_only                         *bool
+	fallback_group_id                        *int64
+	addfallback_group_id                     *int64
+	fallback_group_id_on_invalid_request     *int64
+	addfallback_group_id_on_invalid_request  *int64
+	model_routing                            *map[string][]int64
+	model_routing_enabled                    *bool
+	mcp_xml_inject                           *bool
+	supported_model_scopes                   *[]string
+	appendsupported_model_scopes             []string
+	sort_order                               *int
+	addsort_order                            *int
+	allow_messages_dispatch                  *bool
+	allow_live                               *bool
+	require_oauth_only                       *bool
+	require_privacy_set                      *bool
+	default_mapped_model                     *string
+	messages_dispatch_model_config           *domain.OpenAIMessagesDispatchModelConfig
+	models_list_config                       *domain.GroupModelsListConfig
+	rpm_limit                                *int
+	addrpm_limit                             *int
+	max_reasoning_effort                     *string
+	reasoning_effort_mappings                *[]domain.ReasoningEffortMapping
+	appendreasoning_effort_mappings          []domain.ReasoningEffortMapping
+	profit_control_enabled                   *bool
+	profit_min_margin                        *float64
+	addprofit_min_margin                     *float64
+	profit_safety_buffer                     *float64
+	addprofit_safety_buffer                  *float64
+	smart_scheduler_enabled                  *bool
+	recovery_probe_enabled                   *bool
+	recovery_probe_mode                      *string
+	recovery_probe_model                     *string
+	recovery_probe_interval_seconds          *int
+	addrecovery_probe_interval_seconds       *int
+	recovery_probe_attempts_per_round        *int
+	addrecovery_probe_attempts_per_round     *int
+	recovery_probe_idle_threshold_seconds    *int
+	addrecovery_probe_idle_threshold_seconds *int
+	recovery_probe_backoff_cap_seconds       *int
+	addrecovery_probe_backoff_cap_seconds    *int
+	pool_mode_enabled                        *bool
+	pool_mode_retry_count                    *int
+	addpool_mode_retry_count                 *int
+	pool_mode_retry_status_codes             **[]int
+	custom_error_codes_enabled               *bool
+	custom_error_codes                       **[]int
+	clearedFields                            map[string]struct{}
+	api_keys                                 map[int64]struct{}
+	removedapi_keys                          map[int64]struct{}
+	clearedapi_keys                          bool
+	redeem_codes                             map[int64]struct{}
+	removedredeem_codes                      map[int64]struct{}
+	clearedredeem_codes                      bool
+	subscriptions                            map[int64]struct{}
+	removedsubscriptions                     map[int64]struct{}
+	clearedsubscriptions                     bool
+	usage_logs                               map[int64]struct{}
+	removedusage_logs                        map[int64]struct{}
+	clearedusage_logs                        bool
+	accounts                                 map[int64]struct{}
+	removedaccounts                          map[int64]struct{}
+	clearedaccounts                          bool
+	allowed_users                            map[int64]struct{}
+	removedallowed_users                     map[int64]struct{}
+	clearedallowed_users                     bool
+	done                                     bool
+	oldValue                                 func(context.Context) (*Group, error)
+	predicates                               []predicate.Group
 }
 
 var _ ent.Mutation = (*GroupMutation)(nil)
@@ -24739,6 +24757,640 @@ func (m *GroupMutation) ResetProfitSafetyBuffer() {
 	m.addprofit_safety_buffer = nil
 }
 
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (m *GroupMutation) SetSmartSchedulerEnabled(b bool) {
+	m.smart_scheduler_enabled = &b
+}
+
+// SmartSchedulerEnabled returns the value of the "smart_scheduler_enabled" field in the mutation.
+func (m *GroupMutation) SmartSchedulerEnabled() (r bool, exists bool) {
+	v := m.smart_scheduler_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSmartSchedulerEnabled returns the old "smart_scheduler_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldSmartSchedulerEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSmartSchedulerEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSmartSchedulerEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSmartSchedulerEnabled: %w", err)
+	}
+	return oldValue.SmartSchedulerEnabled, nil
+}
+
+// ResetSmartSchedulerEnabled resets all changes to the "smart_scheduler_enabled" field.
+func (m *GroupMutation) ResetSmartSchedulerEnabled() {
+	m.smart_scheduler_enabled = nil
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (m *GroupMutation) SetRecoveryProbeEnabled(b bool) {
+	m.recovery_probe_enabled = &b
+}
+
+// RecoveryProbeEnabled returns the value of the "recovery_probe_enabled" field in the mutation.
+func (m *GroupMutation) RecoveryProbeEnabled() (r bool, exists bool) {
+	v := m.recovery_probe_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeEnabled returns the old "recovery_probe_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeEnabled: %w", err)
+	}
+	return oldValue.RecoveryProbeEnabled, nil
+}
+
+// ResetRecoveryProbeEnabled resets all changes to the "recovery_probe_enabled" field.
+func (m *GroupMutation) ResetRecoveryProbeEnabled() {
+	m.recovery_probe_enabled = nil
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (m *GroupMutation) SetRecoveryProbeMode(s string) {
+	m.recovery_probe_mode = &s
+}
+
+// RecoveryProbeMode returns the value of the "recovery_probe_mode" field in the mutation.
+func (m *GroupMutation) RecoveryProbeMode() (r string, exists bool) {
+	v := m.recovery_probe_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeMode returns the old "recovery_probe_mode" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeMode: %w", err)
+	}
+	return oldValue.RecoveryProbeMode, nil
+}
+
+// ResetRecoveryProbeMode resets all changes to the "recovery_probe_mode" field.
+func (m *GroupMutation) ResetRecoveryProbeMode() {
+	m.recovery_probe_mode = nil
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (m *GroupMutation) SetRecoveryProbeModel(s string) {
+	m.recovery_probe_model = &s
+}
+
+// RecoveryProbeModel returns the value of the "recovery_probe_model" field in the mutation.
+func (m *GroupMutation) RecoveryProbeModel() (r string, exists bool) {
+	v := m.recovery_probe_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeModel returns the old "recovery_probe_model" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeModel: %w", err)
+	}
+	return oldValue.RecoveryProbeModel, nil
+}
+
+// ResetRecoveryProbeModel resets all changes to the "recovery_probe_model" field.
+func (m *GroupMutation) ResetRecoveryProbeModel() {
+	m.recovery_probe_model = nil
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (m *GroupMutation) SetRecoveryProbeIntervalSeconds(i int) {
+	m.recovery_probe_interval_seconds = &i
+	m.addrecovery_probe_interval_seconds = nil
+}
+
+// RecoveryProbeIntervalSeconds returns the value of the "recovery_probe_interval_seconds" field in the mutation.
+func (m *GroupMutation) RecoveryProbeIntervalSeconds() (r int, exists bool) {
+	v := m.recovery_probe_interval_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeIntervalSeconds returns the old "recovery_probe_interval_seconds" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeIntervalSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeIntervalSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeIntervalSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeIntervalSeconds: %w", err)
+	}
+	return oldValue.RecoveryProbeIntervalSeconds, nil
+}
+
+// AddRecoveryProbeIntervalSeconds adds i to the "recovery_probe_interval_seconds" field.
+func (m *GroupMutation) AddRecoveryProbeIntervalSeconds(i int) {
+	if m.addrecovery_probe_interval_seconds != nil {
+		*m.addrecovery_probe_interval_seconds += i
+	} else {
+		m.addrecovery_probe_interval_seconds = &i
+	}
+}
+
+// AddedRecoveryProbeIntervalSeconds returns the value that was added to the "recovery_probe_interval_seconds" field in this mutation.
+func (m *GroupMutation) AddedRecoveryProbeIntervalSeconds() (r int, exists bool) {
+	v := m.addrecovery_probe_interval_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecoveryProbeIntervalSeconds resets all changes to the "recovery_probe_interval_seconds" field.
+func (m *GroupMutation) ResetRecoveryProbeIntervalSeconds() {
+	m.recovery_probe_interval_seconds = nil
+	m.addrecovery_probe_interval_seconds = nil
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (m *GroupMutation) SetRecoveryProbeAttemptsPerRound(i int) {
+	m.recovery_probe_attempts_per_round = &i
+	m.addrecovery_probe_attempts_per_round = nil
+}
+
+// RecoveryProbeAttemptsPerRound returns the value of the "recovery_probe_attempts_per_round" field in the mutation.
+func (m *GroupMutation) RecoveryProbeAttemptsPerRound() (r int, exists bool) {
+	v := m.recovery_probe_attempts_per_round
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeAttemptsPerRound returns the old "recovery_probe_attempts_per_round" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeAttemptsPerRound(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeAttemptsPerRound is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeAttemptsPerRound requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeAttemptsPerRound: %w", err)
+	}
+	return oldValue.RecoveryProbeAttemptsPerRound, nil
+}
+
+// AddRecoveryProbeAttemptsPerRound adds i to the "recovery_probe_attempts_per_round" field.
+func (m *GroupMutation) AddRecoveryProbeAttemptsPerRound(i int) {
+	if m.addrecovery_probe_attempts_per_round != nil {
+		*m.addrecovery_probe_attempts_per_round += i
+	} else {
+		m.addrecovery_probe_attempts_per_round = &i
+	}
+}
+
+// AddedRecoveryProbeAttemptsPerRound returns the value that was added to the "recovery_probe_attempts_per_round" field in this mutation.
+func (m *GroupMutation) AddedRecoveryProbeAttemptsPerRound() (r int, exists bool) {
+	v := m.addrecovery_probe_attempts_per_round
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecoveryProbeAttemptsPerRound resets all changes to the "recovery_probe_attempts_per_round" field.
+func (m *GroupMutation) ResetRecoveryProbeAttemptsPerRound() {
+	m.recovery_probe_attempts_per_round = nil
+	m.addrecovery_probe_attempts_per_round = nil
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (m *GroupMutation) SetRecoveryProbeIdleThresholdSeconds(i int) {
+	m.recovery_probe_idle_threshold_seconds = &i
+	m.addrecovery_probe_idle_threshold_seconds = nil
+}
+
+// RecoveryProbeIdleThresholdSeconds returns the value of the "recovery_probe_idle_threshold_seconds" field in the mutation.
+func (m *GroupMutation) RecoveryProbeIdleThresholdSeconds() (r int, exists bool) {
+	v := m.recovery_probe_idle_threshold_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeIdleThresholdSeconds returns the old "recovery_probe_idle_threshold_seconds" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeIdleThresholdSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeIdleThresholdSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeIdleThresholdSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeIdleThresholdSeconds: %w", err)
+	}
+	return oldValue.RecoveryProbeIdleThresholdSeconds, nil
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds i to the "recovery_probe_idle_threshold_seconds" field.
+func (m *GroupMutation) AddRecoveryProbeIdleThresholdSeconds(i int) {
+	if m.addrecovery_probe_idle_threshold_seconds != nil {
+		*m.addrecovery_probe_idle_threshold_seconds += i
+	} else {
+		m.addrecovery_probe_idle_threshold_seconds = &i
+	}
+}
+
+// AddedRecoveryProbeIdleThresholdSeconds returns the value that was added to the "recovery_probe_idle_threshold_seconds" field in this mutation.
+func (m *GroupMutation) AddedRecoveryProbeIdleThresholdSeconds() (r int, exists bool) {
+	v := m.addrecovery_probe_idle_threshold_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecoveryProbeIdleThresholdSeconds resets all changes to the "recovery_probe_idle_threshold_seconds" field.
+func (m *GroupMutation) ResetRecoveryProbeIdleThresholdSeconds() {
+	m.recovery_probe_idle_threshold_seconds = nil
+	m.addrecovery_probe_idle_threshold_seconds = nil
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (m *GroupMutation) SetRecoveryProbeBackoffCapSeconds(i int) {
+	m.recovery_probe_backoff_cap_seconds = &i
+	m.addrecovery_probe_backoff_cap_seconds = nil
+}
+
+// RecoveryProbeBackoffCapSeconds returns the value of the "recovery_probe_backoff_cap_seconds" field in the mutation.
+func (m *GroupMutation) RecoveryProbeBackoffCapSeconds() (r int, exists bool) {
+	v := m.recovery_probe_backoff_cap_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRecoveryProbeBackoffCapSeconds returns the old "recovery_probe_backoff_cap_seconds" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldRecoveryProbeBackoffCapSeconds(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRecoveryProbeBackoffCapSeconds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRecoveryProbeBackoffCapSeconds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRecoveryProbeBackoffCapSeconds: %w", err)
+	}
+	return oldValue.RecoveryProbeBackoffCapSeconds, nil
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds i to the "recovery_probe_backoff_cap_seconds" field.
+func (m *GroupMutation) AddRecoveryProbeBackoffCapSeconds(i int) {
+	if m.addrecovery_probe_backoff_cap_seconds != nil {
+		*m.addrecovery_probe_backoff_cap_seconds += i
+	} else {
+		m.addrecovery_probe_backoff_cap_seconds = &i
+	}
+}
+
+// AddedRecoveryProbeBackoffCapSeconds returns the value that was added to the "recovery_probe_backoff_cap_seconds" field in this mutation.
+func (m *GroupMutation) AddedRecoveryProbeBackoffCapSeconds() (r int, exists bool) {
+	v := m.addrecovery_probe_backoff_cap_seconds
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRecoveryProbeBackoffCapSeconds resets all changes to the "recovery_probe_backoff_cap_seconds" field.
+func (m *GroupMutation) ResetRecoveryProbeBackoffCapSeconds() {
+	m.recovery_probe_backoff_cap_seconds = nil
+	m.addrecovery_probe_backoff_cap_seconds = nil
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (m *GroupMutation) SetPoolModeEnabled(b bool) {
+	m.pool_mode_enabled = &b
+}
+
+// PoolModeEnabled returns the value of the "pool_mode_enabled" field in the mutation.
+func (m *GroupMutation) PoolModeEnabled() (r bool, exists bool) {
+	v := m.pool_mode_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPoolModeEnabled returns the old "pool_mode_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPoolModeEnabled(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPoolModeEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPoolModeEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPoolModeEnabled: %w", err)
+	}
+	return oldValue.PoolModeEnabled, nil
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (m *GroupMutation) ClearPoolModeEnabled() {
+	m.pool_mode_enabled = nil
+	m.clearedFields[group.FieldPoolModeEnabled] = struct{}{}
+}
+
+// PoolModeEnabledCleared returns if the "pool_mode_enabled" field was cleared in this mutation.
+func (m *GroupMutation) PoolModeEnabledCleared() bool {
+	_, ok := m.clearedFields[group.FieldPoolModeEnabled]
+	return ok
+}
+
+// ResetPoolModeEnabled resets all changes to the "pool_mode_enabled" field.
+func (m *GroupMutation) ResetPoolModeEnabled() {
+	m.pool_mode_enabled = nil
+	delete(m.clearedFields, group.FieldPoolModeEnabled)
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (m *GroupMutation) SetPoolModeRetryCount(i int) {
+	m.pool_mode_retry_count = &i
+	m.addpool_mode_retry_count = nil
+}
+
+// PoolModeRetryCount returns the value of the "pool_mode_retry_count" field in the mutation.
+func (m *GroupMutation) PoolModeRetryCount() (r int, exists bool) {
+	v := m.pool_mode_retry_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPoolModeRetryCount returns the old "pool_mode_retry_count" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPoolModeRetryCount(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPoolModeRetryCount is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPoolModeRetryCount requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPoolModeRetryCount: %w", err)
+	}
+	return oldValue.PoolModeRetryCount, nil
+}
+
+// AddPoolModeRetryCount adds i to the "pool_mode_retry_count" field.
+func (m *GroupMutation) AddPoolModeRetryCount(i int) {
+	if m.addpool_mode_retry_count != nil {
+		*m.addpool_mode_retry_count += i
+	} else {
+		m.addpool_mode_retry_count = &i
+	}
+}
+
+// AddedPoolModeRetryCount returns the value that was added to the "pool_mode_retry_count" field in this mutation.
+func (m *GroupMutation) AddedPoolModeRetryCount() (r int, exists bool) {
+	v := m.addpool_mode_retry_count
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (m *GroupMutation) ClearPoolModeRetryCount() {
+	m.pool_mode_retry_count = nil
+	m.addpool_mode_retry_count = nil
+	m.clearedFields[group.FieldPoolModeRetryCount] = struct{}{}
+}
+
+// PoolModeRetryCountCleared returns if the "pool_mode_retry_count" field was cleared in this mutation.
+func (m *GroupMutation) PoolModeRetryCountCleared() bool {
+	_, ok := m.clearedFields[group.FieldPoolModeRetryCount]
+	return ok
+}
+
+// ResetPoolModeRetryCount resets all changes to the "pool_mode_retry_count" field.
+func (m *GroupMutation) ResetPoolModeRetryCount() {
+	m.pool_mode_retry_count = nil
+	m.addpool_mode_retry_count = nil
+	delete(m.clearedFields, group.FieldPoolModeRetryCount)
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (m *GroupMutation) SetPoolModeRetryStatusCodes(i *[]int) {
+	m.pool_mode_retry_status_codes = &i
+}
+
+// PoolModeRetryStatusCodes returns the value of the "pool_mode_retry_status_codes" field in the mutation.
+func (m *GroupMutation) PoolModeRetryStatusCodes() (r *[]int, exists bool) {
+	v := m.pool_mode_retry_status_codes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPoolModeRetryStatusCodes returns the old "pool_mode_retry_status_codes" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldPoolModeRetryStatusCodes(ctx context.Context) (v *[]int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPoolModeRetryStatusCodes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPoolModeRetryStatusCodes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPoolModeRetryStatusCodes: %w", err)
+	}
+	return oldValue.PoolModeRetryStatusCodes, nil
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (m *GroupMutation) ClearPoolModeRetryStatusCodes() {
+	m.pool_mode_retry_status_codes = nil
+	m.clearedFields[group.FieldPoolModeRetryStatusCodes] = struct{}{}
+}
+
+// PoolModeRetryStatusCodesCleared returns if the "pool_mode_retry_status_codes" field was cleared in this mutation.
+func (m *GroupMutation) PoolModeRetryStatusCodesCleared() bool {
+	_, ok := m.clearedFields[group.FieldPoolModeRetryStatusCodes]
+	return ok
+}
+
+// ResetPoolModeRetryStatusCodes resets all changes to the "pool_mode_retry_status_codes" field.
+func (m *GroupMutation) ResetPoolModeRetryStatusCodes() {
+	m.pool_mode_retry_status_codes = nil
+	delete(m.clearedFields, group.FieldPoolModeRetryStatusCodes)
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (m *GroupMutation) SetCustomErrorCodesEnabled(b bool) {
+	m.custom_error_codes_enabled = &b
+}
+
+// CustomErrorCodesEnabled returns the value of the "custom_error_codes_enabled" field in the mutation.
+func (m *GroupMutation) CustomErrorCodesEnabled() (r bool, exists bool) {
+	v := m.custom_error_codes_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCustomErrorCodesEnabled returns the old "custom_error_codes_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCustomErrorCodesEnabled(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCustomErrorCodesEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCustomErrorCodesEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCustomErrorCodesEnabled: %w", err)
+	}
+	return oldValue.CustomErrorCodesEnabled, nil
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (m *GroupMutation) ClearCustomErrorCodesEnabled() {
+	m.custom_error_codes_enabled = nil
+	m.clearedFields[group.FieldCustomErrorCodesEnabled] = struct{}{}
+}
+
+// CustomErrorCodesEnabledCleared returns if the "custom_error_codes_enabled" field was cleared in this mutation.
+func (m *GroupMutation) CustomErrorCodesEnabledCleared() bool {
+	_, ok := m.clearedFields[group.FieldCustomErrorCodesEnabled]
+	return ok
+}
+
+// ResetCustomErrorCodesEnabled resets all changes to the "custom_error_codes_enabled" field.
+func (m *GroupMutation) ResetCustomErrorCodesEnabled() {
+	m.custom_error_codes_enabled = nil
+	delete(m.clearedFields, group.FieldCustomErrorCodesEnabled)
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (m *GroupMutation) SetCustomErrorCodes(i *[]int) {
+	m.custom_error_codes = &i
+}
+
+// CustomErrorCodes returns the value of the "custom_error_codes" field in the mutation.
+func (m *GroupMutation) CustomErrorCodes() (r *[]int, exists bool) {
+	v := m.custom_error_codes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCustomErrorCodes returns the old "custom_error_codes" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCustomErrorCodes(ctx context.Context) (v *[]int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCustomErrorCodes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCustomErrorCodes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCustomErrorCodes: %w", err)
+	}
+	return oldValue.CustomErrorCodes, nil
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (m *GroupMutation) ClearCustomErrorCodes() {
+	m.custom_error_codes = nil
+	m.clearedFields[group.FieldCustomErrorCodes] = struct{}{}
+}
+
+// CustomErrorCodesCleared returns if the "custom_error_codes" field was cleared in this mutation.
+func (m *GroupMutation) CustomErrorCodesCleared() bool {
+	_, ok := m.clearedFields[group.FieldCustomErrorCodes]
+	return ok
+}
+
+// ResetCustomErrorCodes resets all changes to the "custom_error_codes" field.
+func (m *GroupMutation) ResetCustomErrorCodes() {
+	m.custom_error_codes = nil
+	delete(m.clearedFields, group.FieldCustomErrorCodes)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -25097,7 +25749,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 55)
+	fields := make([]string, 0, 68)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25263,6 +25915,45 @@ func (m *GroupMutation) Fields() []string {
 	if m.profit_safety_buffer != nil {
 		fields = append(fields, group.FieldProfitSafetyBuffer)
 	}
+	if m.smart_scheduler_enabled != nil {
+		fields = append(fields, group.FieldSmartSchedulerEnabled)
+	}
+	if m.recovery_probe_enabled != nil {
+		fields = append(fields, group.FieldRecoveryProbeEnabled)
+	}
+	if m.recovery_probe_mode != nil {
+		fields = append(fields, group.FieldRecoveryProbeMode)
+	}
+	if m.recovery_probe_model != nil {
+		fields = append(fields, group.FieldRecoveryProbeModel)
+	}
+	if m.recovery_probe_interval_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeIntervalSeconds)
+	}
+	if m.recovery_probe_attempts_per_round != nil {
+		fields = append(fields, group.FieldRecoveryProbeAttemptsPerRound)
+	}
+	if m.recovery_probe_idle_threshold_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeIdleThresholdSeconds)
+	}
+	if m.recovery_probe_backoff_cap_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeBackoffCapSeconds)
+	}
+	if m.pool_mode_enabled != nil {
+		fields = append(fields, group.FieldPoolModeEnabled)
+	}
+	if m.pool_mode_retry_count != nil {
+		fields = append(fields, group.FieldPoolModeRetryCount)
+	}
+	if m.pool_mode_retry_status_codes != nil {
+		fields = append(fields, group.FieldPoolModeRetryStatusCodes)
+	}
+	if m.custom_error_codes_enabled != nil {
+		fields = append(fields, group.FieldCustomErrorCodesEnabled)
+	}
+	if m.custom_error_codes != nil {
+		fields = append(fields, group.FieldCustomErrorCodes)
+	}
 	return fields
 }
 
@@ -25381,6 +26072,32 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
 		return m.ProfitSafetyBuffer()
+	case group.FieldSmartSchedulerEnabled:
+		return m.SmartSchedulerEnabled()
+	case group.FieldRecoveryProbeEnabled:
+		return m.RecoveryProbeEnabled()
+	case group.FieldRecoveryProbeMode:
+		return m.RecoveryProbeMode()
+	case group.FieldRecoveryProbeModel:
+		return m.RecoveryProbeModel()
+	case group.FieldRecoveryProbeIntervalSeconds:
+		return m.RecoveryProbeIntervalSeconds()
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		return m.RecoveryProbeAttemptsPerRound()
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		return m.RecoveryProbeIdleThresholdSeconds()
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		return m.RecoveryProbeBackoffCapSeconds()
+	case group.FieldPoolModeEnabled:
+		return m.PoolModeEnabled()
+	case group.FieldPoolModeRetryCount:
+		return m.PoolModeRetryCount()
+	case group.FieldPoolModeRetryStatusCodes:
+		return m.PoolModeRetryStatusCodes()
+	case group.FieldCustomErrorCodesEnabled:
+		return m.CustomErrorCodesEnabled()
+	case group.FieldCustomErrorCodes:
+		return m.CustomErrorCodes()
 	}
 	return nil, false
 }
@@ -25500,6 +26217,32 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldProfitMinMargin(ctx)
 	case group.FieldProfitSafetyBuffer:
 		return m.OldProfitSafetyBuffer(ctx)
+	case group.FieldSmartSchedulerEnabled:
+		return m.OldSmartSchedulerEnabled(ctx)
+	case group.FieldRecoveryProbeEnabled:
+		return m.OldRecoveryProbeEnabled(ctx)
+	case group.FieldRecoveryProbeMode:
+		return m.OldRecoveryProbeMode(ctx)
+	case group.FieldRecoveryProbeModel:
+		return m.OldRecoveryProbeModel(ctx)
+	case group.FieldRecoveryProbeIntervalSeconds:
+		return m.OldRecoveryProbeIntervalSeconds(ctx)
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		return m.OldRecoveryProbeAttemptsPerRound(ctx)
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		return m.OldRecoveryProbeIdleThresholdSeconds(ctx)
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		return m.OldRecoveryProbeBackoffCapSeconds(ctx)
+	case group.FieldPoolModeEnabled:
+		return m.OldPoolModeEnabled(ctx)
+	case group.FieldPoolModeRetryCount:
+		return m.OldPoolModeRetryCount(ctx)
+	case group.FieldPoolModeRetryStatusCodes:
+		return m.OldPoolModeRetryStatusCodes(ctx)
+	case group.FieldCustomErrorCodesEnabled:
+		return m.OldCustomErrorCodesEnabled(ctx)
+	case group.FieldCustomErrorCodes:
+		return m.OldCustomErrorCodes(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -25894,6 +26637,97 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProfitSafetyBuffer(v)
 		return nil
+	case group.FieldSmartSchedulerEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSmartSchedulerEnabled(v)
+		return nil
+	case group.FieldRecoveryProbeEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeEnabled(v)
+		return nil
+	case group.FieldRecoveryProbeMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeMode(v)
+		return nil
+	case group.FieldRecoveryProbeModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeModel(v)
+		return nil
+	case group.FieldRecoveryProbeIntervalSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeIntervalSeconds(v)
+		return nil
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeAttemptsPerRound(v)
+		return nil
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeIdleThresholdSeconds(v)
+		return nil
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRecoveryProbeBackoffCapSeconds(v)
+		return nil
+	case group.FieldPoolModeEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPoolModeEnabled(v)
+		return nil
+	case group.FieldPoolModeRetryCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPoolModeRetryCount(v)
+		return nil
+	case group.FieldPoolModeRetryStatusCodes:
+		v, ok := value.(*[]int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPoolModeRetryStatusCodes(v)
+		return nil
+	case group.FieldCustomErrorCodesEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCustomErrorCodesEnabled(v)
+		return nil
+	case group.FieldCustomErrorCodes:
+		v, ok := value.(*[]int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCustomErrorCodes(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
 }
@@ -25971,6 +26805,21 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addprofit_safety_buffer != nil {
 		fields = append(fields, group.FieldProfitSafetyBuffer)
 	}
+	if m.addrecovery_probe_interval_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeIntervalSeconds)
+	}
+	if m.addrecovery_probe_attempts_per_round != nil {
+		fields = append(fields, group.FieldRecoveryProbeAttemptsPerRound)
+	}
+	if m.addrecovery_probe_idle_threshold_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeIdleThresholdSeconds)
+	}
+	if m.addrecovery_probe_backoff_cap_seconds != nil {
+		fields = append(fields, group.FieldRecoveryProbeBackoffCapSeconds)
+	}
+	if m.addpool_mode_retry_count != nil {
+		fields = append(fields, group.FieldPoolModeRetryCount)
+	}
 	return fields
 }
 
@@ -26025,6 +26874,16 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
 		return m.AddedProfitSafetyBuffer()
+	case group.FieldRecoveryProbeIntervalSeconds:
+		return m.AddedRecoveryProbeIntervalSeconds()
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		return m.AddedRecoveryProbeAttemptsPerRound()
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		return m.AddedRecoveryProbeIdleThresholdSeconds()
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		return m.AddedRecoveryProbeBackoffCapSeconds()
+	case group.FieldPoolModeRetryCount:
+		return m.AddedPoolModeRetryCount()
 	}
 	return nil, false
 }
@@ -26195,6 +27054,41 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddProfitSafetyBuffer(v)
 		return nil
+	case group.FieldRecoveryProbeIntervalSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecoveryProbeIntervalSeconds(v)
+		return nil
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecoveryProbeAttemptsPerRound(v)
+		return nil
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecoveryProbeIdleThresholdSeconds(v)
+		return nil
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRecoveryProbeBackoffCapSeconds(v)
+		return nil
+	case group.FieldPoolModeRetryCount:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddPoolModeRetryCount(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group numeric field %s", name)
 }
@@ -26250,6 +27144,21 @@ func (m *GroupMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
+	}
+	if m.FieldCleared(group.FieldPoolModeEnabled) {
+		fields = append(fields, group.FieldPoolModeEnabled)
+	}
+	if m.FieldCleared(group.FieldPoolModeRetryCount) {
+		fields = append(fields, group.FieldPoolModeRetryCount)
+	}
+	if m.FieldCleared(group.FieldPoolModeRetryStatusCodes) {
+		fields = append(fields, group.FieldPoolModeRetryStatusCodes)
+	}
+	if m.FieldCleared(group.FieldCustomErrorCodesEnabled) {
+		fields = append(fields, group.FieldCustomErrorCodesEnabled)
+	}
+	if m.FieldCleared(group.FieldCustomErrorCodes) {
+		fields = append(fields, group.FieldCustomErrorCodes)
 	}
 	return fields
 }
@@ -26312,6 +27221,21 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldPoolModeEnabled:
+		m.ClearPoolModeEnabled()
+		return nil
+	case group.FieldPoolModeRetryCount:
+		m.ClearPoolModeRetryCount()
+		return nil
+	case group.FieldPoolModeRetryStatusCodes:
+		m.ClearPoolModeRetryStatusCodes()
+		return nil
+	case group.FieldCustomErrorCodesEnabled:
+		m.ClearCustomErrorCodesEnabled()
+		return nil
+	case group.FieldCustomErrorCodes:
+		m.ClearCustomErrorCodes()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -26485,6 +27409,45 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldProfitSafetyBuffer:
 		m.ResetProfitSafetyBuffer()
+		return nil
+	case group.FieldSmartSchedulerEnabled:
+		m.ResetSmartSchedulerEnabled()
+		return nil
+	case group.FieldRecoveryProbeEnabled:
+		m.ResetRecoveryProbeEnabled()
+		return nil
+	case group.FieldRecoveryProbeMode:
+		m.ResetRecoveryProbeMode()
+		return nil
+	case group.FieldRecoveryProbeModel:
+		m.ResetRecoveryProbeModel()
+		return nil
+	case group.FieldRecoveryProbeIntervalSeconds:
+		m.ResetRecoveryProbeIntervalSeconds()
+		return nil
+	case group.FieldRecoveryProbeAttemptsPerRound:
+		m.ResetRecoveryProbeAttemptsPerRound()
+		return nil
+	case group.FieldRecoveryProbeIdleThresholdSeconds:
+		m.ResetRecoveryProbeIdleThresholdSeconds()
+		return nil
+	case group.FieldRecoveryProbeBackoffCapSeconds:
+		m.ResetRecoveryProbeBackoffCapSeconds()
+		return nil
+	case group.FieldPoolModeEnabled:
+		m.ResetPoolModeEnabled()
+		return nil
+	case group.FieldPoolModeRetryCount:
+		m.ResetPoolModeRetryCount()
+		return nil
+	case group.FieldPoolModeRetryStatusCodes:
+		m.ResetPoolModeRetryStatusCodes()
+		return nil
+	case group.FieldCustomErrorCodesEnabled:
+		m.ResetCustomErrorCodesEnabled()
+		return nil
+	case group.FieldCustomErrorCodes:
+		m.ResetCustomErrorCodes()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

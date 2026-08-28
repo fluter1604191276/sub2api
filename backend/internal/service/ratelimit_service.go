@@ -2023,6 +2023,8 @@ const upstreamModelNotFoundCooldown = 30 * time.Minute
 const upstreamModelNotFoundReason = "upstream_404_model_not_found"
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
+const upstreamDynamicModelCapabilityCooldown = 2 * time.Hour
+const upstreamDynamicModelCapabilityReason = "upstream_dynamic_model_capability_unavailable"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
@@ -2041,26 +2043,35 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false
 	}
-	var cooldown time.Duration
-	var reason string
-	switch {
-	case isUpstreamModelNotFoundError(statusCode, responseBody):
-		cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason
-	case isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody):
-		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
-	default:
-		return false
-	}
 	modelKey := modelRateLimitKeyForUpstreamModelNotFound(ctx, account, requestedModel)
 	if modelKey == "" {
 		return false
 	}
+	var cooldown time.Duration
+	var reason, scope string
+	switch {
+	case isUpstreamModelNotFoundError(statusCode, responseBody):
+		cooldown, reason, scope = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason, modelKey
+	case isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody):
+		cooldown, reason, scope = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason, modelKey
+	case isOpenAICodexPlanGatedModelError(statusCode, responseBody):
+		return false
+	case isUpstreamDynamicModelCapabilityError(statusCode, responseBody, requestedModel, modelKey):
+		cooldown = upstreamDynamicModelCapabilityCooldown
+		reason = upstreamDynamicModelCapabilityReason
+		scope = dynamicModelCapabilityRateLimitKey(smartSchedulerEndpointFromContext(ctx), modelKey)
+	default:
+		return false
+	}
+	if scope == "" {
+		return false
+	}
 	resetAt := time.Now().Add(cooldown)
-	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, modelKey, resetAt, reason); err != nil {
-		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "reason", reason, "error", err)
+	if err := s.accountRepo.SetModelRateLimit(ctx, account.ID, scope, resetAt, reason); err != nil {
+		slog.Warn("upstream_model_not_found_set_model_rate_limit_failed", "account_id", account.ID, "model", modelKey, "scope", scope, "reason", reason, "error", err)
 		return true
 	}
-	slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "reason", reason, "reset_at", resetAt)
+	slog.Info("upstream_model_not_found_model_rate_limited", "account_id", account.ID, "model", modelKey, "scope", scope, "reason", reason, "reset_at", resetAt)
 	return true
 }
 

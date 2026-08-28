@@ -125,6 +125,11 @@ type APIKeyAuthGroupSnapshot struct {
 	ProfitControlEnabled bool    `json:"profit_control_enabled"`
 	ProfitMinMargin      float64 `json:"profit_min_margin"`
 	ProfitSafetyBuffer   float64 `json:"profit_safety_buffer"`
+
+	// SmartSchedulerEnabled controls production candidate ordering and sticky
+	// review. Gateway hot paths materialize Group from this auth snapshot, so
+	// omitting it silently disables smart scheduling after the first cache fill.
+	SmartSchedulerEnabled bool `json:"smart_scheduler_enabled"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

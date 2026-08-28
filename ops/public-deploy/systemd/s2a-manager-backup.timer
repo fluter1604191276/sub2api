@@ -1,0 +1,10 @@
+[Unit]
+Description=Run S2A Manager deployment backup daily
+
+[Timer]
+OnCalendar=*-*-* 04:15:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

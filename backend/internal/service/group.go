@@ -108,6 +108,26 @@ type Group struct {
 	ProfitMinMargin      float64 // 最低毛利率，小数存储（0.30=30%）
 	ProfitSafetyBuffer   float64 // 安全缓冲，小数，与 margin 相加后从 D 中扣除
 
+	// SmartSchedulerEnabled 仅接管通过既有准入检查后的候选排序。
+	// 默认关闭；关闭或评分失败时必须完整保留原调度行为。
+	SmartSchedulerEnabled bool
+
+	// RecoveryProbe* 控制分组级恢复探针。探针只针对一小时没有真实使用记录的
+	// active + 手工可调度账号，结果按 group/account/model 隔离，不写入用户质量统计。
+	RecoveryProbeEnabled              bool
+	RecoveryProbeMode                 string
+	RecoveryProbeModel                string
+	RecoveryProbeIntervalSeconds      int
+	RecoveryProbeAttemptsPerRound     int
+	RecoveryProbeIdleThresholdSeconds int
+	RecoveryProbeBackoffCapSeconds    int
+
+	PoolModeEnabled          *bool
+	PoolModeRetryCount       *int
+	PoolModeRetryStatusCodes *[]int
+	CustomErrorCodesEnabled  *bool
+	CustomErrorCodes         *[]int
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 
@@ -115,6 +135,34 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+func (g *Group) RecoveryProbeConfig() GroupRecoveryProbeConfig {
+	if g == nil {
+		return GroupRecoveryProbeConfig{}
+	}
+	return GroupRecoveryProbeConfig{
+		Enabled:              g.RecoveryProbeEnabled,
+		Mode:                 g.RecoveryProbeMode,
+		Model:                g.RecoveryProbeModel,
+		IntervalSeconds:      g.RecoveryProbeIntervalSeconds,
+		AttemptsPerRound:     g.RecoveryProbeAttemptsPerRound,
+		IdleThresholdSeconds: g.RecoveryProbeIdleThresholdSeconds,
+		BackoffCapSeconds:    g.RecoveryProbeBackoffCapSeconds,
+	}
+}
+
+func (g *Group) ApplyRecoveryProbeConfig(cfg GroupRecoveryProbeConfig) {
+	if g == nil {
+		return
+	}
+	g.RecoveryProbeEnabled = cfg.Enabled
+	g.RecoveryProbeMode = cfg.Mode
+	g.RecoveryProbeModel = cfg.Model
+	g.RecoveryProbeIntervalSeconds = cfg.IntervalSeconds
+	g.RecoveryProbeAttemptsPerRound = cfg.AttemptsPerRound
+	g.RecoveryProbeIdleThresholdSeconds = cfg.IdleThresholdSeconds
+	g.RecoveryProbeBackoffCapSeconds = cfg.BackoffCapSeconds
 }
 
 func (g *Group) IsActive() bool {

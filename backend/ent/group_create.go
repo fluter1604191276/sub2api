@@ -767,6 +767,172 @@ func (_c *GroupCreate) SetNillableProfitSafetyBuffer(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (_c *GroupCreate) SetSmartSchedulerEnabled(v bool) *GroupCreate {
+	_c.mutation.SetSmartSchedulerEnabled(v)
+	return _c
+}
+
+// SetNillableSmartSchedulerEnabled sets the "smart_scheduler_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableSmartSchedulerEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetSmartSchedulerEnabled(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (_c *GroupCreate) SetRecoveryProbeEnabled(v bool) *GroupCreate {
+	_c.mutation.SetRecoveryProbeEnabled(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeEnabled sets the "recovery_probe_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeEnabled(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (_c *GroupCreate) SetRecoveryProbeMode(v string) *GroupCreate {
+	_c.mutation.SetRecoveryProbeMode(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeMode sets the "recovery_probe_mode" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeMode(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeMode(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (_c *GroupCreate) SetRecoveryProbeModel(v string) *GroupCreate {
+	_c.mutation.SetRecoveryProbeModel(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeModel sets the "recovery_probe_model" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeModel(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeModel(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (_c *GroupCreate) SetRecoveryProbeIntervalSeconds(v int) *GroupCreate {
+	_c.mutation.SetRecoveryProbeIntervalSeconds(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeIntervalSeconds(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeIntervalSeconds(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (_c *GroupCreate) SetRecoveryProbeAttemptsPerRound(v int) *GroupCreate {
+	_c.mutation.SetRecoveryProbeAttemptsPerRound(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeAttemptsPerRound(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeAttemptsPerRound(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (_c *GroupCreate) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupCreate {
+	_c.mutation.SetRecoveryProbeIdleThresholdSeconds(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeIdleThresholdSeconds(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeIdleThresholdSeconds(*v)
+	}
+	return _c
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (_c *GroupCreate) SetRecoveryProbeBackoffCapSeconds(v int) *GroupCreate {
+	_c.mutation.SetRecoveryProbeBackoffCapSeconds(v)
+	return _c
+}
+
+// SetNillableRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableRecoveryProbeBackoffCapSeconds(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetRecoveryProbeBackoffCapSeconds(*v)
+	}
+	return _c
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (_c *GroupCreate) SetPoolModeEnabled(v bool) *GroupCreate {
+	_c.mutation.SetPoolModeEnabled(v)
+	return _c
+}
+
+// SetNillablePoolModeEnabled sets the "pool_mode_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillablePoolModeEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetPoolModeEnabled(*v)
+	}
+	return _c
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (_c *GroupCreate) SetPoolModeRetryCount(v int) *GroupCreate {
+	_c.mutation.SetPoolModeRetryCount(v)
+	return _c
+}
+
+// SetNillablePoolModeRetryCount sets the "pool_mode_retry_count" field if the given value is not nil.
+func (_c *GroupCreate) SetNillablePoolModeRetryCount(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetPoolModeRetryCount(*v)
+	}
+	return _c
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (_c *GroupCreate) SetPoolModeRetryStatusCodes(v *[]int) *GroupCreate {
+	_c.mutation.SetPoolModeRetryStatusCodes(v)
+	return _c
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (_c *GroupCreate) SetCustomErrorCodesEnabled(v bool) *GroupCreate {
+	_c.mutation.SetCustomErrorCodesEnabled(v)
+	return _c
+}
+
+// SetNillableCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCustomErrorCodesEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetCustomErrorCodesEnabled(*v)
+	}
+	return _c
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (_c *GroupCreate) SetCustomErrorCodes(v *[]int) *GroupCreate {
+	_c.mutation.SetCustomErrorCodes(v)
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -1052,6 +1218,38 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultProfitSafetyBuffer
 		_c.mutation.SetProfitSafetyBuffer(v)
 	}
+	if _, ok := _c.mutation.SmartSchedulerEnabled(); !ok {
+		v := group.DefaultSmartSchedulerEnabled
+		_c.mutation.SetSmartSchedulerEnabled(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeEnabled(); !ok {
+		v := group.DefaultRecoveryProbeEnabled
+		_c.mutation.SetRecoveryProbeEnabled(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeMode(); !ok {
+		v := group.DefaultRecoveryProbeMode
+		_c.mutation.SetRecoveryProbeMode(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeModel(); !ok {
+		v := group.DefaultRecoveryProbeModel
+		_c.mutation.SetRecoveryProbeModel(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeIntervalSeconds(); !ok {
+		v := group.DefaultRecoveryProbeIntervalSeconds
+		_c.mutation.SetRecoveryProbeIntervalSeconds(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeAttemptsPerRound(); !ok {
+		v := group.DefaultRecoveryProbeAttemptsPerRound
+		_c.mutation.SetRecoveryProbeAttemptsPerRound(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeIdleThresholdSeconds(); !ok {
+		v := group.DefaultRecoveryProbeIdleThresholdSeconds
+		_c.mutation.SetRecoveryProbeIdleThresholdSeconds(v)
+	}
+	if _, ok := _c.mutation.RecoveryProbeBackoffCapSeconds(); !ok {
+		v := group.DefaultRecoveryProbeBackoffCapSeconds
+		_c.mutation.SetRecoveryProbeBackoffCapSeconds(v)
+	}
 	return nil
 }
 
@@ -1218,6 +1416,40 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ProfitSafetyBuffer(); !ok {
 		return &ValidationError{Name: "profit_safety_buffer", err: errors.New(`ent: missing required field "Group.profit_safety_buffer"`)}
+	}
+	if _, ok := _c.mutation.SmartSchedulerEnabled(); !ok {
+		return &ValidationError{Name: "smart_scheduler_enabled", err: errors.New(`ent: missing required field "Group.smart_scheduler_enabled"`)}
+	}
+	if _, ok := _c.mutation.RecoveryProbeEnabled(); !ok {
+		return &ValidationError{Name: "recovery_probe_enabled", err: errors.New(`ent: missing required field "Group.recovery_probe_enabled"`)}
+	}
+	if _, ok := _c.mutation.RecoveryProbeMode(); !ok {
+		return &ValidationError{Name: "recovery_probe_mode", err: errors.New(`ent: missing required field "Group.recovery_probe_mode"`)}
+	}
+	if v, ok := _c.mutation.RecoveryProbeMode(); ok {
+		if err := group.RecoveryProbeModeValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_mode", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_mode": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RecoveryProbeModel(); !ok {
+		return &ValidationError{Name: "recovery_probe_model", err: errors.New(`ent: missing required field "Group.recovery_probe_model"`)}
+	}
+	if v, ok := _c.mutation.RecoveryProbeModel(); ok {
+		if err := group.RecoveryProbeModelValidator(v); err != nil {
+			return &ValidationError{Name: "recovery_probe_model", err: fmt.Errorf(`ent: validator failed for field "Group.recovery_probe_model": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.RecoveryProbeIntervalSeconds(); !ok {
+		return &ValidationError{Name: "recovery_probe_interval_seconds", err: errors.New(`ent: missing required field "Group.recovery_probe_interval_seconds"`)}
+	}
+	if _, ok := _c.mutation.RecoveryProbeAttemptsPerRound(); !ok {
+		return &ValidationError{Name: "recovery_probe_attempts_per_round", err: errors.New(`ent: missing required field "Group.recovery_probe_attempts_per_round"`)}
+	}
+	if _, ok := _c.mutation.RecoveryProbeIdleThresholdSeconds(); !ok {
+		return &ValidationError{Name: "recovery_probe_idle_threshold_seconds", err: errors.New(`ent: missing required field "Group.recovery_probe_idle_threshold_seconds"`)}
+	}
+	if _, ok := _c.mutation.RecoveryProbeBackoffCapSeconds(); !ok {
+		return &ValidationError{Name: "recovery_probe_backoff_cap_seconds", err: errors.New(`ent: missing required field "Group.recovery_probe_backoff_cap_seconds"`)}
 	}
 	return nil
 }
@@ -1465,6 +1697,58 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ProfitSafetyBuffer(); ok {
 		_spec.SetField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
 		_node.ProfitSafetyBuffer = value
+	}
+	if value, ok := _c.mutation.SmartSchedulerEnabled(); ok {
+		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
+		_node.SmartSchedulerEnabled = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeEnabled(); ok {
+		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)
+		_node.RecoveryProbeEnabled = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeMode(); ok {
+		_spec.SetField(group.FieldRecoveryProbeMode, field.TypeString, value)
+		_node.RecoveryProbeMode = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeModel(); ok {
+		_spec.SetField(group.FieldRecoveryProbeModel, field.TypeString, value)
+		_node.RecoveryProbeModel = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeIntervalSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIntervalSeconds, field.TypeInt, value)
+		_node.RecoveryProbeIntervalSeconds = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeAttemptsPerRound(); ok {
+		_spec.SetField(group.FieldRecoveryProbeAttemptsPerRound, field.TypeInt, value)
+		_node.RecoveryProbeAttemptsPerRound = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeIdleThresholdSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeIdleThresholdSeconds, field.TypeInt, value)
+		_node.RecoveryProbeIdleThresholdSeconds = value
+	}
+	if value, ok := _c.mutation.RecoveryProbeBackoffCapSeconds(); ok {
+		_spec.SetField(group.FieldRecoveryProbeBackoffCapSeconds, field.TypeInt, value)
+		_node.RecoveryProbeBackoffCapSeconds = value
+	}
+	if value, ok := _c.mutation.PoolModeEnabled(); ok {
+		_spec.SetField(group.FieldPoolModeEnabled, field.TypeBool, value)
+		_node.PoolModeEnabled = &value
+	}
+	if value, ok := _c.mutation.PoolModeRetryCount(); ok {
+		_spec.SetField(group.FieldPoolModeRetryCount, field.TypeInt, value)
+		_node.PoolModeRetryCount = &value
+	}
+	if value, ok := _c.mutation.PoolModeRetryStatusCodes(); ok {
+		_spec.SetField(group.FieldPoolModeRetryStatusCodes, field.TypeJSON, value)
+		_node.PoolModeRetryStatusCodes = value
+	}
+	if value, ok := _c.mutation.CustomErrorCodesEnabled(); ok {
+		_spec.SetField(group.FieldCustomErrorCodesEnabled, field.TypeBool, value)
+		_node.CustomErrorCodesEnabled = &value
+	}
+	if value, ok := _c.mutation.CustomErrorCodes(); ok {
+		_spec.SetField(group.FieldCustomErrorCodes, field.TypeJSON, value)
+		_node.CustomErrorCodes = value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -2483,6 +2767,222 @@ func (u *GroupUpsert) UpdateProfitSafetyBuffer() *GroupUpsert {
 // AddProfitSafetyBuffer adds v to the "profit_safety_buffer" field.
 func (u *GroupUpsert) AddProfitSafetyBuffer(v float64) *GroupUpsert {
 	u.Add(group.FieldProfitSafetyBuffer, v)
+	return u
+}
+
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (u *GroupUpsert) SetSmartSchedulerEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldSmartSchedulerEnabled, v)
+	return u
+}
+
+// UpdateSmartSchedulerEnabled sets the "smart_scheduler_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateSmartSchedulerEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldSmartSchedulerEnabled)
+	return u
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (u *GroupUpsert) SetRecoveryProbeEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeEnabled, v)
+	return u
+}
+
+// UpdateRecoveryProbeEnabled sets the "recovery_probe_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeEnabled)
+	return u
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (u *GroupUpsert) SetRecoveryProbeMode(v string) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeMode, v)
+	return u
+}
+
+// UpdateRecoveryProbeMode sets the "recovery_probe_mode" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeMode() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeMode)
+	return u
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (u *GroupUpsert) SetRecoveryProbeModel(v string) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeModel, v)
+	return u
+}
+
+// UpdateRecoveryProbeModel sets the "recovery_probe_model" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeModel() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeModel)
+	return u
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsert) SetRecoveryProbeIntervalSeconds(v int) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeIntervalSeconds, v)
+	return u
+}
+
+// UpdateRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeIntervalSeconds() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeIntervalSeconds)
+	return u
+}
+
+// AddRecoveryProbeIntervalSeconds adds v to the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsert) AddRecoveryProbeIntervalSeconds(v int) *GroupUpsert {
+	u.Add(group.FieldRecoveryProbeIntervalSeconds, v)
+	return u
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsert) SetRecoveryProbeAttemptsPerRound(v int) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeAttemptsPerRound, v)
+	return u
+}
+
+// UpdateRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeAttemptsPerRound() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeAttemptsPerRound)
+	return u
+}
+
+// AddRecoveryProbeAttemptsPerRound adds v to the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsert) AddRecoveryProbeAttemptsPerRound(v int) *GroupUpsert {
+	u.Add(group.FieldRecoveryProbeAttemptsPerRound, v)
+	return u
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsert) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeIdleThresholdSeconds, v)
+	return u
+}
+
+// UpdateRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeIdleThresholdSeconds() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeIdleThresholdSeconds)
+	return u
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds v to the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsert) AddRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsert {
+	u.Add(group.FieldRecoveryProbeIdleThresholdSeconds, v)
+	return u
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsert) SetRecoveryProbeBackoffCapSeconds(v int) *GroupUpsert {
+	u.Set(group.FieldRecoveryProbeBackoffCapSeconds, v)
+	return u
+}
+
+// UpdateRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateRecoveryProbeBackoffCapSeconds() *GroupUpsert {
+	u.SetExcluded(group.FieldRecoveryProbeBackoffCapSeconds)
+	return u
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds v to the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsert) AddRecoveryProbeBackoffCapSeconds(v int) *GroupUpsert {
+	u.Add(group.FieldRecoveryProbeBackoffCapSeconds, v)
+	return u
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (u *GroupUpsert) SetPoolModeEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldPoolModeEnabled, v)
+	return u
+}
+
+// UpdatePoolModeEnabled sets the "pool_mode_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdatePoolModeEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldPoolModeEnabled)
+	return u
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (u *GroupUpsert) ClearPoolModeEnabled() *GroupUpsert {
+	u.SetNull(group.FieldPoolModeEnabled)
+	return u
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (u *GroupUpsert) SetPoolModeRetryCount(v int) *GroupUpsert {
+	u.Set(group.FieldPoolModeRetryCount, v)
+	return u
+}
+
+// UpdatePoolModeRetryCount sets the "pool_mode_retry_count" field to the value that was provided on create.
+func (u *GroupUpsert) UpdatePoolModeRetryCount() *GroupUpsert {
+	u.SetExcluded(group.FieldPoolModeRetryCount)
+	return u
+}
+
+// AddPoolModeRetryCount adds v to the "pool_mode_retry_count" field.
+func (u *GroupUpsert) AddPoolModeRetryCount(v int) *GroupUpsert {
+	u.Add(group.FieldPoolModeRetryCount, v)
+	return u
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (u *GroupUpsert) ClearPoolModeRetryCount() *GroupUpsert {
+	u.SetNull(group.FieldPoolModeRetryCount)
+	return u
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsert) SetPoolModeRetryStatusCodes(v *[]int) *GroupUpsert {
+	u.Set(group.FieldPoolModeRetryStatusCodes, v)
+	return u
+}
+
+// UpdatePoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field to the value that was provided on create.
+func (u *GroupUpsert) UpdatePoolModeRetryStatusCodes() *GroupUpsert {
+	u.SetExcluded(group.FieldPoolModeRetryStatusCodes)
+	return u
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsert) ClearPoolModeRetryStatusCodes() *GroupUpsert {
+	u.SetNull(group.FieldPoolModeRetryStatusCodes)
+	return u
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (u *GroupUpsert) SetCustomErrorCodesEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldCustomErrorCodesEnabled, v)
+	return u
+}
+
+// UpdateCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCustomErrorCodesEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldCustomErrorCodesEnabled)
+	return u
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (u *GroupUpsert) ClearCustomErrorCodesEnabled() *GroupUpsert {
+	u.SetNull(group.FieldCustomErrorCodesEnabled)
+	return u
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (u *GroupUpsert) SetCustomErrorCodes(v *[]int) *GroupUpsert {
+	u.Set(group.FieldCustomErrorCodes, v)
+	return u
+}
+
+// UpdateCustomErrorCodes sets the "custom_error_codes" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCustomErrorCodes() *GroupUpsert {
+	u.SetExcluded(group.FieldCustomErrorCodes)
+	return u
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (u *GroupUpsert) ClearCustomErrorCodes() *GroupUpsert {
+	u.SetNull(group.FieldCustomErrorCodes)
 	return u
 }
 
@@ -3539,6 +4039,258 @@ func (u *GroupUpsertOne) AddProfitSafetyBuffer(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateProfitSafetyBuffer() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitSafetyBuffer()
+	})
+}
+
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (u *GroupUpsertOne) SetSmartSchedulerEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSmartSchedulerEnabled(v)
+	})
+}
+
+// UpdateSmartSchedulerEnabled sets the "smart_scheduler_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateSmartSchedulerEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSmartSchedulerEnabled()
+	})
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (u *GroupUpsertOne) SetRecoveryProbeEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeEnabled(v)
+	})
+}
+
+// UpdateRecoveryProbeEnabled sets the "recovery_probe_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeEnabled()
+	})
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (u *GroupUpsertOne) SetRecoveryProbeMode(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeMode(v)
+	})
+}
+
+// UpdateRecoveryProbeMode sets the "recovery_probe_mode" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeMode() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeMode()
+	})
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (u *GroupUpsertOne) SetRecoveryProbeModel(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeModel(v)
+	})
+}
+
+// UpdateRecoveryProbeModel sets the "recovery_probe_model" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeModel() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeModel()
+	})
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsertOne) SetRecoveryProbeIntervalSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeIntervalSeconds(v)
+	})
+}
+
+// AddRecoveryProbeIntervalSeconds adds v to the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsertOne) AddRecoveryProbeIntervalSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeIntervalSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeIntervalSeconds() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeIntervalSeconds()
+	})
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsertOne) SetRecoveryProbeAttemptsPerRound(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeAttemptsPerRound(v)
+	})
+}
+
+// AddRecoveryProbeAttemptsPerRound adds v to the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsertOne) AddRecoveryProbeAttemptsPerRound(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeAttemptsPerRound(v)
+	})
+}
+
+// UpdateRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeAttemptsPerRound() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeAttemptsPerRound()
+	})
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsertOne) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeIdleThresholdSeconds(v)
+	})
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds v to the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsertOne) AddRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeIdleThresholdSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeIdleThresholdSeconds() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeIdleThresholdSeconds()
+	})
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsertOne) SetRecoveryProbeBackoffCapSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeBackoffCapSeconds(v)
+	})
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds v to the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsertOne) AddRecoveryProbeBackoffCapSeconds(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeBackoffCapSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateRecoveryProbeBackoffCapSeconds() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeBackoffCapSeconds()
+	})
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (u *GroupUpsertOne) SetPoolModeEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeEnabled(v)
+	})
+}
+
+// UpdatePoolModeEnabled sets the "pool_mode_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdatePoolModeEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeEnabled()
+	})
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (u *GroupUpsertOne) ClearPoolModeEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeEnabled()
+	})
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (u *GroupUpsertOne) SetPoolModeRetryCount(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeRetryCount(v)
+	})
+}
+
+// AddPoolModeRetryCount adds v to the "pool_mode_retry_count" field.
+func (u *GroupUpsertOne) AddPoolModeRetryCount(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddPoolModeRetryCount(v)
+	})
+}
+
+// UpdatePoolModeRetryCount sets the "pool_mode_retry_count" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdatePoolModeRetryCount() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeRetryCount()
+	})
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (u *GroupUpsertOne) ClearPoolModeRetryCount() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeRetryCount()
+	})
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsertOne) SetPoolModeRetryStatusCodes(v *[]int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeRetryStatusCodes(v)
+	})
+}
+
+// UpdatePoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdatePoolModeRetryStatusCodes() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeRetryStatusCodes()
+	})
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsertOne) ClearPoolModeRetryStatusCodes() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeRetryStatusCodes()
+	})
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (u *GroupUpsertOne) SetCustomErrorCodesEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCustomErrorCodesEnabled(v)
+	})
+}
+
+// UpdateCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCustomErrorCodesEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCustomErrorCodesEnabled()
+	})
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (u *GroupUpsertOne) ClearCustomErrorCodesEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCustomErrorCodesEnabled()
+	})
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (u *GroupUpsertOne) SetCustomErrorCodes(v *[]int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCustomErrorCodes(v)
+	})
+}
+
+// UpdateCustomErrorCodes sets the "custom_error_codes" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCustomErrorCodes() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCustomErrorCodes()
+	})
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (u *GroupUpsertOne) ClearCustomErrorCodes() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCustomErrorCodes()
 	})
 }
 
@@ -4761,6 +5513,258 @@ func (u *GroupUpsertBulk) AddProfitSafetyBuffer(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateProfitSafetyBuffer() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitSafetyBuffer()
+	})
+}
+
+// SetSmartSchedulerEnabled sets the "smart_scheduler_enabled" field.
+func (u *GroupUpsertBulk) SetSmartSchedulerEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetSmartSchedulerEnabled(v)
+	})
+}
+
+// UpdateSmartSchedulerEnabled sets the "smart_scheduler_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateSmartSchedulerEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateSmartSchedulerEnabled()
+	})
+}
+
+// SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeEnabled(v)
+	})
+}
+
+// UpdateRecoveryProbeEnabled sets the "recovery_probe_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeEnabled()
+	})
+}
+
+// SetRecoveryProbeMode sets the "recovery_probe_mode" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeMode(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeMode(v)
+	})
+}
+
+// UpdateRecoveryProbeMode sets the "recovery_probe_mode" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeMode() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeMode()
+	})
+}
+
+// SetRecoveryProbeModel sets the "recovery_probe_model" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeModel(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeModel(v)
+	})
+}
+
+// UpdateRecoveryProbeModel sets the "recovery_probe_model" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeModel() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeModel()
+	})
+}
+
+// SetRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeIntervalSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeIntervalSeconds(v)
+	})
+}
+
+// AddRecoveryProbeIntervalSeconds adds v to the "recovery_probe_interval_seconds" field.
+func (u *GroupUpsertBulk) AddRecoveryProbeIntervalSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeIntervalSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeIntervalSeconds sets the "recovery_probe_interval_seconds" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeIntervalSeconds() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeIntervalSeconds()
+	})
+}
+
+// SetRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeAttemptsPerRound(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeAttemptsPerRound(v)
+	})
+}
+
+// AddRecoveryProbeAttemptsPerRound adds v to the "recovery_probe_attempts_per_round" field.
+func (u *GroupUpsertBulk) AddRecoveryProbeAttemptsPerRound(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeAttemptsPerRound(v)
+	})
+}
+
+// UpdateRecoveryProbeAttemptsPerRound sets the "recovery_probe_attempts_per_round" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeAttemptsPerRound() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeAttemptsPerRound()
+	})
+}
+
+// SetRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeIdleThresholdSeconds(v)
+	})
+}
+
+// AddRecoveryProbeIdleThresholdSeconds adds v to the "recovery_probe_idle_threshold_seconds" field.
+func (u *GroupUpsertBulk) AddRecoveryProbeIdleThresholdSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeIdleThresholdSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeIdleThresholdSeconds sets the "recovery_probe_idle_threshold_seconds" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeIdleThresholdSeconds() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeIdleThresholdSeconds()
+	})
+}
+
+// SetRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsertBulk) SetRecoveryProbeBackoffCapSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetRecoveryProbeBackoffCapSeconds(v)
+	})
+}
+
+// AddRecoveryProbeBackoffCapSeconds adds v to the "recovery_probe_backoff_cap_seconds" field.
+func (u *GroupUpsertBulk) AddRecoveryProbeBackoffCapSeconds(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddRecoveryProbeBackoffCapSeconds(v)
+	})
+}
+
+// UpdateRecoveryProbeBackoffCapSeconds sets the "recovery_probe_backoff_cap_seconds" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateRecoveryProbeBackoffCapSeconds() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateRecoveryProbeBackoffCapSeconds()
+	})
+}
+
+// SetPoolModeEnabled sets the "pool_mode_enabled" field.
+func (u *GroupUpsertBulk) SetPoolModeEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeEnabled(v)
+	})
+}
+
+// UpdatePoolModeEnabled sets the "pool_mode_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdatePoolModeEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeEnabled()
+	})
+}
+
+// ClearPoolModeEnabled clears the value of the "pool_mode_enabled" field.
+func (u *GroupUpsertBulk) ClearPoolModeEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeEnabled()
+	})
+}
+
+// SetPoolModeRetryCount sets the "pool_mode_retry_count" field.
+func (u *GroupUpsertBulk) SetPoolModeRetryCount(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeRetryCount(v)
+	})
+}
+
+// AddPoolModeRetryCount adds v to the "pool_mode_retry_count" field.
+func (u *GroupUpsertBulk) AddPoolModeRetryCount(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddPoolModeRetryCount(v)
+	})
+}
+
+// UpdatePoolModeRetryCount sets the "pool_mode_retry_count" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdatePoolModeRetryCount() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeRetryCount()
+	})
+}
+
+// ClearPoolModeRetryCount clears the value of the "pool_mode_retry_count" field.
+func (u *GroupUpsertBulk) ClearPoolModeRetryCount() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeRetryCount()
+	})
+}
+
+// SetPoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsertBulk) SetPoolModeRetryStatusCodes(v *[]int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetPoolModeRetryStatusCodes(v)
+	})
+}
+
+// UpdatePoolModeRetryStatusCodes sets the "pool_mode_retry_status_codes" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdatePoolModeRetryStatusCodes() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdatePoolModeRetryStatusCodes()
+	})
+}
+
+// ClearPoolModeRetryStatusCodes clears the value of the "pool_mode_retry_status_codes" field.
+func (u *GroupUpsertBulk) ClearPoolModeRetryStatusCodes() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearPoolModeRetryStatusCodes()
+	})
+}
+
+// SetCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field.
+func (u *GroupUpsertBulk) SetCustomErrorCodesEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCustomErrorCodesEnabled(v)
+	})
+}
+
+// UpdateCustomErrorCodesEnabled sets the "custom_error_codes_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCustomErrorCodesEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCustomErrorCodesEnabled()
+	})
+}
+
+// ClearCustomErrorCodesEnabled clears the value of the "custom_error_codes_enabled" field.
+func (u *GroupUpsertBulk) ClearCustomErrorCodesEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCustomErrorCodesEnabled()
+	})
+}
+
+// SetCustomErrorCodes sets the "custom_error_codes" field.
+func (u *GroupUpsertBulk) SetCustomErrorCodes(v *[]int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCustomErrorCodes(v)
+	})
+}
+
+// UpdateCustomErrorCodes sets the "custom_error_codes" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCustomErrorCodes() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCustomErrorCodes()
+	})
+}
+
+// ClearCustomErrorCodes clears the value of the "custom_error_codes" field.
+func (u *GroupUpsertBulk) ClearCustomErrorCodes() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCustomErrorCodes()
 	})
 }
 

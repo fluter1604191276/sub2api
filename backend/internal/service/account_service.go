@@ -17,6 +17,15 @@ var (
 
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
+const AccountAvailableModelsExtraKey = "available_models"
+
+// AccountModelFilterRepository is an optional repository extension used by the
+// admin account list. Keeping it separate avoids widening the scheduler-facing
+// AccountRepository contract for an administrative-only filter.
+type AccountModelFilterRepository interface {
+	ListWithModelFilter(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]Account, *pagination.PaginationResult, error)
+	ListAllWithModelFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]Account, error)
+}
 
 // OAuthRefreshPageOptions describes one bounded, cursor-stable scan of OAuth
 // accounts. Candidate platforms are supplied by TokenRefreshService's refresher

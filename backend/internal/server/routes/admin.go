@@ -322,6 +322,8 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		groups.GET("/capacity-summary", h.Admin.Group.GetCapacitySummary)
 		groups.POST("/quality-stats/batch", h.Admin.Group.GetBatchQualityStats)
 		groups.GET("/live-capability", h.Admin.Group.GetLiveCapability)
+		groups.GET("/recovery-probe/billing", h.Admin.Group.GetRecoveryProbeBilling)
+		groups.PUT("/recovery-probe/billing", h.Admin.Group.UpdateRecoveryProbeBilling)
 		groups.PUT("/sort-order", h.Admin.Group.UpdateSortOrder)
 		groups.GET("/:id/models-list-candidates", h.Admin.Group.GetModelsListCandidates)
 		groups.GET("/:id/smart-scheduler/preview", h.Admin.Group.GetSmartSchedulerPreview)
@@ -349,6 +351,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
+		accounts.GET("/models", h.Admin.Account.ListSyncedModels)
+		accounts.POST("/sync/models", h.Admin.Account.SyncAllModels)
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
 		accounts.PUT("/upstream-billing-probe/settings", h.Admin.Account.UpdateUpstreamBillingProbeSettings)
 		accounts.POST("/upstream-billing-probe/batch", h.Admin.Account.ProbeUpstreamBillingBatch)

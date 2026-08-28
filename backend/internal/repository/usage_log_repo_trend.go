@@ -717,7 +717,7 @@ func (r *usageLogRepository) GetAllGroupUsageSummary(ctx context.Context, todayS
 			COALESCE(SUM(ul.actual_cost), 0) AS total_cost,
 			COALESCE(SUM(CASE WHEN ul.created_at >= $1 THEN ul.actual_cost ELSE 0 END), 0) AS today_cost
 		FROM groups g
-		LEFT JOIN usage_logs ul ON ul.group_id = g.id
+		LEFT JOIN usage_logs ul ON ul.group_id = g.id AND ul.request_type <> 6
 		GROUP BY g.id
 	`
 

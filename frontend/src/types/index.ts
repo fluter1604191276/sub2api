@@ -580,6 +580,21 @@ export interface Group {
   allow_messages_dispatch?: boolean
   // OpenAI Live 接口开关
   allow_live: boolean
+  // 分组级智能调度开关；关闭时使用原调度
+  smart_scheduler_enabled: boolean
+  // 智能调度恢复探针配置；关闭时不主动探测隔离账号。
+  recovery_probe_enabled?: boolean
+  recovery_probe_mode?: 'manual' | 'smart' | string
+  recovery_probe_model?: string
+  recovery_probe_interval_seconds?: number
+  recovery_probe_attempts_per_round?: number
+  recovery_probe_idle_threshold_seconds?: number
+  recovery_probe_backoff_cap_seconds?: number
+  pool_mode_enabled?: boolean | null
+  pool_mode_retry_count?: number | null
+  pool_mode_retry_status_codes?: number[] | null
+  custom_error_codes_enabled?: boolean | null
+  custom_error_codes?: number[] | null
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
@@ -782,6 +797,19 @@ export interface CreateGroupRequest {
   models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
+  smart_scheduler_enabled?: boolean
+  recovery_probe_enabled?: boolean
+  recovery_probe_mode?: 'manual' | 'smart' | string
+  recovery_probe_model?: string
+  recovery_probe_interval_seconds?: number
+  recovery_probe_attempts_per_round?: number
+  recovery_probe_idle_threshold_seconds?: number
+  recovery_probe_backoff_cap_seconds?: number
+  pool_mode_enabled?: boolean | null
+  pool_mode_retry_count?: number | null
+  pool_mode_retry_status_codes?: number[] | null
+  custom_error_codes_enabled?: boolean | null
+  custom_error_codes?: number[] | null
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   model_routing?: Record<string, number[]> | null
@@ -837,6 +865,19 @@ export interface UpdateGroupRequest {
   models_list_config?: ModelsListConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
+  smart_scheduler_enabled?: boolean
+  recovery_probe_enabled?: boolean
+  recovery_probe_mode?: 'manual' | 'smart' | string
+  recovery_probe_model?: string
+  recovery_probe_interval_seconds?: number
+  recovery_probe_attempts_per_round?: number
+  recovery_probe_idle_threshold_seconds?: number
+  recovery_probe_backoff_cap_seconds?: number
+  pool_mode_enabled?: boolean | null
+  pool_mode_retry_count?: number | null
+  pool_mode_retry_status_codes?: number[] | null
+  custom_error_codes_enabled?: boolean | null
+  custom_error_codes?: number[] | null
   default_mapped_model?: string
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   model_routing?: Record<string, number[]> | null
@@ -1264,9 +1305,25 @@ export interface AccountQualityActivity {
   last_error_at: string | null
 }
 
+export type AccountUnifiedQualitySource =
+  | 'realtime_blend'
+  | 'realtime_only'
+  | 'historical'
+  | 'unscored'
+
+export interface AccountUnifiedQuality {
+  score: number | null
+  grade?: string
+  confidence: number
+  source: AccountUnifiedQualitySource
+  sample_count: number
+  first_token_sample_count: number
+}
+
 export interface AccountQualityStats extends AccountQualityPeriod {
   recent_1h: AccountQualityPeriod
   activity: AccountQualityActivity
+  unified: AccountUnifiedQuality
   score_version: number
 }
 
@@ -1277,7 +1334,75 @@ export interface SmartSchedulerLoad {
   max_concurrency: number
 }
 
-export interface SmartSchedulerPreviewItem {
+export interface SmartSchedulerErrorStats {
+  error_successful_request_count: number
+  provider_failure_count: number
+  provider_transient_failure_count: number
+  rate_limit_count: number
+  client_excluded_count: number
+  platform_failure_count: number
+  uncertain_failure_count: number
+  recent_provider_failure_count: number
+  recent_provider_transient_count: number
+  recent_rate_limit_count: number
+  recent_uncertain_failure_count: number
+  immediate_provider_failure_count: number
+  immediate_provider_transient_count: number
+  immediate_rate_limit_count: number
+  immediate_uncertain_failure_count: number
+}
+
+export interface SmartSchedulerRecoveryProbeStatus {
+  group_id: number
+  account_id: number
+  model: string
+  status: 'pending' | 'probing' | 'warm' | 'eligible' | 'failed' | 'paused' | string
+  consecutive_successes: number
+  consecutive_failures: number
+  next_probe_at?: string | null
+  last_probe_at?: string | null
+  last_success_at?: string | null
+  last_failure_at?: string | null
+  last_error_class?: 'transient' | 'permanent' | string
+  last_error?: string
+  latency_ms: number
+  probe_count: number
+  updated_at: string
+}
+
+export interface GroupRecoveryProbeBillingSettings {
+  enabled: boolean
+  owner_user_id: number
+  api_key_id: number
+  api_key_name?: string
+  daily_budget_usd: number
+  per_attempt_limit_usd: number
+}
+
+export interface GroupRecoveryProbeBillingSummary {
+  today_settled_cost: number
+  today_budget_cost: number
+  today_attempts: number
+  today_settled: number
+  today_unavailable: number
+  today_failed: number
+}
+
+export interface GroupRecoveryProbeBillingStatus {
+  settings: GroupRecoveryProbeBillingSettings
+  global_today: GroupRecoveryProbeBillingSummary
+  group_today: GroupRecoveryProbeBillingSummary
+  remaining_usd: number
+}
+
+export interface UpdateGroupRecoveryProbeBillingRequest {
+  enabled: boolean
+  api_key_id: number
+  daily_budget_usd: number
+  per_attempt_limit_usd: number
+}
+
+export interface SmartSchedulerPreviewItem extends SmartSchedulerErrorStats {
   rank: number
   account_id: number
   account_name: string
@@ -1295,26 +1420,17 @@ export interface SmartSchedulerPreviewItem {
   evidence_scope: 'model_endpoint' | 'model' | 'endpoint' | 'account' | string
   evidence_fallback: boolean
   exploration_candidate: boolean
+  probe_bootstrap: boolean
   quality_1h: AccountQualityPeriod
   quality_24h: AccountQualityPeriod
   activity: AccountQualityActivity
-  error_successful_request_count: number
-  provider_failure_count: number
-  provider_transient_failure_count: number
-  rate_limit_count: number
-  client_excluded_count: number
-  platform_failure_count: number
-  uncertain_failure_count: number
-  recent_provider_failure_count?: number
-  recent_provider_transient_count?: number
-  recent_rate_limit_count?: number
-  recent_uncertain_failure_count?: number
   cost_multiplier: number
   load?: SmartSchedulerLoad | null
   model_supported: boolean
   endpoint_supported: boolean
   model_mapping?: string
   last_used_at?: string | null
+  recovery_probe?: SmartSchedulerRecoveryProbeStatus | null
 }
 
 export interface SmartSchedulerPreview {
@@ -1331,6 +1447,7 @@ export interface SmartSchedulerPreview {
   exploration_rate: number
   production_control_active: boolean
   load_snapshot_available: boolean
+  capacity_limited_count_1h: number
   warnings: string[]
   items: SmartSchedulerPreviewItem[]
 }
@@ -1684,7 +1801,7 @@ export interface CodexSessionImportResult {
 // ==================== Usage & Redeem Types ====================
 
 export type RedeemCodeType = 'balance' | 'concurrency' | 'subscription' | 'invitation'
-export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber' | 'live'
+export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber' | 'live' | 'probe'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 

@@ -72,18 +72,24 @@ type OpenAIAccountScheduleRequest struct {
 	SessionHash             string
 	StickyAccountID         int64
 	StickyPreviousAccountID int64
-	StickyWeighted          bool
-	SubscriptionPriority    bool
-	PreserveStickyBinding   bool
-	PreviousResponseID      string
-	PreviousResponseCanMove bool
-	UseUpstreamTokenCost    bool
-	RequestedModel          string
-	RequiredTransport       OpenAIUpstreamTransport
-	RequiredCapability      OpenAIEndpointCapability
-	RequiredImageCapability OpenAIImagesCapability
-	RequireCompact          bool
-	ExcludedIDs             map[int64]struct{}
+	SmartPreferredAccountID int64
+	// SmartPreferredStrict is set only after a sticky review approves a
+	// challenger. The challenger is tried first; later candidates are a
+	// deliberate fallback for slot pressure or a fresh compatibility failure.
+	SmartPreferredStrict        bool
+	StickyWeighted              bool
+	SubscriptionPriority        bool
+	PreserveStickyBinding       bool
+	PreviousResponseID          string
+	PreviousResponseCanMove     bool
+	UseUpstreamTokenCost        bool
+	RequestedModel              string
+	RequiredTransport           OpenAIUpstreamTransport
+	RequiredCapability          OpenAIEndpointCapability
+	RequiredImageCapability     OpenAIImagesCapability
+	RequireCompact              bool
+	ExcludedIDs                 map[int64]struct{}
+	allowModelTransientFailOpen bool
 }
 
 type OpenAIAccountScheduleDecision struct {
@@ -996,9 +1002,44 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
 		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
+		var smartPreferred []openAIAccountCandidateScore
+		if req.SmartPreferredAccountID > 0 {
+			remaining := make([]openAIAccountCandidateScore, 0, len(pool))
+			for _, candidate := range pool {
+				if candidate.account != nil && candidate.account.ID == req.SmartPreferredAccountID {
+					smartPreferred = append(smartPreferred, candidate)
+					continue
+				}
+				remaining = append(remaining, candidate)
+			}
+			if len(smartPreferred) > 0 {
+				restLimit := groupTopK - 1
+				if req.SmartPreferredStrict {
+					// A reviewed challenger must not disappear because Top-K or
+					// weighted ordering changed between review and selection.
+					restLimit = len(remaining)
+				}
+				if restLimit > 0 {
+					if req.SmartPreferredStrict {
+						sort.SliceStable(remaining, func(i, j int) bool {
+							return isOpenAIAccountCandidateBetter(remaining[i], remaining[j])
+						})
+						smartPreferred = append(smartPreferred, remaining...)
+					} else {
+						smartPreferred = append(smartPreferred, selectTopKOpenAICandidates(remaining, restLimit)...)
+					}
+				}
+			}
+		}
+		ranked := smartPreferred
+		if len(ranked) == 0 {
+			ranked = selectTopKOpenAICandidates(pool, groupTopK)
+		}
 		var primary []openAIAccountCandidateScore
-		if req.StickyWeighted {
+		if len(smartPreferred) > 0 {
+			primary = append(primary, smartPreferred[0])
+			primary = append(primary, buildOpenAIWeightedSelectionOrder(smartPreferred[1:], req)...)
+		} else if req.StickyWeighted {
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 				if stickyID <= 0 {
 					continue
@@ -1055,10 +1096,33 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(plan.staleSnapshotCompactRetry) > 0 && s.service.schedulerSnapshot != nil {
 			selectionOrder = append(selectionOrder, sortOpenAICompactRetryCandidates(plan.staleSnapshotCompactRetry)...)
 		}
+		if req.SmartPreferredStrict && req.SmartPreferredAccountID > 0 {
+			selectionOrder = promoteStrictSmartPreferredCandidate(selectionOrder, req.SmartPreferredAccountID)
+		}
 		return selectionOrder
 	}
 
 	return buildSelectionOrder(plan.candidates)
+}
+
+func promoteStrictSmartPreferredCandidate(order []openAIAccountCandidateScore, accountID int64) []openAIAccountCandidateScore {
+	if accountID <= 0 || len(order) < 2 {
+		return order
+	}
+	preferredIndex := -1
+	for i, candidate := range order {
+		if candidate.account != nil && candidate.account.ID == accountID {
+			preferredIndex = i
+			break
+		}
+	}
+	if preferredIndex <= 0 {
+		return order
+	}
+	preferred := order[preferredIndex]
+	copy(order[1:preferredIndex+1], order[:preferredIndex])
+	order[0] = preferred
+	return order
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1339,6 +1403,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
 	filtered := make([]*Account, 0, len(accounts))
+	modelBlocked := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
 		account := &accounts[i]
@@ -1356,10 +1421,11 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("platform_mismatch")
 			continue
 		}
-		if s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+		if s.service.isOpenAIAccountRuntimeBlocked(account) {
 			filterStats.exclude("runtime_blocked")
 			continue
 		}
+		modelRuntimeBlocked := s.service.isOpenAIAccountModelRuntimeBlocked(account, req.RequestedModel)
 		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
 		if schedGroup != nil && schedGroup.RequirePrivacySet && !account.IsPrivacySet() {
 			s.service.BlockAccountScheduling(account, time.Time{}, "privacy_not_set")
@@ -1368,7 +1434,9 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("privacy_not_set")
 			continue
 		}
-		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, req); !compatible {
+		compatReq := req
+		compatReq.allowModelTransientFailOpen = modelRuntimeBlocked
+		if compatible, reason := s.isAccountRequestCompatibleReason(ctx, account, compatReq); !compatible {
 			filterStats.exclude(reason)
 			continue
 		}
@@ -1376,11 +1444,36 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("transport_incompatible")
 			continue
 		}
+		if modelRuntimeBlocked {
+			filterStats.exclude("model_runtime_blocked")
+			modelBlocked = append(modelBlocked, account)
+			continue
+		}
 		filtered = append(filtered, account)
 		loadReq = append(loadReq, AccountWithConcurrency{
 			ID:             account.ID,
 			MaxConcurrency: account.EffectiveLoadFactor(),
 		})
+	}
+	if len(filtered) == 0 && len(modelBlocked) > 0 {
+		now := time.Now()
+		sort.SliceStable(modelBlocked, func(i, j int) bool {
+			iRemaining, iFailures, _ := s.service.openAIAccountModelRuntimeBlockInfo(modelBlocked[i], req.RequestedModel, now)
+			jRemaining, jFailures, _ := s.service.openAIAccountModelRuntimeBlockInfo(modelBlocked[j], req.RequestedModel, now)
+			if iRemaining != jRemaining {
+				return iRemaining < jRemaining
+			}
+			if iFailures != jFailures {
+				return iFailures < jFailures
+			}
+			return modelBlocked[i].ID < modelBlocked[j].ID
+		})
+		filtered = modelBlocked
+		req.allowModelTransientFailOpen = true
+		req.SmartPreferredAccountID = modelBlocked[0].ID
+		req.SmartPreferredStrict = true
+		ctx = withOpenAIModelTransientFailOpen(ctx)
+		loadReq = buildOpenAIAccountLoadRequest(filtered)
 	}
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
@@ -1676,8 +1769,11 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
-	if s != nil && s.service != nil && s.service.isOpenAIAccountRequestRuntimeBlocked(account, req.RequestedModel) {
+	if s != nil && s.service != nil && s.service.isOpenAIAccountRuntimeBlocked(account) {
 		return false, "runtime_blocked"
+	}
+	if s != nil && s.service != nil && !req.allowModelTransientFailOpen && !openAIModelTransientFailOpenFromContext(ctx) && s.service.isOpenAIAccountModelRuntimeBlocked(account, req.RequestedModel) {
+		return false, "model_runtime_blocked"
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
@@ -2179,6 +2275,32 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			stickyAccountID = accountID
 		}
 	}
+	smartPreferredAccountID := int64(0)
+	smartPreferredStrict := false
+	if stickyAccountID > 0 {
+		_, excluded := excludedIDs[stickyAccountID]
+		if !excluded {
+			if stickyAccount, stickyErr := s.getSchedulableAccount(ctx, stickyAccountID); stickyErr == nil && stickyAccount != nil {
+				review := s.reviewOpenAISmartStickySession(ctx, openAISmartStickyReviewRequest{
+					GroupID:                 groupID,
+					SessionHash:             sessionHash,
+					Platform:                platform,
+					RequestedModel:          requestedModel,
+					ExcludedIDs:             excludedIDs,
+					RequireCompact:          requireCompact,
+					RequiredTransport:       requiredTransport,
+					RequiredCapability:      requiredCapability,
+					RequiredImageCapability: requiredImageCapability,
+				}, stickyAccountID)
+				if review.Switch {
+					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					stickyAccountID = 0
+					smartPreferredAccountID = review.ChallengerID
+					smartPreferredStrict = review.ChallengerID > 0
+				}
+			}
+		}
+	}
 	stickyWeighted := s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
 	subscriptionPriority := s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx)
 	stickyPreviousAccountID := int64(0)
@@ -2192,6 +2314,8 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		SessionHash:             sessionHash,
 		StickyAccountID:         stickyAccountID,
 		StickyPreviousAccountID: stickyPreviousAccountID,
+		SmartPreferredAccountID: smartPreferredAccountID,
+		SmartPreferredStrict:    smartPreferredStrict,
 		StickyWeighted:          stickyWeighted,
 		SubscriptionPriority:    subscriptionPriority,
 		PreviousResponseID:      previousResponseID,

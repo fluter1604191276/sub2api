@@ -1193,6 +1193,42 @@ func init() {
 	groupDescProfitSafetyBuffer := groupFields[51].Descriptor()
 	// group.DefaultProfitSafetyBuffer holds the default value on creation for the profit_safety_buffer field.
 	group.DefaultProfitSafetyBuffer = groupDescProfitSafetyBuffer.Default.(float64)
+	// groupDescSmartSchedulerEnabled is the schema descriptor for smart_scheduler_enabled field.
+	groupDescSmartSchedulerEnabled := groupFields[52].Descriptor()
+	// group.DefaultSmartSchedulerEnabled holds the default value on creation for the smart_scheduler_enabled field.
+	group.DefaultSmartSchedulerEnabled = groupDescSmartSchedulerEnabled.Default.(bool)
+	// groupDescRecoveryProbeEnabled is the schema descriptor for recovery_probe_enabled field.
+	groupDescRecoveryProbeEnabled := groupFields[53].Descriptor()
+	// group.DefaultRecoveryProbeEnabled holds the default value on creation for the recovery_probe_enabled field.
+	group.DefaultRecoveryProbeEnabled = groupDescRecoveryProbeEnabled.Default.(bool)
+	// groupDescRecoveryProbeMode is the schema descriptor for recovery_probe_mode field.
+	groupDescRecoveryProbeMode := groupFields[54].Descriptor()
+	// group.DefaultRecoveryProbeMode holds the default value on creation for the recovery_probe_mode field.
+	group.DefaultRecoveryProbeMode = groupDescRecoveryProbeMode.Default.(string)
+	// group.RecoveryProbeModeValidator is a validator for the "recovery_probe_mode" field. It is called by the builders before save.
+	group.RecoveryProbeModeValidator = groupDescRecoveryProbeMode.Validators[0].(func(string) error)
+	// groupDescRecoveryProbeModel is the schema descriptor for recovery_probe_model field.
+	groupDescRecoveryProbeModel := groupFields[55].Descriptor()
+	// group.DefaultRecoveryProbeModel holds the default value on creation for the recovery_probe_model field.
+	group.DefaultRecoveryProbeModel = groupDescRecoveryProbeModel.Default.(string)
+	// group.RecoveryProbeModelValidator is a validator for the "recovery_probe_model" field. It is called by the builders before save.
+	group.RecoveryProbeModelValidator = groupDescRecoveryProbeModel.Validators[0].(func(string) error)
+	// groupDescRecoveryProbeIntervalSeconds is the schema descriptor for recovery_probe_interval_seconds field.
+	groupDescRecoveryProbeIntervalSeconds := groupFields[56].Descriptor()
+	// group.DefaultRecoveryProbeIntervalSeconds holds the default value on creation for the recovery_probe_interval_seconds field.
+	group.DefaultRecoveryProbeIntervalSeconds = groupDescRecoveryProbeIntervalSeconds.Default.(int)
+	// groupDescRecoveryProbeAttemptsPerRound is the schema descriptor for recovery_probe_attempts_per_round field.
+	groupDescRecoveryProbeAttemptsPerRound := groupFields[57].Descriptor()
+	// group.DefaultRecoveryProbeAttemptsPerRound holds the default value on creation for the recovery_probe_attempts_per_round field.
+	group.DefaultRecoveryProbeAttemptsPerRound = groupDescRecoveryProbeAttemptsPerRound.Default.(int)
+	// groupDescRecoveryProbeIdleThresholdSeconds is the schema descriptor for recovery_probe_idle_threshold_seconds field.
+	groupDescRecoveryProbeIdleThresholdSeconds := groupFields[58].Descriptor()
+	// group.DefaultRecoveryProbeIdleThresholdSeconds holds the default value on creation for the recovery_probe_idle_threshold_seconds field.
+	group.DefaultRecoveryProbeIdleThresholdSeconds = groupDescRecoveryProbeIdleThresholdSeconds.Default.(int)
+	// groupDescRecoveryProbeBackoffCapSeconds is the schema descriptor for recovery_probe_backoff_cap_seconds field.
+	groupDescRecoveryProbeBackoffCapSeconds := groupFields[59].Descriptor()
+	// group.DefaultRecoveryProbeBackoffCapSeconds holds the default value on creation for the recovery_probe_backoff_cap_seconds field.
+	group.DefaultRecoveryProbeBackoffCapSeconds = groupDescRecoveryProbeBackoffCapSeconds.Default.(int)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()
 	idempotencyrecordMixinFields0 := idempotencyrecordMixin[0].Fields()
 	_ = idempotencyrecordMixinFields0

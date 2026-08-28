@@ -659,6 +659,48 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
+        <div class="border-t pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.form.smartScheduler") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.formHint") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="create-smart-scheduler-toggle"
+              @click="
+                createForm.smart_scheduler_enabled =
+                  !createForm.smart_scheduler_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
+                createForm.smart_scheduler_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.smart_scheduler_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {{
+              createForm.smart_scheduler_enabled
+                ? t("admin.groups.smartScheduler.formEnabled")
+                : t("admin.groups.smartScheduler.formDisabled")
+            }}
+          </p>
+        </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
           ref="createReasoningEffortPolicyRef"
@@ -2261,6 +2303,48 @@
             :placeholder="t('admin.groups.form.rpmLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
+        </div>
+        <div class="border-t pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.form.smartScheduler") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.formHint") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="edit-smart-scheduler-toggle"
+              @click="
+                editForm.smart_scheduler_enabled =
+                  !editForm.smart_scheduler_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
+                editForm.smart_scheduler_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.smart_scheduler_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {{
+              editForm.smart_scheduler_enabled
+                ? t("admin.groups.smartScheduler.formEnabled")
+                : t("admin.groups.smartScheduler.formDisabled")
+            }}
+          </p>
         </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
@@ -4194,6 +4278,369 @@
           {{ t("admin.groups.smartScheduler.description") }}
         </div>
 
+        <div
+          v-if="smartSchedulerGroup"
+          class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-dark-600 dark:bg-dark-800 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <div class="font-medium text-gray-800 dark:text-gray-100">
+              {{
+                smartSchedulerControlActive
+                  ? t("admin.groups.smartScheduler.enabledStatus")
+                  : t("admin.groups.smartScheduler.disabledStatus")
+              }}
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.toggleHint") }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="smart-scheduler-preview-toggle"
+            class="btn btn-secondary flex-shrink-0"
+            :disabled="smartSchedulerToggleLoading"
+            @click="toggleSmartSchedulerFromPreview"
+          >
+            {{
+              smartSchedulerControlActive
+                ? t("admin.groups.smartScheduler.disableAction")
+                : t("admin.groups.smartScheduler.enableAction")
+            }}
+          </button>
+        </div>
+
+        <section
+          v-if="smartSchedulerGroup"
+          class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-dark-600 dark:bg-dark-900"
+        >
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div class="font-medium text-gray-900 dark:text-white">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.title") }}
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.description") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="recovery-probe-toggle"
+              class="btn btn-secondary flex-shrink-0"
+              :aria-pressed="recoveryProbeEnabled"
+              @click="recoveryProbeEnabled = !recoveryProbeEnabled"
+            >
+              {{
+                recoveryProbeEnabled
+                  ? t("admin.groups.smartScheduler.recoveryProbe.enabled")
+                  : t("admin.groups.smartScheduler.recoveryProbe.disabled")
+              }}
+            </button>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.mode") }}</label>
+              <Select
+                v-model="recoveryProbeMode"
+                :options="recoveryProbeModeOptions"
+                data-testid="recovery-probe-mode"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.testModel") }}</label>
+              <input
+                v-model.trim="recoveryProbeModel"
+                data-testid="recovery-probe-test-model"
+                type="text"
+                class="input"
+                :required="recoveryProbeEnabled"
+                :placeholder="t('admin.groups.smartScheduler.recoveryProbe.testModelPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.fixedInterval") }}</label>
+              <input
+                v-model.number="recoveryProbeIntervalSeconds"
+                data-testid="recovery-probe-fixed-interval"
+                type="number"
+                min="60"
+                max="86400"
+                step="60"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.probesPerRound") }}</label>
+              <input
+                v-model.number="recoveryProbeAttemptsPerRound"
+                data-testid="recovery-probe-probes-per-round"
+                type="number"
+                min="1"
+                max="5"
+                step="1"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.smartBackoffMax") }}</label>
+              <input
+                v-model.number="recoveryProbeBackoffCapSeconds"
+                data-testid="recovery-probe-smart-backoff-max"
+                type="number"
+                min="60"
+                max="86400"
+                step="60"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.idleThreshold") }}</label>
+              <div class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-800 dark:text-gray-300">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.idleThresholdFixed") }}
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ recoveryProbeSummary }}
+            </p>
+            <button
+              type="button"
+              data-testid="recovery-probe-save"
+              class="btn btn-primary flex-shrink-0"
+              :disabled="recoveryProbeSaving || (recoveryProbeEnabled && !recoveryProbeModel.trim())"
+              @click="saveRecoveryProbeSettings"
+            >
+              {{ recoveryProbeSaving ? t("common.saving") : t("common.save") }}
+            </button>
+          </div>
+
+          <div
+            class="space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600"
+            data-testid="recovery-probe-billing"
+          >
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.title") }}
+                </div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.description") }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary flex-shrink-0"
+                data-testid="recovery-probe-billing-toggle"
+                :aria-pressed="recoveryProbeBillingEnabled"
+                :disabled="recoveryProbeBillingLoading"
+                @click="recoveryProbeBillingEnabled = !recoveryProbeBillingEnabled"
+              >
+                {{
+                  recoveryProbeBillingEnabled
+                    ? t("admin.groups.smartScheduler.recoveryProbe.billing.enabled")
+                    : t("admin.groups.smartScheduler.recoveryProbe.billing.disabled")
+                }}
+              </button>
+            </div>
+
+            <div v-if="recoveryProbeBillingLoading" class="py-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("common.loading") }}
+            </div>
+            <template v-else>
+              <div class="grid gap-3 md:grid-cols-3">
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.apiKey") }}</label>
+                  <select
+                    v-model.number="recoveryProbeBillingAPIKeyID"
+                    class="input"
+                    data-testid="recovery-probe-billing-api-key"
+                  >
+                    <option :value="0">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.selectAPIKey") }}</option>
+                    <option
+                      v-if="recoveryProbeBillingSelectedKeyMissing"
+                      :value="recoveryProbeBillingAPIKeyID"
+                    >
+                      {{ recoveryProbeBillingStatus?.settings.api_key_name || `#${recoveryProbeBillingAPIKeyID}` }}
+                    </option>
+                    <option v-for="apiKey in recoveryProbeBillingAPIKeys" :key="apiKey.id" :value="apiKey.id">
+                      {{ apiKey.name }} ({{ apiKey.status }})
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.dailyBudget") }}</label>
+                  <input
+                    v-model.number="recoveryProbeBillingDailyBudgetUSD"
+                    type="number"
+                    min="0.000001"
+                    max="1000"
+                    step="0.01"
+                    class="input"
+                    data-testid="recovery-probe-billing-daily-budget"
+                  />
+                </div>
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.perAttemptLimit") }}</label>
+                  <input
+                    v-model.number="recoveryProbeBillingPerAttemptLimitUSD"
+                    type="number"
+                    min="0.000001"
+                    :max="recoveryProbeBillingDailyBudgetUSD"
+                    step="0.001"
+                    class="input"
+                    data-testid="recovery-probe-billing-per-attempt-limit"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 border-y border-gray-200 text-xs dark:border-dark-600 lg:grid-cols-5">
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.globalToday") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.global_today.today_settled_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.groupToday") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.group_today.today_settled_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.budgetUsed") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.global_today.today_budget_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.remaining") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.remaining_usd) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.settlementSummary") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">
+                    {{ recoveryProbeBillingSettlementSummary }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.hint") }}
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-primary flex-shrink-0"
+                  :disabled="recoveryProbeBillingSaving || (recoveryProbeBillingEnabled && recoveryProbeBillingAPIKeyID <= 0)"
+                  data-testid="recovery-probe-billing-save"
+                  @click="saveRecoveryProbeBilling"
+                >
+                  {{ recoveryProbeBillingSaving ? t("common.saving") : t("common.save") }}
+                </button>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <section
+          v-if="smartSchedulerGroup"
+          class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-dark-600 dark:bg-dark-900"
+          data-testid="group-pool-error-policy"
+        >
+          <div>
+            <div class="font-medium text-gray-900 dark:text-white">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.title") }}
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.description") }}
+            </p>
+            <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.precedence") }}
+            </p>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.poolMode") }}</label>
+              <Select
+                v-model="poolModeEnabledPolicy"
+                :options="poolModeEnabledPolicyOptions"
+                data-testid="group-pool-mode-policy"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.retryCount") }}</label>
+              <input
+                v-model.number="poolModeRetryCount"
+                data-testid="group-pool-retry-count"
+                type="number"
+                min="0"
+                max="10"
+                step="1"
+                class="input"
+                :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.inheritPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodes") }}</label>
+              <div class="flex gap-2">
+                <Select
+                  v-model="poolModeRetryStatusCodesPolicy"
+                  class="w-32 flex-shrink-0"
+                  :options="policyListOptions"
+                  data-testid="group-pool-retry-status-policy"
+                />
+                <input
+                  v-model="poolModeRetryStatusCodes"
+                  data-testid="group-pool-retry-status-codes"
+                  type="text"
+                  class="input min-w-0"
+                  :disabled="poolModeRetryStatusCodesPolicy === 'inherit'"
+                  :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodesPlaceholder')"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.customEnabled") }}</label>
+              <Select
+                v-model="customErrorCodesEnabledPolicy"
+                :options="customErrorEnabledPolicyOptions"
+                data-testid="group-custom-error-enabled-policy"
+              />
+            </div>
+            <div class="md:col-span-2">
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.customCodes") }}</label>
+              <div class="flex gap-2">
+                <Select
+                  v-model="customErrorCodesPolicy"
+                  class="w-32 flex-shrink-0"
+                  :options="policyListOptions"
+                  data-testid="group-custom-error-policy"
+                />
+                <input
+                  v-model="customErrorCodes"
+                  data-testid="group-custom-error-codes"
+                  type="text"
+                  class="input min-w-0"
+                  :disabled="customErrorCodesPolicy === 'inherit'"
+                  :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.customCodesPlaceholder')"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.hint") }}
+            </p>
+            <button
+              type="button"
+              data-testid="group-pool-error-policy-save"
+              class="btn btn-primary flex-shrink-0"
+              :disabled="poolErrorPolicySaving"
+              @click="savePoolErrorPolicy"
+            >
+              {{ poolErrorPolicySaving ? t("common.saving") : t("common.save") }}
+            </button>
+          </div>
+        </section>
+
         <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_auto] md:items-end">
           <div>
             <label class="input-label">{{
@@ -4269,17 +4716,25 @@
           </div>
 
           <div
-            v-if="!smartSchedulerPreview.load_snapshot_available"
+            v-if="smartSchedulerPreview.warnings.length > 0"
             class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
           >
-            <div class="font-medium">{{ t("admin.groups.smartScheduler.loadSnapshotWarning") }}</div>
+            <div v-if="!smartSchedulerPreview.load_snapshot_available" class="font-medium">{{ t("admin.groups.smartScheduler.loadSnapshotWarning") }}</div>
             <div
               v-for="warning in smartSchedulerPreview.warnings"
               :key="warning"
-              class="mt-1 text-xs text-amber-800 dark:text-amber-200"
+              class="text-xs text-amber-800 dark:text-amber-200"
+              :class="{ 'mt-1': !smartSchedulerPreview.load_snapshot_available }"
             >
               {{ warning }}
             </div>
+          </div>
+
+          <div
+            v-if="smartSchedulerPreview.capacity_limited_count_1h > 0"
+            class="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-900/20 dark:text-orange-100"
+          >
+            {{ t("admin.groups.smartScheduler.capacityLimitedSummary", { count: smartSchedulerPreview.capacity_limited_count_1h }) }}
           </div>
 
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -4328,11 +4783,12 @@
               {{ t("admin.groups.smartScheduler.noEvidence") }}
             </div>
             <div v-else class="overflow-x-auto">
-              <table class="min-w-[1100px] w-full text-left text-xs">
+              <table class="min-w-[1220px] w-full text-left text-xs">
                 <thead class="bg-white text-gray-500 dark:bg-dark-900 dark:text-gray-400">
                   <tr>
                     <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.rank") }}</th>
                     <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.account") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.recoveryProbe.accountStatus") }}</th>
                     <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.score") }}</th>
                     <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality1h") }}</th>
                     <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality24h") }}</th>
@@ -4357,6 +4813,15 @@
                         <span class="badge badge-gray">{{ smartSchedulerEvidenceLabel(item.evidence_scope) }}</span>
                         <span v-if="item.evidence_fallback" class="badge badge-warning">{{ t("admin.groups.smartScheduler.fallbackEvidence") }}</span>
                         <span v-if="item.exploration_candidate" class="badge badge-primary">{{ t("admin.groups.smartScheduler.explorationCandidate") }}</span>
+                        <span v-if="item.probe_bootstrap" class="badge badge-success">{{ t("admin.groups.smartScheduler.probeBootstrap") }}</span>
+                      </div>
+                    </td>
+                    <td class="max-w-[14rem] px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <div class="font-medium text-gray-800 dark:text-gray-200">
+                        {{ recoveryProbeAccountStatusLabel(item) }}
+                      </div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">
+                        {{ recoveryProbeAccountSummary(item) }}
                       </div>
                     </td>
                     <td class="px-3 py-3">
@@ -4378,6 +4843,7 @@
                     </td>
                     <td class="max-w-[16rem] px-3 py-3 text-gray-600 dark:text-gray-300">
                       <div>{{ t("admin.groups.smartScheduler.failureSummary", { provider: item.provider_failure_count, transient: item.provider_transient_failure_count, rateLimit: item.rate_limit_count }) }}</div>
+                      <div v-if="smartSchedulerImmediateFailureCount(item) > 0" class="mt-1 text-amber-700 dark:text-amber-300">{{ t("admin.groups.smartScheduler.immediateFailureSummary", { provider: item.immediate_provider_failure_count, transient: item.immediate_provider_transient_count, rateLimit: item.immediate_rate_limit_count, uncertain: item.immediate_uncertain_failure_count }) }}</div>
                       <div class="mt-1">{{ t("admin.groups.smartScheduler.clientSummary", { client: item.client_excluded_count, platform: item.platform_failure_count, uncertain: item.uncertain_failure_count }) }}</div>
                     </td>
                     <td class="whitespace-nowrap px-3 py-3 font-medium text-gray-700 dark:text-gray-300">{{ item.cost_multiplier.toFixed(4) }}x</td>
@@ -4441,19 +4907,23 @@ import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
+import { keysAPI } from "@/api/keys";
 import type {
   AccountQualityWindow,
   AccountQualityStats,
   AdminGroup,
+  ApiKey,
   CompositeModelRoute,
   CompositeModelRouteInput,
   CompositeRouteDecision,
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  GroupRecoveryProbeBillingStatus,
   SmartSchedulerPreview,
   SmartSchedulerPreviewItem,
   SubscriptionType,
+  UpdateGroupRequest,
 } from "@/types";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
@@ -5011,9 +5481,35 @@ const showSmartSchedulerModal = ref(false);
 const smartSchedulerGroup = ref<AdminGroup | null>(null);
 const smartSchedulerPreview = ref<SmartSchedulerPreview | null>(null);
 const smartSchedulerLoading = ref(false);
+const smartSchedulerToggleLoading = ref(false);
+const recoveryProbeSaving = ref(false);
+const recoveryProbeBillingLoading = ref(false);
+const recoveryProbeBillingSaving = ref(false);
+const recoveryProbeBillingStatus = ref<GroupRecoveryProbeBillingStatus | null>(null);
+const recoveryProbeBillingAPIKeys = ref<ApiKey[]>([]);
+const recoveryProbeBillingEnabled = ref(false);
+const recoveryProbeBillingAPIKeyID = ref(0);
+const recoveryProbeBillingDailyBudgetUSD = ref(1);
+const recoveryProbeBillingPerAttemptLimitUSD = ref(0.01);
+const poolErrorPolicySaving = ref(false);
 const smartSchedulerModel = ref("");
 const smartSchedulerEndpoint = ref("any");
 const smartSchedulerReqSeq = ref(0);
+const recoveryProbeEnabled = ref(false);
+const recoveryProbeMode = ref<"manual" | "smart">("manual");
+const recoveryProbeModel = ref("");
+const recoveryProbeIntervalSeconds = ref(900);
+const recoveryProbeAttemptsPerRound = ref(1);
+const recoveryProbeBackoffCapSeconds = ref(1800);
+type GroupPolicyOverride = "inherit" | "enabled" | "disabled";
+type GroupPolicyListMode = "inherit" | "override";
+const poolModeEnabledPolicy = ref<GroupPolicyOverride>("inherit");
+const poolModeRetryCount = ref<number | null>(null);
+const poolModeRetryStatusCodesPolicy = ref<GroupPolicyListMode>("inherit");
+const poolModeRetryStatusCodes = ref("");
+const customErrorCodesEnabledPolicy = ref<GroupPolicyOverride>("inherit");
+const customErrorCodesPolicy = ref<GroupPolicyListMode>("inherit");
+const customErrorCodes = ref("");
 
 const smartSchedulerEndpointOptions = computed(() => [
   { value: "any", label: t("admin.groups.smartScheduler.anyEndpoint") },
@@ -5023,7 +5519,70 @@ const smartSchedulerEndpointOptions = computed(() => [
   },
   { value: "responses", label: t("admin.groups.smartScheduler.responses") },
   { value: "messages", label: t("admin.groups.smartScheduler.messages") },
+  { value: "gemini_models", label: t("admin.groups.smartScheduler.geminiModels") },
 ]);
+
+const recoveryProbeModeOptions = computed(() => [
+  { value: "manual", label: t("admin.groups.smartScheduler.recoveryProbe.modes.manual") },
+  { value: "smart", label: t("admin.groups.smartScheduler.recoveryProbe.modes.smart") },
+]);
+
+const poolModeEnabledPolicyOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "enabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.enabled") },
+  { value: "disabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.disabled") },
+]);
+
+const customErrorEnabledPolicyOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "enabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.enabled") },
+  { value: "disabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.disabled") },
+]);
+
+const policyListOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "override", label: t("admin.groups.smartScheduler.poolErrorPolicy.override") },
+]);
+
+const smartSchedulerControlActive = computed(() =>
+  smartSchedulerPreview.value?.production_control_active
+  ?? smartSchedulerGroup.value?.smart_scheduler_enabled
+  ?? false,
+);
+
+const recoveryProbeSummary = computed(() => {
+  const modeLabel = recoveryProbeModeOptions.value.find(
+    (option) => option.value === recoveryProbeMode.value,
+  )?.label ?? recoveryProbeMode.value;
+  const model = recoveryProbeModel.value.trim()
+    || t("admin.groups.smartScheduler.recoveryProbe.noTestModel");
+  return t("admin.groups.smartScheduler.recoveryProbe.summary", {
+    status: recoveryProbeEnabled.value
+      ? t("admin.groups.smartScheduler.recoveryProbe.enabled")
+      : t("admin.groups.smartScheduler.recoveryProbe.disabled"),
+    mode: modeLabel,
+    model,
+    interval: formatRecoveryProbeDuration(recoveryProbeIntervalSeconds.value),
+    count: normalizeRecoveryProbeInteger(recoveryProbeAttemptsPerRound.value, 1),
+    backoff: formatRecoveryProbeDuration(recoveryProbeBackoffCapSeconds.value),
+  });
+});
+
+const recoveryProbeBillingSelectedKeyMissing = computed(() =>
+  recoveryProbeBillingAPIKeyID.value > 0
+  && !recoveryProbeBillingAPIKeys.value.some(
+    (apiKey) => apiKey.id === recoveryProbeBillingAPIKeyID.value,
+  ),
+);
+
+const recoveryProbeBillingSettlementSummary = computed(() => {
+  const summary = recoveryProbeBillingStatus.value?.global_today;
+  return t("admin.groups.smartScheduler.recoveryProbe.billing.settlementCounts", {
+    settled: summary?.today_settled ?? 0,
+    unavailable: summary?.today_unavailable ?? 0,
+    failed: summary?.today_failed ?? 0,
+  });
+});
 
 const smartSchedulerPools = computed(() => {
   const items = smartSchedulerPreview.value?.items ?? [];
@@ -5129,6 +5688,8 @@ const createForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
+  // 分组级智能调度开关；默认关闭，关闭时使用原调度
+  smart_scheduler_enabled: false,
   max_reasoning_effort: "",
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
 });
@@ -5484,6 +6045,8 @@ const editForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
+  // 分组级智能调度开关；关闭时使用原调度
+  smart_scheduler_enabled: false,
   max_reasoning_effort: "",
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
 });
@@ -5956,6 +6519,7 @@ const closeCreateModal = () => {
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
   createForm.rpm_limit = 0;
+  createForm.smart_scheduler_enabled = false;
   createForm.max_reasoning_effort = "";
   createForm.reasoning_effort_mappings = [];
   createReasoningEffortPolicyRef.value?.resetValidation();
@@ -6187,6 +6751,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
+  editForm.smart_scheduler_enabled = group.smart_scheduler_enabled ?? false;
   editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
     group.platform,
     group.max_reasoning_effort,
@@ -6216,6 +6781,7 @@ const closeEditModal = () => {
   editReasoningEffortPolicyRef.value?.resetValidation();
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
+  editForm.smart_scheduler_enabled = false;
   editForm.peak_rate_enabled = false;
   editForm.peak_start = "";
   editForm.peak_end = "";
@@ -6388,13 +6954,270 @@ const handleRPMOverrides = (group: AdminGroup) => {
   showRPMOverridesModal.value = true;
 };
 
+const normalizeRecoveryProbeInteger = (
+  value: number | string | null | undefined,
+  fallback: number,
+): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.max(1, Math.round(numeric));
+};
+
+const formatRecoveryProbeDuration = (
+  value: number | string | null | undefined,
+): string => {
+  const seconds = normalizeRecoveryProbeInteger(value, 0);
+  if (seconds <= 0) return "0s";
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600}h`;
+  }
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}m`;
+  }
+  return `${seconds}s`;
+};
+
+const formatRecoveryProbeUSD = (value: number | null | undefined): string => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "$0.000000";
+  return `$${numeric.toFixed(6)}`;
+};
+
+const applyRecoveryProbeBillingStatus = (
+  status: GroupRecoveryProbeBillingStatus,
+) => {
+  recoveryProbeBillingStatus.value = status;
+  recoveryProbeBillingEnabled.value = status.settings.enabled;
+  recoveryProbeBillingAPIKeyID.value = status.settings.api_key_id || 0;
+  recoveryProbeBillingDailyBudgetUSD.value =
+    status.settings.daily_budget_usd || 1;
+  recoveryProbeBillingPerAttemptLimitUSD.value =
+    status.settings.per_attempt_limit_usd || 0.01;
+};
+
+const loadRecoveryProbeBilling = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeBillingLoading.value) return;
+
+  recoveryProbeBillingLoading.value = true;
+  try {
+    const [status, apiKeys] = await Promise.all([
+      adminAPI.groups.getRecoveryProbeBilling(group.id),
+      keysAPI.list(1, 100),
+    ]);
+    applyRecoveryProbeBillingStatus(status);
+    recoveryProbeBillingAPIKeys.value = apiKeys.items ?? [];
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.smartScheduler.recoveryProbe.billing.loadFailed"),
+      ),
+    );
+  } finally {
+    recoveryProbeBillingLoading.value = false;
+  }
+};
+
+const saveRecoveryProbeBilling = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeBillingSaving.value) return;
+
+  recoveryProbeBillingSaving.value = true;
+  try {
+    await adminAPI.groups.updateRecoveryProbeBilling({
+      enabled: recoveryProbeBillingEnabled.value,
+      api_key_id: recoveryProbeBillingAPIKeyID.value,
+      daily_budget_usd: Number(recoveryProbeBillingDailyBudgetUSD.value),
+      per_attempt_limit_usd: Number(
+        recoveryProbeBillingPerAttemptLimitUSD.value,
+      ),
+    });
+    const status = await adminAPI.groups.getRecoveryProbeBilling(group.id);
+    applyRecoveryProbeBillingStatus(status);
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.recoveryProbe.billing.saveSuccess"),
+    );
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.smartScheduler.recoveryProbe.billing.saveFailed"),
+      ),
+    );
+  } finally {
+    recoveryProbeBillingSaving.value = false;
+  }
+};
+
+const setRecoveryProbeFormFromGroup = (group: AdminGroup) => {
+  recoveryProbeEnabled.value = group.recovery_probe_enabled ?? false;
+  recoveryProbeMode.value =
+    group.recovery_probe_mode === "smart" ? "smart" : "manual";
+  recoveryProbeModel.value = group.recovery_probe_model ?? "";
+  recoveryProbeIntervalSeconds.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_interval_seconds,
+    900,
+  );
+  recoveryProbeAttemptsPerRound.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_attempts_per_round,
+    1,
+  );
+  recoveryProbeBackoffCapSeconds.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_backoff_cap_seconds,
+    1800,
+  );
+};
+
+const formatPolicyCodes = (codes: number[] | null | undefined): string =>
+  Array.isArray(codes) ? codes.join(", ") : "";
+
+const parsePolicyCodes = (raw: string): number[] => {
+  const values = raw
+    .split(/[\s,;]+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value >= 100 && value <= 599);
+  return [...new Set(values)].sort((a, b) => a - b);
+};
+
+const setPoolErrorPolicyFormFromGroup = (group: AdminGroup) => {
+  poolModeEnabledPolicy.value =
+    group.pool_mode_enabled == null
+      ? "inherit"
+      : group.pool_mode_enabled
+        ? "enabled"
+        : "disabled";
+  poolModeRetryCount.value = group.pool_mode_retry_count ?? null;
+  poolModeRetryStatusCodesPolicy.value =
+    group.pool_mode_retry_status_codes == null ? "inherit" : "override";
+  poolModeRetryStatusCodes.value = formatPolicyCodes(group.pool_mode_retry_status_codes);
+  customErrorCodesEnabledPolicy.value =
+    group.custom_error_codes_enabled == null
+      ? "inherit"
+      : group.custom_error_codes_enabled
+        ? "enabled"
+        : "disabled";
+  customErrorCodesPolicy.value =
+    group.custom_error_codes == null ? "inherit" : "override";
+  customErrorCodes.value = formatPolicyCodes(group.custom_error_codes);
+};
+
+const poolErrorPolicyPayload = (): UpdateGroupRequest => ({
+  pool_mode_enabled:
+    poolModeEnabledPolicy.value === "inherit"
+      ? null
+      : poolModeEnabledPolicy.value === "enabled",
+  pool_mode_retry_count:
+    poolModeRetryCount.value == null
+      ? null
+      : normalizeRecoveryProbeInteger(poolModeRetryCount.value, 0),
+  pool_mode_retry_status_codes:
+    poolModeRetryStatusCodesPolicy.value === "inherit"
+      ? null
+      : parsePolicyCodes(poolModeRetryStatusCodes.value),
+  custom_error_codes_enabled:
+    customErrorCodesEnabledPolicy.value === "inherit"
+      ? null
+      : customErrorCodesEnabledPolicy.value === "enabled",
+  custom_error_codes:
+    customErrorCodesPolicy.value === "inherit"
+      ? null
+      : parsePolicyCodes(customErrorCodes.value),
+});
+
+const recoveryProbePayload = (): UpdateGroupRequest => ({
+  recovery_probe_enabled: recoveryProbeEnabled.value,
+  recovery_probe_mode: recoveryProbeMode.value,
+  recovery_probe_model: recoveryProbeModel.value.trim(),
+  recovery_probe_interval_seconds: normalizeRecoveryProbeInteger(
+    recoveryProbeIntervalSeconds.value,
+    900,
+  ),
+  recovery_probe_attempts_per_round: normalizeRecoveryProbeInteger(
+    recoveryProbeAttemptsPerRound.value,
+    1,
+  ),
+  recovery_probe_idle_threshold_seconds: 3600,
+  recovery_probe_backoff_cap_seconds: normalizeRecoveryProbeInteger(
+    recoveryProbeBackoffCapSeconds.value,
+    1800,
+  ),
+});
+
+const applyRecoveryProbeSettings = (
+  groupID: number,
+  payload: UpdateGroupRequest,
+) => {
+  const group = groups.value.find((item) => item.id === groupID);
+  if (group) {
+    Object.assign(group, payload);
+  }
+  if (smartSchedulerGroup.value?.id === groupID) {
+    smartSchedulerGroup.value = {
+      ...smartSchedulerGroup.value,
+      ...payload,
+    };
+  }
+};
+
+const saveRecoveryProbeSettings = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeSaving.value) return;
+
+  const payload = recoveryProbePayload();
+  recoveryProbeSaving.value = true;
+  try {
+    await adminAPI.groups.update(group.id, payload);
+    applyRecoveryProbeSettings(group.id, payload);
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.recoveryProbe.saveSuccess"),
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating recovery probe setting:", error);
+  } finally {
+    recoveryProbeSaving.value = false;
+  }
+};
+
+const savePoolErrorPolicy = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || poolErrorPolicySaving.value) return;
+
+  const payload = poolErrorPolicyPayload();
+  poolErrorPolicySaving.value = true;
+  try {
+    await adminAPI.groups.update(group.id, payload);
+    const updated = groups.value.find((item) => item.id === group.id);
+    if (updated) Object.assign(updated, payload);
+    smartSchedulerGroup.value = { ...group, ...payload };
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.poolErrorPolicy.saveSuccess"),
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating group pool error policy:", error);
+  } finally {
+    poolErrorPolicySaving.value = false;
+  }
+};
+
 const handleSmartScheduler = async (group: AdminGroup) => {
   smartSchedulerGroup.value = group;
   smartSchedulerPreview.value = null;
   smartSchedulerModel.value = "";
   smartSchedulerEndpoint.value = "any";
+  setRecoveryProbeFormFromGroup(group);
+  setPoolErrorPolicyFormFromGroup(group);
   showSmartSchedulerModal.value = true;
-  await loadSmartSchedulerPreview();
+  await Promise.all([
+    loadSmartSchedulerPreview(),
+    loadRecoveryProbeBilling(),
+  ]);
 };
 
 const closeSmartSchedulerModal = () => {
@@ -6405,6 +7228,17 @@ const closeSmartSchedulerModal = () => {
   smartSchedulerModel.value = "";
   smartSchedulerEndpoint.value = "any";
   smartSchedulerLoading.value = false;
+  smartSchedulerToggleLoading.value = false;
+  recoveryProbeSaving.value = false;
+  recoveryProbeBillingLoading.value = false;
+  recoveryProbeBillingSaving.value = false;
+  recoveryProbeBillingStatus.value = null;
+  recoveryProbeBillingAPIKeys.value = [];
+  recoveryProbeBillingEnabled.value = false;
+  recoveryProbeBillingAPIKeyID.value = 0;
+  recoveryProbeBillingDailyBudgetUSD.value = 1;
+  recoveryProbeBillingPerAttemptLimitUSD.value = 0.01;
+  poolErrorPolicySaving.value = false;
 };
 
 const loadSmartSchedulerPreview = async () => {
@@ -6439,6 +7273,47 @@ const loadSmartSchedulerPreview = async () => {
     if (requestSequence === smartSchedulerReqSeq.value) {
       smartSchedulerLoading.value = false;
     }
+  }
+};
+
+const applySmartSchedulerEnabled = (groupID: number, enabled: boolean) => {
+  const group = groups.value.find((item) => item.id === groupID);
+  if (group) {
+    group.smart_scheduler_enabled = enabled;
+  }
+  if (smartSchedulerGroup.value?.id === groupID) {
+    smartSchedulerGroup.value = {
+      ...smartSchedulerGroup.value,
+      smart_scheduler_enabled: enabled,
+    };
+  }
+  if (smartSchedulerPreview.value?.group.id === groupID) {
+    smartSchedulerPreview.value = {
+      ...smartSchedulerPreview.value,
+      production_control_active: enabled,
+    };
+  }
+};
+
+const toggleSmartSchedulerFromPreview = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || smartSchedulerToggleLoading.value) return;
+
+  const nextEnabled = !smartSchedulerControlActive.value;
+  smartSchedulerToggleLoading.value = true;
+  try {
+    await adminAPI.groups.update(group.id, {
+      smart_scheduler_enabled: nextEnabled,
+    });
+    applySmartSchedulerEnabled(group.id, nextEnabled);
+    appStore.showSuccess(t("admin.groups.smartScheduler.toggleSuccess"));
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating smart scheduler setting:", error);
+  } finally {
+    smartSchedulerToggleLoading.value = false;
   }
 };
 
@@ -6499,6 +7374,14 @@ const formatSmartSchedulerConfidence = (
   return `${confidenceLabel} ${Math.round(confidence * 100)}%`;
 };
 
+const smartSchedulerImmediateFailureCount = (
+  item: SmartSchedulerPreviewItem,
+): number =>
+  item.immediate_provider_failure_count
+  + item.immediate_provider_transient_count
+  + item.immediate_rate_limit_count
+  + item.immediate_uncertain_failure_count;
+
 const smartSchedulerScoreClass = (
   item: SmartSchedulerPreviewItem,
 ): string => {
@@ -6522,6 +7405,62 @@ const smartSchedulerDecisionLabel = (item: SmartSchedulerPreviewItem): string =>
     ? item.pool
     : "isolated";
   return t(`admin.groups.smartScheduler.poolLabels.${pool}`);
+};
+
+const recoveryProbeAccountStatusLabel = (
+  item: SmartSchedulerPreviewItem,
+): string => {
+  const probe = item.recovery_probe;
+  if (!probe) {
+    return t("admin.groups.smartScheduler.recoveryProbe.accountStatuses.none");
+  }
+  const translated = t(
+    `admin.groups.smartScheduler.recoveryProbe.accountStates.${probe.status}`,
+  );
+  return translated === `admin.groups.smartScheduler.recoveryProbe.accountStates.${probe.status}`
+    ? probe.status
+    : translated;
+};
+
+const recoveryProbeAccountSummary = (item: SmartSchedulerPreviewItem): string => {
+  const probe = item.recovery_probe;
+  if (!probe) {
+    return t("admin.groups.smartScheduler.recoveryProbe.noAccountStatus");
+  }
+
+  const parts: string[] = [];
+  parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountModel", {
+    model: probe.model,
+  }));
+  parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountAttempts", {
+    successes: probe.consecutive_successes,
+    failures: probe.consecutive_failures,
+    total: probe.probe_count,
+  }));
+  if (probe.latency_ms > 0) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountLatency", {
+      latency: formatSmartSchedulerLatency(probe.latency_ms),
+    }));
+  }
+  if (probe.last_probe_at) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountLastProbe", {
+      time: formatSmartSchedulerDate(probe.last_probe_at),
+    }));
+  }
+  if (probe.next_probe_at) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountNextProbe", {
+      time: formatSmartSchedulerDate(probe.next_probe_at),
+    }));
+  }
+  if (probe.last_error) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountError", {
+      class: probe.last_error_class || t("admin.groups.smartScheduler.recoveryProbe.unknownErrorClass"),
+      error: probe.last_error,
+    }));
+  }
+  return parts.length > 0
+    ? parts.join(" · ")
+    : t("admin.groups.smartScheduler.recoveryProbe.noAccountStatus");
 };
 
 const handleDuplicate = async (group: AdminGroup) => {

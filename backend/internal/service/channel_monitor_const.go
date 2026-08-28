@@ -10,7 +10,9 @@ import (
 // 这些是 MVP 阶段的硬编码值，按需可以提到 config 中。
 const (
 	// monitorRequestTimeout 单次模型请求总超时（含 Body 读取）。
-	monitorRequestTimeout = 45 * time.Second
+	// 渠道监控需要区分“慢但可用”和“真正不可用”：Codex/Claude 上游在高峰期
+	// 首包可能超过 30 秒，因此总预算应覆盖这类请求，并由 degraded 状态表达慢响应。
+	monitorRequestTimeout = 90 * time.Second
 	// monitorPingTimeout HEAD 请求 endpoint origin 的超时。
 	monitorPingTimeout = 8 * time.Second
 	// monitorDegradedThreshold 主请求成功但耗时超过该阈值视为 degraded。
@@ -102,7 +104,9 @@ const (
 	// monitorTLSHandshakeTimeout HTTP transport TLS 握手超时。
 	monitorTLSHandshakeTimeout = 10 * time.Second
 	// monitorResponseHeaderTimeout HTTP transport 等待响应头超时。
-	monitorResponseHeaderTimeout = 30 * time.Second
+	// 必须低于总请求预算，并给慢上游留出足够时间进入 degraded 判定，避免在
+	// 30 秒处直接被误判为 error。
+	monitorResponseHeaderTimeout = 75 * time.Second
 	// monitorPingDiscardMaxBytes ping 时丢弃响应体的最大字节数。
 	monitorPingDiscardMaxBytes = 1024
 

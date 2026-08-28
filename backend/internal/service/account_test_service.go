@@ -71,6 +71,7 @@ type AccountTestService struct {
 	grokTokenProvider         *GrokTokenProvider
 	antigravityGatewayService *AntigravityGatewayService
 	httpUpstream              HTTPUpstream
+	billingService            *BillingService
 	cfg                       *config.Config
 	tlsFPProfileService       *TLSFingerprintProfileService
 	agentIdentityTaskMu       sync.Mutex
@@ -1504,6 +1505,7 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := UsageTokens{}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -1534,13 +1536,20 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		eventType, _ := data["type"].(string)
 
 		switch eventType {
+		case "message_start":
+			if message, ok := data["message"].(map[string]any); ok {
+				mergeClaudeProbeUsage(&usage, message["usage"])
+			}
 		case "content_block_delta":
 			if delta, ok := data["delta"].(map[string]any); ok {
 				if text, ok := delta["text"].(string); ok {
 					s.sendEvent(c, TestEvent{Type: "content", Text: text})
 				}
 			}
+		case "message_delta":
+			mergeClaudeProbeUsage(&usage, data["usage"])
 		case "message_stop":
+			rememberAccountTestUsage(c, testUsageCapture{Tokens: usage})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "error":
@@ -1561,6 +1570,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 	reader := bufio.NewReader(body)
 	seenJSON := false
 	seenFinish := false
+	usage := UsageTokens{}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -1596,6 +1606,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 			return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected JSON data")
 		}
 		seenJSON = true
+		if tokens, ok := extractOpenAIProbeUsage(data["usage"]); ok {
+			usage = tokens
+		}
 
 		if errData, ok := data["error"].(map[string]any); ok {
 			errorMsg := "Chat Completions API (/v1/chat/completions) returned an error"
@@ -1628,6 +1641,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				seenFinish = true
 			}
 		}
+		if seenFinish && hasUsageTokens(usage) {
+			rememberAccountTestUsage(c, testUsageCapture{Tokens: usage})
+		}
 	}
 }
 
@@ -1635,6 +1651,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
+	usage := testUsageCapture{}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -1677,6 +1694,8 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			usage = extractOpenAIResponsesProbeUsage(data)
+			rememberAccountTestUsage(c, usage)
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -1945,6 +1964,12 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
+	var account *Account
+	if s != nil && s.accountRepo != nil {
+		if fetched, err := s.accountRepo.GetByID(ctx, accountID); err == nil {
+			account = fetched
+		}
+	}
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
@@ -1964,14 +1989,29 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		}
 	}
 
-	return &ScheduledTestResult{
+	result := &ScheduledTestResult{
 		Status:       status,
 		ResponseText: responseText,
 		ErrorMessage: errMsg,
 		LatencyMs:    finishedAt.Sub(startedAt).Milliseconds(),
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,
-	}, nil
+	}
+	if captured, ok := accountTestUsage(ginCtx); ok {
+		result.UsageTokens = captured.Tokens
+		result.BillingModel = strings.TrimSpace(captured.Model)
+		if result.BillingModel == "" {
+			result.BillingModel = modelID
+		}
+		if status == "success" && s != nil && s.billingService != nil && hasUsageTokens(captured.Tokens) {
+			if breakdown, err := s.billingService.CalculateCost(result.BillingModel, captured.Tokens, account.BillingRateMultiplier()); err == nil {
+				estimated := breakdown.ActualCost
+				result.EstimatedCost = &estimated
+				result.CostStatus = GroupRecoveryProbeCostStatusEstimated
+			}
+		}
+	}
+	return result, nil
 }
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.
@@ -1998,4 +2038,113 @@ func parseTestSSEOutput(body string) (responseText, errMsg string) {
 	}
 	responseText = strings.Join(texts, "")
 	return
+}
+
+const accountTestUsageContextKey = "account_test_usage"
+
+type testUsageCapture struct {
+	Model  string
+	Tokens UsageTokens
+}
+
+func rememberAccountTestUsage(c *gin.Context, usage testUsageCapture) {
+	if c == nil || !hasUsageTokens(usage.Tokens) {
+		return
+	}
+	c.Set(accountTestUsageContextKey, usage)
+}
+
+func accountTestUsage(c *gin.Context) (testUsageCapture, bool) {
+	if c == nil {
+		return testUsageCapture{}, false
+	}
+	value, ok := c.Get(accountTestUsageContextKey)
+	if !ok {
+		return testUsageCapture{}, false
+	}
+	usage, ok := value.(testUsageCapture)
+	return usage, ok && hasUsageTokens(usage.Tokens)
+}
+
+func hasUsageTokens(tokens UsageTokens) bool {
+	return tokens.InputTokens > 0 ||
+		tokens.ImageInputTokens > 0 ||
+		tokens.OutputTokens > 0 ||
+		tokens.CacheCreationTokens > 0 ||
+		tokens.CacheReadTokens > 0 ||
+		tokens.CacheCreation5mTokens > 0 ||
+		tokens.CacheCreation1hTokens > 0 ||
+		tokens.ImageOutputTokens > 0
+}
+
+func extractOpenAIResponsesProbeUsage(data map[string]any) testUsageCapture {
+	if data == nil {
+		return testUsageCapture{}
+	}
+	if response, ok := data["response"].(map[string]any); ok {
+		tokens, _ := extractOpenAIProbeUsage(response["usage"])
+		model, _ := response["model"].(string)
+		return testUsageCapture{Model: model, Tokens: tokens}
+	}
+	tokens, _ := extractOpenAIProbeUsage(data["usage"])
+	model, _ := data["model"].(string)
+	return testUsageCapture{Model: model, Tokens: tokens}
+}
+
+func extractOpenAIProbeUsage(value any) (UsageTokens, bool) {
+	usage, ok := value.(map[string]any)
+	if !ok || usage == nil {
+		return UsageTokens{}, false
+	}
+	tokens := UsageTokens{
+		InputTokens:  intFromAny(firstPresent(usage, "input_tokens", "prompt_tokens")),
+		OutputTokens: intFromAny(firstPresent(usage, "output_tokens", "completion_tokens")),
+	}
+	if details, ok := firstPresent(usage, "input_tokens_details", "prompt_tokens_details").(map[string]any); ok {
+		tokens.CacheReadTokens = intFromAny(firstPresent(details, "cached_tokens", "cache_read_input_tokens"))
+		tokens.CacheCreationTokens = intFromAny(firstPresent(details, "cache_creation_tokens", "cache_creation_input_tokens", "cache_write_tokens"))
+	}
+	if details, ok := firstPresent(usage, "output_tokens_details", "completion_tokens_details").(map[string]any); ok {
+		tokens.ImageOutputTokens = intFromAny(details["image_tokens"])
+	}
+	return tokens, hasUsageTokens(tokens)
+}
+
+func mergeClaudeProbeUsage(tokens *UsageTokens, value any) {
+	if tokens == nil {
+		return
+	}
+	usage, ok := value.(map[string]any)
+	if !ok || usage == nil {
+		return
+	}
+	tokens.InputTokens += intFromAny(usage["input_tokens"])
+	tokens.OutputTokens += intFromAny(usage["output_tokens"])
+	tokens.CacheCreationTokens += intFromAny(usage["cache_creation_input_tokens"])
+	tokens.CacheReadTokens += intFromAny(usage["cache_read_input_tokens"])
+}
+
+func firstPresent(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func intFromAny(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return int(n)
+	default:
+		return 0
+	}
 }

@@ -19,6 +19,9 @@ const (
 	accountQualityFailingMinErrors     = 3
 	accountQualityDegradedMinAttempts  = 5
 	accountQualityDegradedFailureRatio = 0.20
+	accountUnifiedQualityMinLiveWeight = 0.40
+	accountUnifiedQualityMaxLiveWeight = 0.80
+	accountUnifiedQualityHistoricalCap = 0.70
 
 	accountQualityBasisTTFTDuration = "ttft_duration"
 	accountQualityBasisTTFTOnly     = "ttft_only"
@@ -99,7 +102,17 @@ type AccountQualityStats struct {
 	WindowHours  int                    `json:"window_hours"`
 	Recent1h     AccountQualityPeriod   `json:"recent_1h"`
 	Activity     AccountQualityActivity `json:"activity"`
+	Unified      AccountUnifiedQuality  `json:"unified"`
 	ScoreVersion int                    `json:"score_version"`
+}
+
+type AccountUnifiedQuality struct {
+	Score                 *int    `json:"score"`
+	Grade                 string  `json:"grade,omitempty"`
+	Confidence            float64 `json:"confidence"`
+	Source                string  `json:"source"`
+	SampleCount           int64   `json:"sample_count"`
+	FirstTokenSampleCount int64   `json:"first_token_sample_count"`
 }
 
 type AccountQualityPeriodSamples struct {
@@ -151,10 +164,15 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 			Last100:     applyAccountQualityScore(sample.Recent1h.Last100),
 			WindowHours: AccountQualityRealtimeWindowHours,
 		}
-		result[id] = AccountQualityStats{
+		stable := AccountQualityPeriod{
 			Last10:      applyAccountQualityScore(sample.Last24h.Last10),
 			Last100:     applyAccountQualityScore(sample.Last24h.Last100),
 			WindowHours: AccountQualityWindowHours,
+		}
+		result[id] = AccountQualityStats{
+			Last10:      stable.Last10,
+			Last100:     stable.Last100,
+			WindowHours: stable.WindowHours,
 			Recent1h:    recent,
 			Activity: AccountQualityActivity{
 				State:                  classifyAccountQualityActivity(sample.SuccessfulRequests1h, sample.FailedRequests1h),
@@ -163,10 +181,82 @@ func buildAccountQualityStats(ids []int64, samples map[int64]AccountQualitySampl
 				LastSuccessAt:          sample.LastSuccessAt,
 				LastErrorAt:            sample.LastErrorAt,
 			},
+			Unified:      buildAccountUnifiedQuality(recent, stable),
 			ScoreVersion: AccountQualityScoreVersion,
 		}
 	}
 	return result
+}
+
+func buildAccountUnifiedQuality(recent, stable AccountQualityPeriod) AccountUnifiedQuality {
+	live, liveTarget, hasLive := preferredAccountQualityWindow(recent, true)
+	baseline, baselineTarget, hasBaseline := preferredAccountQualityWindow(stable, false)
+	summary := AccountUnifiedQuality{Source: "unscored"}
+
+	switch {
+	case hasLive && hasBaseline:
+		liveCoverage := accountQualityCoverage(live.SampleCount, liveTarget)
+		baselineCoverage := accountQualityCoverage(baseline.SampleCount, baselineTarget)
+		liveWeight := accountUnifiedQualityMinLiveWeight +
+			(accountUnifiedQualityMaxLiveWeight-accountUnifiedQualityMinLiveWeight)*liveCoverage
+		score := int(math.Round(float64(*live.QualityScore)*liveWeight + float64(*baseline.QualityScore)*(1-liveWeight)))
+		summary.Score = &score
+		summary.Grade = accountQualityGrade(score)
+		summary.Confidence = roundAccountQualityConfidence(0.55*liveCoverage + 0.45*baselineCoverage)
+		summary.Source = "realtime_blend"
+	case hasLive:
+		score := *live.QualityScore
+		summary.Score = &score
+		summary.Grade = accountQualityGrade(score)
+		summary.Confidence = roundAccountQualityConfidence(0.8 * accountQualityCoverage(live.SampleCount, liveTarget))
+		summary.Source = "realtime_only"
+	case hasBaseline:
+		score := *baseline.QualityScore
+		summary.Score = &score
+		summary.Grade = accountQualityGrade(score)
+		summary.Confidence = roundAccountQualityConfidence(accountUnifiedQualityHistoricalCap * accountQualityCoverage(baseline.SampleCount, baselineTarget))
+		summary.Source = "historical"
+	default:
+		return summary
+	}
+
+	summary.SampleCount = maxInt64(live.SampleCount, baseline.SampleCount)
+	summary.FirstTokenSampleCount = maxInt64(live.FirstTokenSampleCount, baseline.FirstTokenSampleCount)
+	return summary
+}
+
+func preferredAccountQualityWindow(period AccountQualityPeriod, preferRecent bool) (AccountQualityWindow, int64, bool) {
+	first, firstTarget := period.Last100, int64(100)
+	second, secondTarget := period.Last10, int64(10)
+	if preferRecent {
+		first, firstTarget = period.Last10, 10
+		second, secondTarget = period.Last100, 100
+	}
+	if first.QualityScore != nil {
+		return first, firstTarget, true
+	}
+	if second.QualityScore != nil {
+		return second, secondTarget, true
+	}
+	return AccountQualityWindow{}, 0, false
+}
+
+func accountQualityCoverage(samples, target int64) float64 {
+	if samples <= 0 || target <= 0 {
+		return 0
+	}
+	return math.Min(1, float64(samples)/float64(target))
+}
+
+func roundAccountQualityConfidence(value float64) float64 {
+	return math.Round(math.Max(0, math.Min(1, value))*100) / 100
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 // GetAccountQualityStatsBatch returns display-only latency summaries for accounts.

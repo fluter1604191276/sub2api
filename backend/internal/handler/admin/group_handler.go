@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,7 @@ type GroupHandler struct {
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
 	smartScheduler       *service.SmartSchedulerPreviewService
+	recoveryProbeBilling *service.GroupRecoveryProbeBillingService
 }
 
 // GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
@@ -42,6 +44,63 @@ func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
 type optionalLimitField struct {
 	set   bool
 	value *float64
+}
+
+// optionalPolicyField distinguishes an omitted policy field from an explicit
+// JSON null, so the admin UI can restore group-level inheritance.
+type optionalPolicyField struct {
+	set  bool
+	null bool
+	raw  json.RawMessage
+}
+
+func (f *optionalPolicyField) UnmarshalJSON(data []byte) error {
+	f.set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		f.null = true
+		f.raw = nil
+		return nil
+	}
+	f.raw = append(f.raw[:0], trimmed...)
+	return nil
+}
+
+func (f optionalPolicyField) boolValue() (*bool, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value bool
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected boolean: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) intValue() (*int, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value int
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected integer: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) intSliceValue() (*[]int, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value []int
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected integer array: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) shouldClear() bool {
+	return f.set && f.null
 }
 
 func (f *optionalLimitField) UnmarshalJSON(data []byte) error {
@@ -89,12 +148,13 @@ func (f optionalLimitField) ToServiceInput() *float64 {
 }
 
 // NewGroupHandler creates a new admin group handler
-func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService, smartScheduler *service.SmartSchedulerPreviewService) *GroupHandler {
+func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService, smartScheduler *service.SmartSchedulerPreviewService, recoveryProbeBilling *service.GroupRecoveryProbeBillingService) *GroupHandler {
 	return &GroupHandler{
 		adminService:         adminService,
 		dashboardService:     dashboardService,
 		groupCapacityService: groupCapacityService,
 		smartScheduler:       smartScheduler,
+		recoveryProbeBilling: recoveryProbeBilling,
 	}
 }
 
@@ -110,31 +170,44 @@ type CreateGroupRequest struct {
 	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
-	AllowImageGeneration            bool     `json:"allow_image_generation"`
-	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
-	ImageRateIndependent            bool     `json:"image_rate_independent"`
-	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
-	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
-	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
-	VideoRateIndependent            bool     `json:"video_rate_independent"`
-	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
-	PeakRateEnabled                 bool     `json:"peak_rate_enabled"`
-	PeakStart                       string   `json:"peak_start"`
-	PeakEnd                         string   `json:"peak_end"`
-	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
-	ProfitControlEnabled            bool     `json:"profit_control_enabled"`
-	ProfitMinMargin                 *float64 `json:"profit_min_margin"`
-	ProfitSafetyBuffer              *float64 `json:"profit_safety_buffer"`
-	ImagePrice1K                    *float64 `json:"image_price_1k"`
-	ImagePrice2K                    *float64 `json:"image_price_2k"`
-	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	VideoPrice480P                  *float64 `json:"video_price_480p"`
-	VideoPrice720P                  *float64 `json:"video_price_720p"`
-	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
-	WebSearchPricePerCall           *float64 `json:"web_search_price_per_call"`
-	ClaudeCodeOnly                  bool     `json:"claude_code_only"`
-	FallbackGroupID                 *int64   `json:"fallback_group_id"`
-	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
+	AllowImageGeneration              bool     `json:"allow_image_generation"`
+	AllowBatchImageGeneration         bool     `json:"allow_batch_image_generation"`
+	ImageRateIndependent              bool     `json:"image_rate_independent"`
+	ImageRateMultiplier               *float64 `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier      *float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier          *float64 `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent              bool     `json:"video_rate_independent"`
+	VideoRateMultiplier               *float64 `json:"video_rate_multiplier"`
+	PeakRateEnabled                   bool     `json:"peak_rate_enabled"`
+	PeakStart                         string   `json:"peak_start"`
+	PeakEnd                           string   `json:"peak_end"`
+	PeakRateMultiplier                *float64 `json:"peak_rate_multiplier"`
+	ProfitControlEnabled              bool     `json:"profit_control_enabled"`
+	ProfitMinMargin                   *float64 `json:"profit_min_margin"`
+	ProfitSafetyBuffer                *float64 `json:"profit_safety_buffer"`
+	SmartSchedulerEnabled             bool     `json:"smart_scheduler_enabled"`
+	RecoveryProbeEnabled              bool     `json:"recovery_probe_enabled"`
+	RecoveryProbeMode                 string   `json:"recovery_probe_mode"`
+	RecoveryProbeModel                string   `json:"recovery_probe_model"`
+	RecoveryProbeIntervalSeconds      int      `json:"recovery_probe_interval_seconds"`
+	RecoveryProbeAttemptsPerRound     int      `json:"recovery_probe_attempts_per_round"`
+	RecoveryProbeIdleThresholdSeconds int      `json:"recovery_probe_idle_threshold_seconds"`
+	RecoveryProbeBackoffCapSeconds    int      `json:"recovery_probe_backoff_cap_seconds"`
+	PoolModeEnabled                   *bool    `json:"pool_mode_enabled"`
+	PoolModeRetryCount                *int     `json:"pool_mode_retry_count"`
+	PoolModeRetryStatusCodes          *[]int   `json:"pool_mode_retry_status_codes"`
+	CustomErrorCodesEnabled           *bool    `json:"custom_error_codes_enabled"`
+	CustomErrorCodes                  *[]int   `json:"custom_error_codes"`
+	ImagePrice1K                      *float64 `json:"image_price_1k"`
+	ImagePrice2K                      *float64 `json:"image_price_2k"`
+	ImagePrice4K                      *float64 `json:"image_price_4k"`
+	VideoPrice480P                    *float64 `json:"video_price_480p"`
+	VideoPrice720P                    *float64 `json:"video_price_720p"`
+	VideoPrice1080P                   *float64 `json:"video_price_1080p"`
+	WebSearchPricePerCall             *float64 `json:"web_search_price_per_call"`
+	ClaudeCodeOnly                    bool     `json:"claude_code_only"`
+	FallbackGroupID                   *int64   `json:"fallback_group_id"`
+	FallbackGroupIDOnInvalidRequest   *int64   `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
@@ -172,31 +245,44 @@ type UpdateGroupRequest struct {
 	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
 	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
-	AllowImageGeneration            *bool    `json:"allow_image_generation"`
-	AllowBatchImageGeneration       *bool    `json:"allow_batch_image_generation"`
-	ImageRateIndependent            *bool    `json:"image_rate_independent"`
-	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
-	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
-	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
-	VideoRateIndependent            *bool    `json:"video_rate_independent"`
-	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
-	PeakRateEnabled                 *bool    `json:"peak_rate_enabled"`
-	PeakStart                       *string  `json:"peak_start"`
-	PeakEnd                         *string  `json:"peak_end"`
-	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
-	ProfitControlEnabled            *bool    `json:"profit_control_enabled"`
-	ProfitMinMargin                 *float64 `json:"profit_min_margin"`
-	ProfitSafetyBuffer              *float64 `json:"profit_safety_buffer"`
-	ImagePrice1K                    *float64 `json:"image_price_1k"`
-	ImagePrice2K                    *float64 `json:"image_price_2k"`
-	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	VideoPrice480P                  *float64 `json:"video_price_480p"`
-	VideoPrice720P                  *float64 `json:"video_price_720p"`
-	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
-	WebSearchPricePerCall           *float64 `json:"web_search_price_per_call"`
-	ClaudeCodeOnly                  *bool    `json:"claude_code_only"`
-	FallbackGroupID                 *int64   `json:"fallback_group_id"`
-	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
+	AllowImageGeneration              *bool               `json:"allow_image_generation"`
+	AllowBatchImageGeneration         *bool               `json:"allow_batch_image_generation"`
+	ImageRateIndependent              *bool               `json:"image_rate_independent"`
+	ImageRateMultiplier               *float64            `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier      *float64            `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier          *float64            `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent              *bool               `json:"video_rate_independent"`
+	VideoRateMultiplier               *float64            `json:"video_rate_multiplier"`
+	PeakRateEnabled                   *bool               `json:"peak_rate_enabled"`
+	PeakStart                         *string             `json:"peak_start"`
+	PeakEnd                           *string             `json:"peak_end"`
+	PeakRateMultiplier                *float64            `json:"peak_rate_multiplier"`
+	ProfitControlEnabled              *bool               `json:"profit_control_enabled"`
+	ProfitMinMargin                   *float64            `json:"profit_min_margin"`
+	ProfitSafetyBuffer                *float64            `json:"profit_safety_buffer"`
+	SmartSchedulerEnabled             *bool               `json:"smart_scheduler_enabled"`
+	RecoveryProbeEnabled              *bool               `json:"recovery_probe_enabled"`
+	RecoveryProbeMode                 *string             `json:"recovery_probe_mode"`
+	RecoveryProbeModel                *string             `json:"recovery_probe_model"`
+	RecoveryProbeIntervalSeconds      *int                `json:"recovery_probe_interval_seconds"`
+	RecoveryProbeAttemptsPerRound     *int                `json:"recovery_probe_attempts_per_round"`
+	RecoveryProbeIdleThresholdSeconds *int                `json:"recovery_probe_idle_threshold_seconds"`
+	RecoveryProbeBackoffCapSeconds    *int                `json:"recovery_probe_backoff_cap_seconds"`
+	PoolModeEnabled                   optionalPolicyField `json:"pool_mode_enabled"`
+	PoolModeRetryCount                optionalPolicyField `json:"pool_mode_retry_count"`
+	PoolModeRetryStatusCodes          optionalPolicyField `json:"pool_mode_retry_status_codes"`
+	CustomErrorCodesEnabled           optionalPolicyField `json:"custom_error_codes_enabled"`
+	CustomErrorCodes                  optionalPolicyField `json:"custom_error_codes"`
+	ImagePrice1K                      *float64            `json:"image_price_1k"`
+	ImagePrice2K                      *float64            `json:"image_price_2k"`
+	ImagePrice4K                      *float64            `json:"image_price_4k"`
+	VideoPrice480P                    *float64            `json:"video_price_480p"`
+	VideoPrice720P                    *float64            `json:"video_price_720p"`
+	VideoPrice1080P                   *float64            `json:"video_price_1080p"`
+	WebSearchPricePerCall             *float64            `json:"web_search_price_per_call"`
+	ClaudeCodeOnly                    *bool               `json:"claude_code_only"`
+	FallbackGroupID                   *int64              `json:"fallback_group_id"`
+	FallbackGroupIDOnInvalidRequest   *int64              `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
@@ -493,55 +579,68 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
-		VideoRateIndependent:            req.VideoRateIndependent,
-		VideoRateMultiplier:             req.VideoRateMultiplier,
-		PeakRateEnabled:                 req.PeakRateEnabled,
-		PeakStart:                       req.PeakStart,
-		PeakEnd:                         req.PeakEnd,
-		PeakRateMultiplier:              req.PeakRateMultiplier,
-		ProfitControlEnabled:            req.ProfitControlEnabled,
-		ProfitMinMargin:                 req.ProfitMinMargin,
-		ProfitSafetyBuffer:              req.ProfitSafetyBuffer,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		VideoPrice480P:                  req.VideoPrice480P,
-		VideoPrice720P:                  req.VideoPrice720P,
-		VideoPrice1080P:                 req.VideoPrice1080P,
-		WebSearchPricePerCall:           req.WebSearchPricePerCall,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		AllowLive:                       req.AllowLive,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		ModelsListConfig:                req.ModelsListConfig,
-		RPMLimit:                        req.RPMLimit,
-		MaxReasoningEffort:              req.MaxReasoningEffort,
-		ReasoningEffortMappings:         req.ReasoningEffortMappings,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                              req.Name,
+		Description:                       req.Description,
+		Platform:                          req.Platform,
+		RateMultiplier:                    req.RateMultiplier,
+		IsExclusive:                       req.IsExclusive,
+		SubscriptionType:                  req.SubscriptionType,
+		DailyLimitUSD:                     req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                    req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                   req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:              req.AllowImageGeneration,
+		AllowBatchImageGeneration:         req.AllowBatchImageGeneration,
+		ImageRateIndependent:              req.ImageRateIndependent,
+		ImageRateMultiplier:               req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:      req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:          req.BatchImageHoldMultiplier,
+		VideoRateIndependent:              req.VideoRateIndependent,
+		VideoRateMultiplier:               req.VideoRateMultiplier,
+		PeakRateEnabled:                   req.PeakRateEnabled,
+		PeakStart:                         req.PeakStart,
+		PeakEnd:                           req.PeakEnd,
+		PeakRateMultiplier:                req.PeakRateMultiplier,
+		ProfitControlEnabled:              req.ProfitControlEnabled,
+		ProfitMinMargin:                   req.ProfitMinMargin,
+		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
+		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
+		RecoveryProbeMode:                 req.RecoveryProbeMode,
+		RecoveryProbeModel:                req.RecoveryProbeModel,
+		RecoveryProbeIntervalSeconds:      req.RecoveryProbeIntervalSeconds,
+		RecoveryProbeAttemptsPerRound:     req.RecoveryProbeAttemptsPerRound,
+		RecoveryProbeIdleThresholdSeconds: req.RecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    req.RecoveryProbeBackoffCapSeconds,
+		PoolModeEnabled:                   req.PoolModeEnabled,
+		PoolModeRetryCount:                req.PoolModeRetryCount,
+		PoolModeRetryStatusCodes:          req.PoolModeRetryStatusCodes,
+		CustomErrorCodesEnabled:           req.CustomErrorCodesEnabled,
+		CustomErrorCodes:                  req.CustomErrorCodes,
+		ImagePrice1K:                      req.ImagePrice1K,
+		ImagePrice2K:                      req.ImagePrice2K,
+		ImagePrice4K:                      req.ImagePrice4K,
+		VideoPrice480P:                    req.VideoPrice480P,
+		VideoPrice720P:                    req.VideoPrice720P,
+		VideoPrice1080P:                   req.VideoPrice1080P,
+		WebSearchPricePerCall:             req.WebSearchPricePerCall,
+		ClaudeCodeOnly:                    req.ClaudeCodeOnly,
+		FallbackGroupID:                   req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:   req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                      req.ModelRouting,
+		ModelRoutingEnabled:               req.ModelRoutingEnabled,
+		MCPXMLInject:                      req.MCPXMLInject,
+		SupportedModelScopes:              req.SupportedModelScopes,
+		AllowMessagesDispatch:             req.AllowMessagesDispatch,
+		AllowLive:                         req.AllowLive,
+		RequireOAuthOnly:                  req.RequireOAuthOnly,
+		RequirePrivacySet:                 req.RequirePrivacySet,
+		DefaultMappedModel:                req.DefaultMappedModel,
+		MessagesDispatchModelConfig:       req.MessagesDispatchModelConfig,
+		ModelsListConfig:                  req.ModelsListConfig,
+		RPMLimit:                          req.RPMLimit,
+		MaxReasoningEffort:                req.MaxReasoningEffort,
+		ReasoningEffortMappings:           req.ReasoningEffortMappings,
+		CopyAccountsFromGroupIDs:          req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -612,58 +711,101 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	poolModeEnabled, err := req.PoolModeEnabled.boolValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_enabled: "+err.Error())
+		return
+	}
+	poolModeRetryCount, err := req.PoolModeRetryCount.intValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_retry_count: "+err.Error())
+		return
+	}
+	poolModeRetryStatusCodes, err := req.PoolModeRetryStatusCodes.intSliceValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_retry_status_codes: "+err.Error())
+		return
+	}
+	customErrorCodesEnabled, err := req.CustomErrorCodesEnabled.boolValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid custom_error_codes_enabled: "+err.Error())
+		return
+	}
+	customErrorCodes, err := req.CustomErrorCodes.intSliceValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid custom_error_codes: "+err.Error())
+		return
+	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		Status:                          req.Status,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
-		VideoRateIndependent:            req.VideoRateIndependent,
-		VideoRateMultiplier:             req.VideoRateMultiplier,
-		PeakRateEnabled:                 req.PeakRateEnabled,
-		PeakStart:                       req.PeakStart,
-		PeakEnd:                         req.PeakEnd,
-		PeakRateMultiplier:              req.PeakRateMultiplier,
-		ProfitControlEnabled:            req.ProfitControlEnabled,
-		ProfitMinMargin:                 req.ProfitMinMargin,
-		ProfitSafetyBuffer:              req.ProfitSafetyBuffer,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		VideoPrice480P:                  req.VideoPrice480P,
-		VideoPrice720P:                  req.VideoPrice720P,
-		VideoPrice1080P:                 req.VideoPrice1080P,
-		WebSearchPricePerCall:           req.WebSearchPricePerCall,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		AllowLive:                       req.AllowLive,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		ModelsListConfig:                req.ModelsListConfig,
-		RPMLimit:                        req.RPMLimit,
-		MaxReasoningEffort:              req.MaxReasoningEffort,
-		ReasoningEffortMappings:         req.ReasoningEffortMappings,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                              req.Name,
+		Description:                       req.Description,
+		Platform:                          req.Platform,
+		RateMultiplier:                    req.RateMultiplier,
+		IsExclusive:                       req.IsExclusive,
+		Status:                            req.Status,
+		SubscriptionType:                  req.SubscriptionType,
+		DailyLimitUSD:                     req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                    req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                   req.MonthlyLimitUSD.ToServiceInput(),
+		AllowImageGeneration:              req.AllowImageGeneration,
+		AllowBatchImageGeneration:         req.AllowBatchImageGeneration,
+		ImageRateIndependent:              req.ImageRateIndependent,
+		ImageRateMultiplier:               req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:      req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:          req.BatchImageHoldMultiplier,
+		VideoRateIndependent:              req.VideoRateIndependent,
+		VideoRateMultiplier:               req.VideoRateMultiplier,
+		PeakRateEnabled:                   req.PeakRateEnabled,
+		PeakStart:                         req.PeakStart,
+		PeakEnd:                           req.PeakEnd,
+		PeakRateMultiplier:                req.PeakRateMultiplier,
+		ProfitControlEnabled:              req.ProfitControlEnabled,
+		ProfitMinMargin:                   req.ProfitMinMargin,
+		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
+		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
+		RecoveryProbeMode:                 req.RecoveryProbeMode,
+		RecoveryProbeModel:                req.RecoveryProbeModel,
+		RecoveryProbeIntervalSeconds:      req.RecoveryProbeIntervalSeconds,
+		RecoveryProbeAttemptsPerRound:     req.RecoveryProbeAttemptsPerRound,
+		RecoveryProbeIdleThresholdSeconds: req.RecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    req.RecoveryProbeBackoffCapSeconds,
+		PoolModeEnabled:                   poolModeEnabled,
+		PoolModeRetryCount:                poolModeRetryCount,
+		PoolModeRetryStatusCodes:          poolModeRetryStatusCodes,
+		CustomErrorCodesEnabled:           customErrorCodesEnabled,
+		CustomErrorCodes:                  customErrorCodes,
+		PoolModeEnabledClear:              req.PoolModeEnabled.shouldClear(),
+		PoolModeRetryCountClear:           req.PoolModeRetryCount.shouldClear(),
+		PoolModeRetryStatusCodesClear:     req.PoolModeRetryStatusCodes.shouldClear(),
+		CustomErrorCodesEnabledClear:      req.CustomErrorCodesEnabled.shouldClear(),
+		CustomErrorCodesClear:             req.CustomErrorCodes.shouldClear(),
+		ImagePrice1K:                      req.ImagePrice1K,
+		ImagePrice2K:                      req.ImagePrice2K,
+		ImagePrice4K:                      req.ImagePrice4K,
+		VideoPrice480P:                    req.VideoPrice480P,
+		VideoPrice720P:                    req.VideoPrice720P,
+		VideoPrice1080P:                   req.VideoPrice1080P,
+		WebSearchPricePerCall:             req.WebSearchPricePerCall,
+		ClaudeCodeOnly:                    req.ClaudeCodeOnly,
+		FallbackGroupID:                   req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:   req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                      req.ModelRouting,
+		ModelRoutingEnabled:               req.ModelRoutingEnabled,
+		MCPXMLInject:                      req.MCPXMLInject,
+		SupportedModelScopes:              req.SupportedModelScopes,
+		AllowMessagesDispatch:             req.AllowMessagesDispatch,
+		AllowLive:                         req.AllowLive,
+		RequireOAuthOnly:                  req.RequireOAuthOnly,
+		RequirePrivacySet:                 req.RequirePrivacySet,
+		DefaultMappedModel:                req.DefaultMappedModel,
+		MessagesDispatchModelConfig:       req.MessagesDispatchModelConfig,
+		ModelsListConfig:                  req.ModelsListConfig,
+		RPMLimit:                          req.RPMLimit,
+		MaxReasoningEffort:                req.MaxReasoningEffort,
+		ReasoningEffortMappings:           req.ReasoningEffortMappings,
+		CopyAccountsFromGroupIDs:          req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -818,6 +960,63 @@ func (h *GroupHandler) GetSmartSchedulerPreview(c *gin.Context) {
 		return
 	}
 	response.Success(c, preview)
+}
+
+type updateRecoveryProbeBillingRequest struct {
+	Enabled            bool    `json:"enabled"`
+	APIKeyID           int64   `json:"api_key_id"`
+	DailyBudgetUSD     float64 `json:"daily_budget_usd"`
+	PerAttemptLimitUSD float64 `json:"per_attempt_limit_usd"`
+}
+
+func (h *GroupHandler) GetRecoveryProbeBilling(c *gin.Context) {
+	if h.recoveryProbeBilling == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Recovery probe billing is unavailable")
+		return
+	}
+	var groupID int64
+	if rawGroupID := strings.TrimSpace(c.Query("group_id")); rawGroupID != "" {
+		parsedGroupID, err := strconv.ParseInt(rawGroupID, 10, 64)
+		if err != nil || parsedGroupID < 0 {
+			response.BadRequest(c, "Invalid group ID")
+			return
+		}
+		groupID = parsedGroupID
+	}
+	status, err := h.recoveryProbeBilling.GetStatus(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}
+
+func (h *GroupHandler) UpdateRecoveryProbeBilling(c *gin.Context) {
+	if h.recoveryProbeBilling == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Recovery probe billing is unavailable")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Error(c, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	var req updateRecoveryProbeBillingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	settings, err := h.recoveryProbeBilling.UpdateSettings(c.Request.Context(), subject.UserID, service.GroupRecoveryProbeBillingSettings{
+		Enabled:            req.Enabled,
+		APIKeyID:           req.APIKeyID,
+		DailyBudgetUSD:     req.DailyBudgetUSD,
+		PerAttemptLimitUSD: req.PerAttemptLimitUSD,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
 }
 
 // GetGroupAPIKeys handles getting API keys in a group

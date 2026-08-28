@@ -787,6 +787,74 @@ func TestBuildOpenAISelectionOrderIncludesOverflowOnlyForCostScheduling(t *testi
 	})
 }
 
+func TestBuildOpenAISelectionOrderKeepsReviewedChallengerFirstWithExplicitFallbacks(t *testing.T) {
+	scheduler := &defaultOpenAIAccountScheduler{}
+	candidates := []openAIAccountCandidateScore{
+		{account: &Account{ID: 1}, loadInfo: &AccountLoadInfo{}, score: 100},
+		{account: &Account{ID: 2}, loadInfo: &AccountLoadInfo{}, score: 10},
+		{account: &Account{ID: 3}, loadInfo: &AccountLoadInfo{}, score: 50},
+	}
+
+	ordered := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+		SmartPreferredAccountID: 2,
+		SmartPreferredStrict:    true,
+	}, openAIAccountLoadPlan{candidates: candidates, topK: 1})
+
+	require.Equal(t, []int64{2, 1, 3}, []int64{
+		ordered[0].account.ID,
+		ordered[1].account.ID,
+		ordered[2].account.ID,
+	})
+}
+
+func TestReviewedChallengerFallsBackOnlyAfterSlotRejection(t *testing.T) {
+	challenger := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1}
+	fallback := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1}
+	acquiredIDs := make([]int64, 0, 2)
+	cache := schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{challenger.ID: false, fallback.ID: true},
+		acquiredIDs:    &acquiredIDs,
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: &OpenAIGatewayService{
+		concurrencyService: NewConcurrencyService(cache),
+	}}
+	selectionOrder := []openAIAccountCandidateScore{
+		{account: challenger, loadInfo: &AccountLoadInfo{AccountID: challenger.ID}},
+		{account: fallback, loadInfo: &AccountLoadInfo{AccountID: fallback.ID}},
+	}
+
+	selection, _, err := scheduler.tryAcquireOpenAISelectionOrder(
+		context.Background(),
+		OpenAIAccountScheduleRequest{Platform: PlatformOpenAI, RequestedModel: "gpt-5.6-luna"},
+		selectionOrder,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, fallback.ID, selection.Account.ID)
+	require.Equal(t, []int64{challenger.ID, fallback.ID}, acquiredIDs)
+	selection.ReleaseFunc()
+}
+
+func TestReviewedChallengerRemainsFirstAcrossCompactSupportTiers(t *testing.T) {
+	scheduler := &defaultOpenAIAccountScheduler{}
+	preferred := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{}}
+	known := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{"openai_compact_supported": true}}
+	ordered := scheduler.buildOpenAISelectionOrder(OpenAIAccountScheduleRequest{
+		RequireCompact:          true,
+		SmartPreferredAccountID: preferred.ID,
+		SmartPreferredStrict:    true,
+	}, openAIAccountLoadPlan{
+		candidates: []openAIAccountCandidateScore{
+			{account: known, loadInfo: &AccountLoadInfo{}, score: 100},
+			{account: preferred, loadInfo: &AccountLoadInfo{}, score: 10},
+		},
+		topK: 1,
+	})
+
+	require.Equal(t, preferred.ID, ordered[0].account.ID)
+}
+
 func TestBuildOpenAIAccountLoadPlanUsesCostOnlyForTokenScope(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()

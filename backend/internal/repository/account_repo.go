@@ -877,6 +877,10 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 }
 
 func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
+	return r.accountListFilteredQueryWithModel(platform, accountType, status, search, groupID, privacyMode, "")
+}
+
+func (r *accountRepository) accountListFilteredQueryWithModel(platform, accountType, status, search string, groupID int64, privacyMode, model string) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
 	if platform != "" {
@@ -968,6 +972,11 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 			}
 		}))
 	}
+	if model = strings.TrimSpace(model); model != "" {
+		q = q.Where(dbpredicate.Account(func(s *entsql.Selector) {
+			s.Where(sqljson.ValueContains(dbaccount.FieldExtra, []string{model}, sqljson.Path(service.AccountAvailableModelsExtraKey)))
+		}))
+	}
 
 	return q
 }
@@ -1004,6 +1013,36 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 
 func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
 	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) ListWithModelFilter(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQueryWithModel(platform, accountType, status, search, groupID, privacyMode, model)
+	total, err := q.Clone().Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.Offset(params.Offset()).Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+	accounts, err := accountsQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	out, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, paginationResultFromTotal(int64(total), params), nil
+}
+
+func (r *accountRepository) ListAllWithModelFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQueryWithModel(platform, accountType, status, search, groupID, privacyMode, model).All(ctx)
 	if err != nil {
 		return nil, err
 	}

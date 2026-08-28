@@ -7,6 +7,16 @@ import (
 
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
 
+var upstreamDynamicModelCapabilityKeywords = []string{
+	"model is not supported",
+	"model not supported",
+	"model is unsupported",
+	"unsupported model",
+	"does not support model",
+	"does not support the requested model",
+	"not supported by any configured account",
+}
+
 func isUpstreamModelNotFoundError(statusCode int, body []byte) bool {
 	if statusCode != http.StatusNotFound {
 		return false
@@ -44,6 +54,33 @@ func isOpenAICodexPlanGatedModelError(statusCode int, body []byte) bool {
 		return false
 	}
 	return strings.Contains(normalized, openAICodexPlanGatedModelPhrase)
+}
+
+func isUpstreamDynamicModelCapabilityError(statusCode int, body []byte, modelNames ...string) bool {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable:
+	default:
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	if normalized == "" {
+		return false
+	}
+	for _, keyword := range upstreamDynamicModelCapabilityKeywords {
+		if strings.Contains(normalized, keyword) {
+			return true
+		}
+	}
+	if !strings.Contains(normalized, "upstream account") || !strings.Contains(normalized, "available") {
+		return false
+	}
+	for _, modelName := range modelNames {
+		normalizedModel := normalizeModelNotFoundBody([]byte(modelName))
+		if normalizedModel != "" && strings.Contains(normalized, normalizedModel) {
+			return true
+		}
+	}
+	return false
 }
 
 func containsModelNotFoundKeyword(normalizedBody string) bool {

@@ -216,6 +216,7 @@ func ProvideAccountTestService(
 	grokTokenProvider *GrokTokenProvider,
 	antigravityGatewayService *AntigravityGatewayService,
 	httpUpstream HTTPUpstream,
+	billingService *BillingService,
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	openAIGatewayService *OpenAIGatewayService,
@@ -230,6 +231,7 @@ func ProvideAccountTestService(
 		cfg,
 		tlsFPProfileService,
 	)
+	service.billingService = billingService
 	service.agentIdentityWS = openAIGatewayService
 	return service
 }
@@ -553,6 +555,82 @@ func ProvideScheduledTestRunnerService(
 	return svc
 }
 
+func ProvideGroupRecoveryProbeRunner(
+	repo GroupRecoveryProbeRepository,
+	accountTestSvc *AccountTestService,
+	billing *GroupRecoveryProbeBillingService,
+	previewScheduler *SmartSchedulerPreviewService,
+	gateway *GatewayService,
+	openAIGateway *OpenAIGatewayService,
+) *GroupRecoveryProbeRunner {
+	if previewScheduler != nil {
+		previewScheduler.SetRecoveryProbeRepository(repo)
+	}
+	setSmartSchedulerRecoveryProbeRepository(gateway, openAIGateway, repo)
+	runner := NewGroupRecoveryProbeRunner(repo, accountTestSvc)
+	runner.SetBillingService(billing)
+	runner.SetSchedulerCaches(
+		previewScheduler,
+		gatewaySmartSchedulerPreview(gateway),
+		openAIGatewaySmartSchedulerPreview(openAIGateway),
+	)
+	runner.Start()
+	return runner
+}
+
+func smartSchedulerPreviewFromOrderer(orderer smartSchedulerCandidateOrderer) *SmartSchedulerPreviewService {
+	scheduler, _ := orderer.(*SmartSchedulerPreviewService)
+	return scheduler
+}
+
+func gatewaySmartSchedulerPreview(gateway *GatewayService) *SmartSchedulerPreviewService {
+	if gateway == nil {
+		return nil
+	}
+	return smartSchedulerPreviewFromOrderer(gateway.smartScheduler)
+}
+
+func openAIGatewaySmartSchedulerPreview(gateway *OpenAIGatewayService) *SmartSchedulerPreviewService {
+	if gateway == nil {
+		return nil
+	}
+	return smartSchedulerPreviewFromOrderer(gateway.smartScheduler)
+}
+
+func setSmartSchedulerRecoveryProbeRepository(gateway *GatewayService, openAIGateway *OpenAIGatewayService, repo GroupRecoveryProbeRepository) {
+	if gateway != nil {
+		if scheduler := gatewaySmartSchedulerPreview(gateway); scheduler != nil {
+			scheduler.SetRecoveryProbeRepository(repo)
+		}
+	}
+	if openAIGateway != nil {
+		if scheduler := openAIGatewaySmartSchedulerPreview(openAIGateway); scheduler != nil {
+			scheduler.SetRecoveryProbeRepository(repo)
+		}
+	}
+}
+
+func ProvideSmartSchedulerPreviewService(
+	adminService AdminService,
+	dashboardService *DashboardService,
+	concurrency *ConcurrencyService,
+	recoveryProbe GroupRecoveryProbeRepository,
+) *SmartSchedulerPreviewService {
+	svc := NewSmartSchedulerPreviewService(adminService, dashboardService, concurrency)
+	svc.SetRecoveryProbeRepository(recoveryProbe)
+	return svc
+}
+
+func ProvideChannelService(
+	repo ChannelRepository,
+	groupRepo GroupRepository,
+	authCacheInvalidator APIKeyAuthCacheInvalidator,
+	pricingService *PricingService,
+	accountRepo AccountRepository,
+) *ChannelService {
+	return NewChannelService(repo, groupRepo, authCacheInvalidator, pricingService, accountRepo)
+}
+
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
 func ProvideOpsScheduledReportService(
 	opsService *OpsService,
@@ -834,9 +912,11 @@ var ProviderSet = wire.NewSet(
 	ProvideIdempotencyCleanupService,
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
+	NewGroupRecoveryProbeBillingService,
+	ProvideGroupRecoveryProbeRunner,
 	NewGroupCapacityService,
-	NewSmartSchedulerPreviewService,
-	NewChannelService,
+	ProvideSmartSchedulerPreviewService,
+	ProvideChannelService,
 	NewModelPricingResolver,
 	NewContentModerationService,
 	NewAffiliateService,

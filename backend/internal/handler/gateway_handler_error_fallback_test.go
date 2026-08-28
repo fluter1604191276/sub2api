@@ -36,6 +36,31 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
+func TestUpstreamOverloadMappingOnlyTreatsExplicit529AsClientRetryable503(t *testing.T) {
+	t.Run("anthropic compatible gateway", func(t *testing.T) {
+		status, errorType, message := (&GatewayHandler{}).mapUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Equal(t, "overloaded_error", errorType)
+		require.Contains(t, message, "retry later")
+
+		status, errorType, _ = (&GatewayHandler{}).mapUpstreamError(http.StatusServiceUnavailable)
+		require.Equal(t, http.StatusBadGateway, status)
+		require.Equal(t, "upstream_error", errorType)
+	})
+
+	t.Run("openai compatible gateway", func(t *testing.T) {
+		status, _, message := (&OpenAIGatewayHandler{}).mapUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Contains(t, message, "retry later")
+	})
+
+	t.Run("gemini compatible gateway", func(t *testing.T) {
+		status, message := mapGeminiUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Contains(t, message, "retry later")
+	})
+}
+
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，
 // 而不是 silent EOF。非 /responses 路径走 legacy data:{"type":"error"} 分支。
 func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {

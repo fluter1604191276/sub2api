@@ -207,6 +207,21 @@ func TestCalculateStatsCost_TokenBilling(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
+func TestCalculateStatsCost_TokenBilling_PriorityDoublesUpstreamCost(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(0.001),
+		OutputPrice: testPtrFloat64(0.002),
+	}
+	usage := AccountStatsUsageContext{
+		Tokens:      UsageTokens{InputTokens: 100, OutputTokens: 50},
+		ServiceTier: "Fast",
+	}
+	result := calculateStatsCost(pricing, usage)
+	require.NotNil(t, result)
+	require.InDelta(t, 0.4, *result, 1e-12)
+}
+
 func TestCalculateStatsCost_TokenBilling_WithCache(t *testing.T) {
 	pricing := &ChannelModelPricing{
 		BillingMode:     BillingModeToken,
@@ -549,6 +564,21 @@ func TestTryModelFilePricing_AppliesLongContextPricing(t *testing.T) {
 	require.NotNil(t, result)
 	// Input and cache-read use the 2x input tier; output uses the 1.5x tier.
 	require.InDelta(t, 0.233, *result, 1e-12)
+}
+
+func TestTryModelFilePricingWithServiceTier_PriorityUsesFastPricing(t *testing.T) {
+	bs := newTestBillingServiceWithPrices(map[string]*ModelPricing{
+		"gpt-5.6-sol": {
+			InputPricePerToken:          0.001,
+			InputPricePerTokenPriority:  0.002,
+			OutputPricePerToken:         0.002,
+			OutputPricePerTokenPriority: 0.004,
+		},
+	})
+	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
+	result := tryModelFilePricingWithServiceTier(bs, "gpt-5.6-sol", tokens, "priority")
+	require.NotNil(t, result)
+	require.InDelta(t, 0.4, *result, 1e-12)
 }
 
 func TestTryModelFilePricing_PricingNotFound(t *testing.T) {

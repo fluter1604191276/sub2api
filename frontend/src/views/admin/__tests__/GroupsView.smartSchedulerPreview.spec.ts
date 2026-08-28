@@ -21,7 +21,12 @@ const {
   getBatchQualityStats,
   getLiveCapability,
   getSmartSchedulerPreview,
+  getRecoveryProbeBilling,
+  updateRecoveryProbeBilling,
+  listOwnAPIKeys,
   listAccounts,
+  createGroup,
+  updateGroup,
   showError,
   showSuccess,
   isCurrentStep,
@@ -35,7 +40,12 @@ const {
   getBatchQualityStats: vi.fn(),
   getLiveCapability: vi.fn(),
   getSmartSchedulerPreview: vi.fn(),
+  getRecoveryProbeBilling: vi.fn(),
+  updateRecoveryProbeBilling: vi.fn(),
+  listOwnAPIKeys: vi.fn(),
   listAccounts: vi.fn(),
+  createGroup: vi.fn(),
+  updateGroup: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   isCurrentStep: vi.fn(),
@@ -46,6 +56,79 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.action': 'Smart scheduler',
   'admin.groups.smartScheduler.title': 'Smart scheduler · {name}',
   'admin.groups.smartScheduler.description': 'Read-only smart scheduler preview.',
+  'admin.groups.smartScheduler.enabledStatus': 'This group takes over production routing.',
+  'admin.groups.smartScheduler.disabledStatus': 'This group uses the original scheduler.',
+  'admin.groups.smartScheduler.enableAction': 'Enable smart scheduling',
+  'admin.groups.smartScheduler.disableAction': 'Disable smart scheduling',
+  'admin.groups.smartScheduler.toggleHint': 'When disabled, requests use the original scheduler. If scoring is abnormal, routing automatically falls back.',
+  'admin.groups.smartScheduler.toggleSuccess': 'Smart scheduler setting updated',
+  'admin.groups.smartScheduler.recoveryProbe.title': 'Recovery probe',
+  'admin.groups.smartScheduler.recoveryProbe.description': 'Off by default. When enabled, lightweight tests probe isolated or long-idle accounts. The idle threshold is fixed at 1h.',
+  'admin.groups.smartScheduler.recoveryProbe.enabled': 'Probe enabled',
+  'admin.groups.smartScheduler.recoveryProbe.disabled': 'Probe disabled',
+  'admin.groups.smartScheduler.recoveryProbe.mode': 'Probe mode',
+  'admin.groups.smartScheduler.recoveryProbe.modes.manual': 'Fixed interval',
+  'admin.groups.smartScheduler.recoveryProbe.modes.smart': 'Smart backoff',
+  'admin.groups.smartScheduler.recoveryProbe.testModel': 'Test model',
+  'admin.groups.smartScheduler.recoveryProbe.testModelPlaceholder': 'Required when enabled, e.g. claude-sonnet-4-6',
+  'admin.groups.smartScheduler.recoveryProbe.fixedInterval': 'Fixed interval (seconds)',
+  'admin.groups.smartScheduler.recoveryProbe.probesPerRound': 'Probes per round',
+  'admin.groups.smartScheduler.recoveryProbe.smartBackoffMax': 'Smart backoff max (seconds)',
+  'admin.groups.smartScheduler.recoveryProbe.idleThreshold': 'Idle threshold',
+  'admin.groups.smartScheduler.recoveryProbe.idleThresholdFixed': 'Fixed 1h',
+  'admin.groups.smartScheduler.recoveryProbe.noTestModel': 'not configured',
+  'admin.groups.smartScheduler.recoveryProbe.summary': '{status} · {mode} · model {model} · interval {interval} · {count} per round · backoff max {backoff}',
+  'admin.groups.smartScheduler.recoveryProbe.saveSuccess': 'Recovery probe settings saved',
+  'admin.groups.smartScheduler.recoveryProbe.accountStatus': 'Probe status',
+  'admin.groups.smartScheduler.recoveryProbe.noAccountStatus': 'No probe status',
+  'admin.groups.smartScheduler.recoveryProbe.accountModel': 'model {model}',
+  'admin.groups.smartScheduler.recoveryProbe.accountAttempts': '{successes} consecutive successes / {failures} failures, {total} total',
+  'admin.groups.smartScheduler.recoveryProbe.accountLatency': 'latency {latency}',
+  'admin.groups.smartScheduler.recoveryProbe.accountLastProbe': 'last {time}',
+  'admin.groups.smartScheduler.recoveryProbe.accountNextProbe': 'next {time}',
+  'admin.groups.smartScheduler.recoveryProbe.accountError': '{class}: {error}',
+  'admin.groups.smartScheduler.recoveryProbe.unknownErrorClass': 'unknown error',
+  'admin.groups.smartScheduler.recoveryProbe.billing.title': 'Probe cost ledger',
+  'admin.groups.smartScheduler.recoveryProbe.billing.description': 'Charge probes to my account.',
+  'admin.groups.smartScheduler.recoveryProbe.billing.enabled': 'Charge my account',
+  'admin.groups.smartScheduler.recoveryProbe.billing.disabled': 'Do not charge',
+  'admin.groups.smartScheduler.recoveryProbe.billing.apiKey': 'Ledger API key',
+  'admin.groups.smartScheduler.recoveryProbe.billing.selectAPIKey': 'Select one of my keys',
+  'admin.groups.smartScheduler.recoveryProbe.billing.dailyBudget': 'Daily budget (USD)',
+  'admin.groups.smartScheduler.recoveryProbe.billing.perAttemptLimit': 'Per-attempt reserve (USD)',
+  'admin.groups.smartScheduler.recoveryProbe.billing.globalToday': 'Global cost today',
+  'admin.groups.smartScheduler.recoveryProbe.billing.groupToday': 'Group cost today',
+  'admin.groups.smartScheduler.recoveryProbe.billing.remaining': 'Budget remaining',
+  'admin.groups.smartScheduler.recoveryProbe.billing.settlementSummary': 'Settlement today',
+  'admin.groups.smartScheduler.recoveryProbe.billing.settlementCounts': '{settled} settled · {unavailable} unavailable · {failed} failed',
+  'admin.groups.smartScheduler.recoveryProbe.billing.hint': 'Probe rows are isolated from sales and quality.',
+  'admin.groups.smartScheduler.recoveryProbe.billing.loadFailed': 'Failed to load probe billing settings',
+  'admin.groups.smartScheduler.recoveryProbe.billing.saveSuccess': 'Probe billing settings saved',
+  'admin.groups.smartScheduler.recoveryProbe.billing.saveFailed': 'Failed to save probe billing settings',
+  'admin.groups.smartScheduler.recoveryProbe.accountStatuses.none': 'No state',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.pending': 'Pending',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.probing': 'Probing',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.warm': 'Warm',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.eligible': 'Eligible',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.failed': 'Failed',
+  'admin.groups.smartScheduler.recoveryProbe.accountStates.paused': 'Paused',
+  'admin.groups.smartScheduler.poolErrorPolicy.title': 'Group error and retry policy',
+  'admin.groups.smartScheduler.poolErrorPolicy.description': 'Batch policy settings.',
+  'admin.groups.smartScheduler.poolErrorPolicy.precedence': 'Account > group > default.',
+  'admin.groups.smartScheduler.poolErrorPolicy.poolMode': 'Pool mode',
+  'admin.groups.smartScheduler.poolErrorPolicy.retryCount': 'Same-account retries',
+  'admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodes': 'Same-account retry codes',
+  'admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodesPlaceholder': 'e.g. 529',
+  'admin.groups.smartScheduler.poolErrorPolicy.customEnabled': 'Custom error handling',
+  'admin.groups.smartScheduler.poolErrorPolicy.customCodes': 'Custom error codes',
+  'admin.groups.smartScheduler.poolErrorPolicy.customCodesPlaceholder': 'e.g. 529',
+  'admin.groups.smartScheduler.poolErrorPolicy.inherit': 'Inherit',
+  'admin.groups.smartScheduler.poolErrorPolicy.override': 'Override',
+  'admin.groups.smartScheduler.poolErrorPolicy.enabled': 'Enabled',
+  'admin.groups.smartScheduler.poolErrorPolicy.disabled': 'Disabled',
+  'admin.groups.smartScheduler.poolErrorPolicy.inheritPlaceholder': 'Blank means inherit',
+  'admin.groups.smartScheduler.poolErrorPolicy.hint': 'Configure 529 only when confirmed overload.',
+  'admin.groups.smartScheduler.poolErrorPolicy.saveSuccess': 'Group error and retry policy saved',
   'admin.groups.smartScheduler.requestedModel': 'Requested model',
   'admin.groups.smartScheduler.requestedModelPlaceholder': 'gpt-5.5',
   'admin.groups.smartScheduler.endpoint': 'Endpoint',
@@ -57,6 +140,7 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.chatCompletions': 'Chat completions',
   'admin.groups.smartScheduler.responses': 'Responses',
   'admin.groups.smartScheduler.messages': 'Messages',
+  'admin.groups.smartScheduler.geminiModels': 'Gemini native',
   'admin.groups.smartScheduler.primary': 'Primary',
   'admin.groups.smartScheduler.warm': 'Warm observe',
   'admin.groups.smartScheduler.isolated': 'Isolated',
@@ -70,6 +154,7 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.exploration': 'Exploration preview',
   'admin.groups.smartScheduler.explorationRate': 'Explore {rate}',
   'admin.groups.smartScheduler.explorationCandidate': 'Explore candidate',
+  'admin.groups.smartScheduler.probeBootstrap': 'Probe bootstrap',
   'admin.groups.smartScheduler.fallbackEvidence': 'Fallback evidence',
   'admin.groups.smartScheduler.evidenceScopes.model_endpoint': 'Model + endpoint',
   'admin.groups.smartScheduler.evidenceScopes.model': 'Model',
@@ -84,7 +169,9 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.firstToken': 'TTFT',
   'admin.groups.smartScheduler.generationSpeed': 'Generation',
   'admin.groups.smartScheduler.failureSummary': 'Provider {provider}, transient {transient}, rate limit {rateLimit}',
+  'admin.groups.smartScheduler.immediateFailureSummary': 'Last 5m immediate supplier failures: provider {provider}, transient {transient}, rate limit {rateLimit}, uncertain {uncertain}',
   'admin.groups.smartScheduler.clientSummary': 'Client {client}, platform {platform}, uncertain {uncertain}',
+  'admin.groups.smartScheduler.capacityLimitedSummary': 'No-capacity events in last 1h: {count}. Capacity metrics are not included in account quality score.',
   'admin.groups.smartScheduler.loadSummary': 'Load {current}/{max}, waiting {waiting}, rate {rate}',
   'admin.groups.smartScheduler.noLoad': 'No load',
   'admin.groups.smartScheduler.noScore': 'No score',
@@ -94,6 +181,39 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.confidenceLabels.high': 'High',
   'admin.groups.smartScheduler.confidenceLabels.medium': 'Medium',
   'admin.groups.smartScheduler.confidenceLabels.low': 'Low',
+  'admin.groups.form.smartScheduler': 'Smart scheduler',
+  'admin.groups.smartScheduler.formHint': 'When disabled, requests use the original scheduler. If scoring is abnormal, routing automatically falls back.',
+  'admin.groups.smartScheduler.formEnabled': 'Enabled',
+  'admin.groups.smartScheduler.formDisabled': 'Disabled',
+  'admin.groups.enterGroupName': 'Enter group name',
+  'admin.groups.form.name': 'Name',
+  'admin.groups.form.description': 'Description',
+  'admin.groups.form.platform': 'Platform',
+  'admin.groups.form.rateMultiplier': 'Rate multiplier',
+  'admin.groups.form.rpmLimit': 'RPM',
+  'admin.groups.form.rpmLimitPlaceholder': '0 = unlimited',
+  'admin.groups.form.rpmLimitHint': 'RPM hint',
+  'admin.groups.form.exclusive': 'Exclusive',
+  'admin.groups.form.status': 'Status',
+  'admin.groups.rateMultiplierHint': 'Rate hint',
+  'admin.groups.platformNotEditable': 'Platform cannot be edited',
+  'admin.groups.groupCreated': 'Group created',
+  'admin.groups.groupUpdated': 'Group updated',
+  'admin.groups.creating': 'Creating',
+  'admin.groups.updating': 'Updating',
+  'admin.groups.subscription.type': 'Subscription type',
+  'admin.groups.subscription.standard': 'Standard',
+  'admin.groups.subscription.subscription': 'Subscription',
+  'admin.groups.subscription.typeHint': 'Subscription hint',
+  'admin.groups.subscription.typeNotEditable': 'Subscription type cannot be edited',
+  'admin.groups.public': 'Public',
+  'admin.groups.exclusive': 'Exclusive',
+  'admin.groups.allStatus': 'All status',
+  'admin.accounts.status.active': 'Active',
+  'admin.accounts.status.inactive': 'Inactive',
+  'common.create': 'Create',
+  'common.save': 'Save',
+  'common.cancel': 'Cancel',
   'common.close': 'Close',
 }
 
@@ -108,8 +228,10 @@ vi.mock('@/api/admin', () => ({
       getBatchQualityStats,
       getLiveCapability,
       getSmartSchedulerPreview,
-      create: vi.fn(),
-      update: vi.fn(),
+      getRecoveryProbeBilling,
+      updateRecoveryProbeBilling,
+      create: createGroup,
+      update: updateGroup,
       delete: vi.fn(),
       updateSortOrder: vi.fn(),
       duplicate: vi.fn(),
@@ -118,6 +240,12 @@ vi.mock('@/api/admin', () => ({
       list: listAccounts,
       getById: vi.fn(),
     },
+  },
+}))
+
+vi.mock('@/api/keys', () => ({
+  keysAPI: {
+    list: listOwnAPIKeys,
   },
 }))
 
@@ -197,6 +325,14 @@ const group: AdminGroup = {
   model_routing: null,
   model_routing_enabled: false,
   mcp_xml_inject: true,
+  smart_scheduler_enabled: false,
+  recovery_probe_enabled: false,
+  recovery_probe_mode: 'manual',
+  recovery_probe_model: '',
+  recovery_probe_interval_seconds: 900,
+  recovery_probe_attempts_per_round: 1,
+  recovery_probe_idle_threshold_seconds: 3600,
+  recovery_probe_backoff_cap_seconds: 1800,
   supported_model_scopes: [],
   account_count: 3,
   active_account_count: 3,
@@ -255,6 +391,7 @@ const schedulerItem = (
   evidence_scope: 'model_endpoint',
   evidence_fallback: false,
   exploration_candidate: false,
+  probe_bootstrap: false,
   quality_1h: qualityPeriod(96),
   quality_24h: qualityPeriod(95),
   activity,
@@ -265,6 +402,14 @@ const schedulerItem = (
   client_excluded_count: 0,
   platform_failure_count: 0,
   uncertain_failure_count: 0,
+  recent_provider_failure_count: 0,
+  recent_provider_transient_count: 0,
+  recent_rate_limit_count: 0,
+  recent_uncertain_failure_count: 0,
+  immediate_provider_failure_count: 0,
+  immediate_provider_transient_count: 0,
+  immediate_rate_limit_count: 0,
+  immediate_uncertain_failure_count: 0,
   cost_multiplier: 1,
   load: {
     current_concurrency: 1,
@@ -276,6 +421,7 @@ const schedulerItem = (
   endpoint_supported: true,
   model_mapping: '',
   last_used_at: null,
+  recovery_probe: null,
   ...overrides,
 })
 
@@ -284,7 +430,7 @@ const preview: SmartSchedulerPreview = {
   platform: 'openai',
   requested_model: 'gpt-5.5',
   endpoint: 'responses',
-  algorithm_version: 'preview-v2',
+  algorithm_version: 'preview-v3',
   generated_at: '2026-08-01T02:03:04Z',
   total_accounts: 3,
   primary_count: 1,
@@ -293,10 +439,34 @@ const preview: SmartSchedulerPreview = {
   exploration_rate: 0.075,
   production_control_active: false,
   load_snapshot_available: true,
-  warnings: [],
+  capacity_limited_count_1h: 2,
+  warnings: ['Group has no available capacity for this model in the last hour.'],
   items: [
-    schedulerItem({ account_id: 100, account_name: 'Primary Account', pool: 'primary', reason: 'best score' }),
-    schedulerItem({ rank: 2, account_id: 101, account_name: 'Warm Account', pool: 'warm', reason: 'observe before primary', score: 72, confidence_label: 'medium', evidence_scope: 'account', evidence_fallback: true, exploration_candidate: true }),
+    schedulerItem({
+      account_id: 100,
+      account_name: 'Primary Account',
+      pool: 'primary',
+      reason: 'best score',
+      immediate_provider_failure_count: 1,
+      immediate_rate_limit_count: 2,
+      recovery_probe: {
+        group_id: 42,
+        account_id: 100,
+        model: 'gpt-5.5',
+        status: 'probing',
+        consecutive_successes: 0,
+        consecutive_failures: 2,
+        last_probe_at: '2026-08-01T02:00:00Z',
+        next_probe_at: '2026-08-01T02:12:00Z',
+        last_failure_at: '2026-08-01T02:00:00Z',
+        last_error_class: 'transient',
+        last_error: 'upstream timeout',
+        latency_ms: 2400,
+        probe_count: 3,
+        updated_at: '2026-08-01T02:00:00Z',
+      },
+    }),
+    schedulerItem({ rank: 2, account_id: 101, account_name: 'Warm Account', pool: 'warm', reason: 'observe before primary', score: 72, confidence_label: 'medium', evidence_scope: 'account', evidence_fallback: true, exploration_candidate: true, probe_bootstrap: true }),
     schedulerItem({ rank: 3, account_id: 102, account_name: 'Isolated Account', pool: 'isolated', reason: 'excluded by failures', score: 25, schedulable: false, confidence_label: 'low', load: null }),
   ],
 }
@@ -376,6 +546,15 @@ async function openSmartSchedulerPreview(wrapper: ReturnType<typeof mount>) {
   await flushPromises()
 }
 
+async function openEditGroupDialog(wrapper: ReturnType<typeof mount>) {
+  const editButton = wrapper
+    .findAll('button')
+    .find((button) => button.text().includes('common.edit'))
+  expect(editButton).toBeTruthy()
+  await editButton!.trigger('click')
+  await flushPromises()
+}
+
 describe('admin GroupsView smart scheduler preview', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -390,7 +569,12 @@ describe('admin GroupsView smart scheduler preview', () => {
       getBatchQualityStats,
       getLiveCapability,
       getSmartSchedulerPreview,
+      getRecoveryProbeBilling,
+      updateRecoveryProbeBilling,
+      listOwnAPIKeys,
       listAccounts,
+      createGroup,
+      updateGroup,
       showError,
       showSuccess,
       isCurrentStep,
@@ -413,6 +597,49 @@ describe('admin GroupsView smart scheduler preview', () => {
     getBatchQualityStats.mockResolvedValue({ stats: {} })
     getLiveCapability.mockResolvedValue({ supported: false })
     getSmartSchedulerPreview.mockResolvedValue(preview)
+    getRecoveryProbeBilling.mockResolvedValue({
+      settings: {
+        enabled: false,
+        owner_user_id: 0,
+        api_key_id: 0,
+        daily_budget_usd: 1,
+        per_attempt_limit_usd: 0.01,
+      },
+      global_today: {
+        today_settled_cost: 0.012,
+        today_budget_cost: 0.012,
+        today_attempts: 5,
+        today_settled: 3,
+        today_unavailable: 1,
+        today_failed: 1,
+      },
+      group_today: {
+        today_settled_cost: 0.004,
+        today_budget_cost: 0.004,
+        today_attempts: 2,
+        today_settled: 2,
+        today_unavailable: 0,
+        today_failed: 0,
+      },
+      remaining_usd: 0.988,
+    })
+    updateRecoveryProbeBilling.mockResolvedValue({
+      enabled: true,
+      owner_user_id: 7,
+      api_key_id: 11,
+      api_key_name: 'Probe ledger',
+      daily_budget_usd: 1,
+      per_attempt_limit_usd: 0.01,
+    })
+    listOwnAPIKeys.mockResolvedValue({
+      items: [{ id: 11, name: 'Probe ledger', status: 'inactive' }],
+      total: 1,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
+    createGroup.mockResolvedValue({ ...group, id: 43 })
+    updateGroup.mockResolvedValue({ ...group })
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     isCurrentStep.mockReturnValue(false)
   })
@@ -432,6 +659,52 @@ describe('admin GroupsView smart scheduler preview', () => {
     wrapper.unmount()
   })
 
+  it('creates groups with smart scheduler disabled by default', async () => {
+    const wrapper = await mountLoadedView()
+
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('input[placeholder="Enter group name"]').setValue('New group')
+    await wrapper.get('form#create-group-form').trigger('submit')
+    await flushPromises()
+
+    expect(createGroup).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'New group',
+      smart_scheduler_enabled: false,
+    }))
+    wrapper.unmount()
+  })
+
+  it('reads and updates smart scheduler state in the edit form', async () => {
+    listGroups.mockResolvedValueOnce({
+      items: [{ ...group, smart_scheduler_enabled: true }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountLoadedView()
+
+    await openEditGroupDialog(wrapper)
+    await flushPromises()
+
+    const dialogText = wrapper.get('[role="dialog"]').text()
+    expect(dialogText).toContain('Smart scheduler')
+    expect(dialogText).toContain('Enabled')
+    expect(dialogText).toContain('If scoring is abnormal, routing automatically falls back.')
+
+    const smartSchedulerToggle = wrapper.find('[data-testid="edit-smart-scheduler-toggle"]')
+    expect(smartSchedulerToggle.exists()).toBe(true)
+    await smartSchedulerToggle.trigger('click')
+    await wrapper.get('form#edit-group-form').trigger('submit')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({
+      smart_scheduler_enabled: false,
+    }))
+    wrapper.unmount()
+  })
+
   it('requests the default smart scheduler preview when the modal opens', async () => {
     const wrapper = await mountLoadedView()
 
@@ -439,6 +712,130 @@ describe('admin GroupsView smart scheduler preview', () => {
 
     expect(getSmartSchedulerPreview).toHaveBeenCalledTimes(1)
     expect(getSmartSchedulerPreview).toHaveBeenCalledWith(42, {})
+    wrapper.unmount()
+  })
+
+  it('shows takeover status and toggles from the smart scheduler preview', async () => {
+    const wrapper = await mountLoadedView()
+
+    await openSmartSchedulerPreview(wrapper)
+
+    expect(wrapper.get('[role="dialog"]').text()).toContain('This group uses the original scheduler.')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('If scoring is abnormal, routing automatically falls back.')
+
+    await wrapper.get('[data-testid="smart-scheduler-preview-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({
+      smart_scheduler_enabled: true,
+    }))
+    expect(showSuccess).toHaveBeenCalledWith('Smart scheduler setting updated')
+    wrapper.unmount()
+  })
+
+  it('keeps recovery probe disabled by default and saves its settings through group update', async () => {
+    const wrapper = await mountLoadedView()
+
+    await openSmartSchedulerPreview(wrapper)
+
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).toContain('Recovery probe')
+    expect(dialog.text()).toContain('Probe disabled')
+    expect(dialog.text()).toContain('Fixed 1h')
+    expect(dialog.text()).toContain('Probe disabled · Fixed interval · model not configured · interval 15m · 1 per round · backoff max 30m')
+
+    await dialog.get('[data-testid="recovery-probe-toggle"]').trigger('click')
+    await dialog.get('[data-testid="recovery-probe-mode"]').setValue('smart')
+    await dialog.get('[data-testid="recovery-probe-test-model"]').setValue('gpt-5.5-mini')
+    await dialog.get('[data-testid="recovery-probe-fixed-interval"]').setValue('1800')
+    await dialog.get('[data-testid="recovery-probe-probes-per-round"]').setValue('2')
+    await dialog.get('[data-testid="recovery-probe-smart-backoff-max"]').setValue('7200')
+    await dialog.get('[data-testid="recovery-probe-save"]').trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, {
+      recovery_probe_enabled: true,
+      recovery_probe_mode: 'smart',
+      recovery_probe_model: 'gpt-5.5-mini',
+      recovery_probe_interval_seconds: 1800,
+      recovery_probe_attempts_per_round: 2,
+      recovery_probe_idle_threshold_seconds: 3600,
+      recovery_probe_backoff_cap_seconds: 7200,
+    })
+    expect(showSuccess).toHaveBeenCalledWith('Recovery probe settings saved')
+    wrapper.unmount()
+  })
+
+  it('records probe spend under an owned key with a daily budget', async () => {
+    const wrapper = await mountLoadedView()
+    await openSmartSchedulerPreview(wrapper)
+
+    const dialog = wrapper.get('[role="dialog"]')
+    expect(dialog.text()).toContain('Probe cost ledger')
+    expect(dialog.text()).toContain('$0.012000')
+    expect(dialog.text()).toContain('3 settled · 1 unavailable · 1 failed')
+
+    await dialog.get('[data-testid="recovery-probe-billing-toggle"]').trigger('click')
+    await dialog.get('[data-testid="recovery-probe-billing-api-key"]').setValue('11')
+    await dialog.get('[data-testid="recovery-probe-billing-daily-budget"]').setValue('2')
+    await dialog.get('[data-testid="recovery-probe-billing-per-attempt-limit"]').setValue('0.02')
+    await dialog.get('[data-testid="recovery-probe-billing-save"]').trigger('click')
+    await flushPromises()
+
+    expect(updateRecoveryProbeBilling).toHaveBeenCalledWith({
+      enabled: true,
+      api_key_id: 11,
+      daily_budget_usd: 2,
+      per_attempt_limit_usd: 0.02,
+    })
+    expect(showSuccess).toHaveBeenCalledWith('Probe billing settings saved')
+    wrapper.unmount()
+  })
+
+  it('saves group error policy overrides and supports explicit status 529', async () => {
+    const wrapper = await mountLoadedView()
+    await openSmartSchedulerPreview(wrapper)
+
+    const dialog = wrapper.get('[role="dialog"]')
+    await dialog.get('[data-testid="group-pool-mode-policy"]').setValue('enabled')
+    await dialog.get('[data-testid="group-pool-retry-count"]').setValue('2')
+    await dialog.get('[data-testid="group-pool-retry-status-policy"]').setValue('override')
+    await dialog.get('[data-testid="group-pool-retry-status-codes"]').setValue('529, 503')
+    await dialog.get('[data-testid="group-custom-error-enabled-policy"]').setValue('enabled')
+    await dialog.get('[data-testid="group-custom-error-policy"]').setValue('override')
+    await dialog.get('[data-testid="group-custom-error-codes"]').setValue('529')
+    await dialog.get('[data-testid="group-pool-error-policy-save"]').trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, {
+      pool_mode_enabled: true,
+      pool_mode_retry_count: 2,
+      pool_mode_retry_status_codes: [503, 529],
+      custom_error_codes_enabled: true,
+      custom_error_codes: [529],
+    })
+    expect(showSuccess).toHaveBeenCalledWith('Group error and retry policy saved')
+    wrapper.unmount()
+  })
+
+  it('uses the preview response as the authoritative production control state', async () => {
+    getSmartSchedulerPreview.mockResolvedValueOnce({
+      ...preview,
+      production_control_active: true,
+    })
+    const wrapper = await mountLoadedView()
+
+    await openSmartSchedulerPreview(wrapper)
+
+    expect(wrapper.get('[role="dialog"]').text()).toContain('This group takes over production routing.')
+    expect(wrapper.get('[data-testid="smart-scheduler-preview-toggle"]').text()).toContain('Disable smart scheduling')
+
+    await wrapper.get('[data-testid="smart-scheduler-preview-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({
+      smart_scheduler_enabled: false,
+    }))
     wrapper.unmount()
   })
 
@@ -474,14 +871,23 @@ describe('admin GroupsView smart scheduler preview', () => {
     expect(dialogText).toContain('best score')
     expect(dialogText).toContain('observe before primary')
     expect(dialogText).toContain('excluded by failures')
-    expect(dialogText).toContain('Algorithm preview-v2')
+    expect(dialogText).toContain('Algorithm preview-v3')
+    expect(dialogText).toContain('Group has no available capacity for this model in the last hour.')
+    expect(dialogText).toContain('No-capacity events in last 1h: 2. Capacity metrics are not included in account quality score.')
     expect(dialogText).toContain('Explore 7.5%')
     expect(dialogText).toContain('Model + endpoint')
     expect(dialogText).toContain('Fallback evidence')
     expect(dialogText).toContain('Explore candidate')
+    expect(dialogText).toContain('Probe bootstrap')
     expect(dialogText).toContain('Raw 98')
     expect(dialogText).toContain('TTFT 440ms')
     expect(dialogText).toContain('Generation 40.8 tok/s')
+    expect(dialogText).toContain('Last 5m immediate supplier failures: provider 1, transient 0, rate limit 2, uncertain 0')
+    expect(dialogText).toContain('Probe status')
+    expect(dialogText).toContain('Probing')
+    expect(dialogText).toContain('0 consecutive successes / 2 failures, 3 total')
+    expect(dialogText).toContain('latency 2.4s')
+    expect(dialogText).toContain('transient: upstream timeout')
     wrapper.unmount()
   })
 })

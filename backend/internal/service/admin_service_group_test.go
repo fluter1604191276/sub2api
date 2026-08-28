@@ -342,6 +342,168 @@ func TestAdminService_CreateGroup_NilImagePricing(t *testing.T) {
 	require.Nil(t, repo.created.ImagePrice4K)
 }
 
+func TestAdminService_CreateGroup_SmartSchedulerDefaultsOffAndCanEnable(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	defaultGroup, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:           "smart-default-off",
+		Platform:       PlatformOpenAI,
+		RateMultiplier: 1,
+	})
+	require.NoError(t, err)
+	require.False(t, defaultGroup.SmartSchedulerEnabled)
+	require.False(t, repo.created.SmartSchedulerEnabled)
+
+	enabledGroup, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                  "smart-enabled",
+		Platform:              PlatformOpenAI,
+		RateMultiplier:        1,
+		SmartSchedulerEnabled: true,
+	})
+	require.NoError(t, err)
+	require.True(t, enabledGroup.SmartSchedulerEnabled)
+	require.True(t, repo.created.SmartSchedulerEnabled)
+}
+
+func TestAdminService_UpdateGroup_SmartSchedulerTriState(t *testing.T) {
+	existing := &Group{
+		ID:                    1,
+		Name:                  "smart-update",
+		Platform:              PlatformOpenAI,
+		RateMultiplier:        1,
+		Status:                StatusActive,
+		SubscriptionType:      SubscriptionTypeStandard,
+		SmartSchedulerEnabled: true,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existing}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	unchanged, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{Name: "smart-unchanged"})
+	require.NoError(t, err)
+	require.True(t, unchanged.SmartSchedulerEnabled)
+	require.True(t, repo.updated.SmartSchedulerEnabled)
+
+	disabled := false
+	updated, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{SmartSchedulerEnabled: &disabled})
+	require.NoError(t, err)
+	require.False(t, updated.SmartSchedulerEnabled)
+	require.False(t, repo.updated.SmartSchedulerEnabled)
+}
+
+func TestAdminService_UpdateGroup_ClearsPoolErrorPolicyOverrides(t *testing.T) {
+	poolModeEnabled := true
+	retryCount := 2
+	retryCodes := []int{503, 529}
+	customEnabled := true
+	customCodes := []int{529}
+	existing := &Group{
+		ID:                       1,
+		Name:                     "pool-policy-update",
+		Platform:                 PlatformOpenAI,
+		RateMultiplier:           1,
+		Status:                   StatusActive,
+		SubscriptionType:         SubscriptionTypeStandard,
+		PoolModeEnabled:          &poolModeEnabled,
+		PoolModeRetryCount:       &retryCount,
+		PoolModeRetryStatusCodes: &retryCodes,
+		CustomErrorCodesEnabled:  &customEnabled,
+		CustomErrorCodes:         &customCodes,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existing}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	updated, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{
+		PoolModeEnabledClear:          true,
+		PoolModeRetryCountClear:       true,
+		PoolModeRetryStatusCodesClear: true,
+		CustomErrorCodesEnabledClear:  true,
+		CustomErrorCodesClear:         true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.Nil(t, repo.updated.PoolModeEnabled)
+	require.Nil(t, repo.updated.PoolModeRetryCount)
+	require.Nil(t, repo.updated.PoolModeRetryStatusCodes)
+	require.Nil(t, repo.updated.CustomErrorCodesEnabled)
+	require.Nil(t, repo.updated.CustomErrorCodes)
+}
+
+func TestAdminService_CreateGroup_NormalizesRecoveryProbeConfig(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                 "recovery-probe",
+		Platform:             PlatformAnthropic,
+		RateMultiplier:       1,
+		RecoveryProbeEnabled: true,
+		RecoveryProbeMode:    " MANUAL ",
+		RecoveryProbeModel:   " claude-sonnet-4-6 ",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.True(t, repo.created.RecoveryProbeEnabled)
+	require.Equal(t, GroupRecoveryProbeModeManual, repo.created.RecoveryProbeMode)
+	require.Equal(t, "claude-sonnet-4-6", repo.created.RecoveryProbeModel)
+	require.Equal(t, GroupRecoveryProbeDefaultIntervalSeconds, repo.created.RecoveryProbeIntervalSeconds)
+	require.Equal(t, 1, repo.created.RecoveryProbeAttemptsPerRound)
+	require.Equal(t, GroupRecoveryProbeIdleThresholdSeconds, repo.created.RecoveryProbeIdleThresholdSeconds)
+	require.Equal(t, GroupRecoveryProbeDefaultBackoffCapSeconds, repo.created.RecoveryProbeBackoffCapSeconds)
+}
+
+func TestAdminService_CreateGroup_RejectsEnabledRecoveryProbeWithoutModel(t *testing.T) {
+	repo := &groupRepoStubForAdmin{}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                 "invalid-recovery-probe",
+		Platform:             PlatformAnthropic,
+		RateMultiplier:       1,
+		RecoveryProbeEnabled: true,
+	})
+	require.Error(t, err)
+	require.Nil(t, group)
+	require.Nil(t, repo.created)
+	require.Contains(t, err.Error(), "recovery_probe_model is required")
+}
+
+func TestAdminService_UpdateGroup_RecoveryProbePartialUpdatePreservesExistingConfig(t *testing.T) {
+	existing := &Group{
+		ID:                                1,
+		Name:                              "recovery-update",
+		Platform:                          PlatformAnthropic,
+		RateMultiplier:                    1,
+		Status:                            StatusActive,
+		SubscriptionType:                  SubscriptionTypeStandard,
+		RecoveryProbeEnabled:              true,
+		RecoveryProbeMode:                 GroupRecoveryProbeModeSmart,
+		RecoveryProbeModel:                "claude-sonnet-4-6",
+		RecoveryProbeIntervalSeconds:      900,
+		RecoveryProbeAttemptsPerRound:     2,
+		RecoveryProbeIdleThresholdSeconds: GroupRecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    1800,
+	}
+	repo := &groupRepoStubForAdmin{getByID: existing}
+	svc := &adminServiceImpl{groupRepo: repo}
+	interval := 1200
+
+	updated, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{
+		RecoveryProbeIntervalSeconds: &interval,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated)
+	require.NotNil(t, repo.updated)
+	require.True(t, repo.updated.RecoveryProbeEnabled)
+	require.Equal(t, GroupRecoveryProbeModeSmart, repo.updated.RecoveryProbeMode)
+	require.Equal(t, "claude-sonnet-4-6", repo.updated.RecoveryProbeModel)
+	require.Equal(t, 1200, repo.updated.RecoveryProbeIntervalSeconds)
+	require.Equal(t, 2, repo.updated.RecoveryProbeAttemptsPerRound)
+	require.Equal(t, GroupRecoveryProbeIdleThresholdSeconds, repo.updated.RecoveryProbeIdleThresholdSeconds)
+	require.Equal(t, 1800, repo.updated.RecoveryProbeBackoffCapSeconds)
+}
+
 func TestAdminService_CreateGroup_DefaultsGrokMediaGenerationEnabled(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
 	svc := &adminServiceImpl{groupRepo: repo}

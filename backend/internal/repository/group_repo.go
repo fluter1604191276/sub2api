@@ -105,7 +105,24 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetPeakRateMultiplier(groupIn.PeakRateMultiplier).
 		SetProfitControlEnabled(groupIn.ProfitControlEnabled).
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
-		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer)
+		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
+		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
+		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
+		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
+		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).
+		SetRecoveryProbeIntervalSeconds(groupIn.RecoveryProbeIntervalSeconds).
+		SetRecoveryProbeAttemptsPerRound(groupIn.RecoveryProbeAttemptsPerRound).
+		SetRecoveryProbeIdleThresholdSeconds(groupIn.RecoveryProbeIdleThresholdSeconds).
+		SetRecoveryProbeBackoffCapSeconds(groupIn.RecoveryProbeBackoffCapSeconds).
+		SetNillablePoolModeEnabled(groupIn.PoolModeEnabled).
+		SetNillablePoolModeRetryCount(groupIn.PoolModeRetryCount).
+		SetNillableCustomErrorCodesEnabled(groupIn.CustomErrorCodesEnabled)
+	if groupIn.PoolModeRetryStatusCodes != nil {
+		builder = builder.SetPoolModeRetryStatusCodes(groupIn.PoolModeRetryStatusCodes)
+	}
+	if groupIn.CustomErrorCodes != nil {
+		builder = builder.SetCustomErrorCodes(groupIn.CustomErrorCodes)
+	}
 	if groupIn.DuplicateOperationID != "" {
 		builder = builder.SetDuplicateOperationID(groupIn.DuplicateOperationID)
 	}
@@ -274,7 +291,40 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetPeakRateMultiplier(groupIn.PeakRateMultiplier).
 		SetProfitControlEnabled(groupIn.ProfitControlEnabled).
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
-		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer)
+		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
+		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
+		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
+		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
+		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).
+		SetRecoveryProbeIntervalSeconds(groupIn.RecoveryProbeIntervalSeconds).
+		SetRecoveryProbeAttemptsPerRound(groupIn.RecoveryProbeAttemptsPerRound).
+		SetRecoveryProbeIdleThresholdSeconds(groupIn.RecoveryProbeIdleThresholdSeconds).
+		SetRecoveryProbeBackoffCapSeconds(groupIn.RecoveryProbeBackoffCapSeconds)
+	if groupIn.PoolModeEnabled != nil {
+		builder = builder.SetPoolModeEnabled(*groupIn.PoolModeEnabled)
+	} else {
+		builder = builder.ClearPoolModeEnabled()
+	}
+	if groupIn.PoolModeRetryCount != nil {
+		builder = builder.SetPoolModeRetryCount(*groupIn.PoolModeRetryCount)
+	} else {
+		builder = builder.ClearPoolModeRetryCount()
+	}
+	if groupIn.PoolModeRetryStatusCodes != nil {
+		builder = builder.SetPoolModeRetryStatusCodes(groupIn.PoolModeRetryStatusCodes)
+	} else {
+		builder = builder.ClearPoolModeRetryStatusCodes()
+	}
+	if groupIn.CustomErrorCodesEnabled != nil {
+		builder = builder.SetCustomErrorCodesEnabled(*groupIn.CustomErrorCodesEnabled)
+	} else {
+		builder = builder.ClearCustomErrorCodesEnabled()
+	}
+	if groupIn.CustomErrorCodes != nil {
+		builder = builder.SetCustomErrorCodes(groupIn.CustomErrorCodes)
+	} else {
+		builder = builder.ClearCustomErrorCodes()
+	}
 
 	// 显式处理可空字段：nil 需要 clear，非 nil 需要 set。
 	if groupIn.DailyLimitUSD != nil {

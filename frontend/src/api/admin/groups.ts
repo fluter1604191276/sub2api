@@ -8,6 +8,9 @@ import type {
   AdminGroup,
   AccountQualityStats,
   SmartSchedulerPreview,
+  GroupRecoveryProbeBillingSettings,
+  GroupRecoveryProbeBillingStatus,
+  UpdateGroupRecoveryProbeBillingRequest,
   GroupPlatform,
   CompositeModelRoute,
   CompositeModelRouteInput,
@@ -129,6 +132,28 @@ export async function getSmartSchedulerPreview(
   const { data } = await apiClient.get<SmartSchedulerPreview>(
     `/admin/groups/${id}/smart-scheduler/preview`,
     { params }
+  )
+  return data
+}
+
+/** Get global recovery-probe billing settings plus today's global/group spend. */
+export async function getRecoveryProbeBilling(
+  groupId?: number
+): Promise<GroupRecoveryProbeBillingStatus> {
+  const { data } = await apiClient.get<GroupRecoveryProbeBillingStatus>(
+    '/admin/groups/recovery-probe/billing',
+    { params: groupId ? { group_id: groupId } : undefined }
+  )
+  return data
+}
+
+/** Update the administrator-owned ledger key and global recovery-probe budget. */
+export async function updateRecoveryProbeBilling(
+  payload: UpdateGroupRecoveryProbeBillingRequest
+): Promise<GroupRecoveryProbeBillingSettings> {
+  const { data } = await apiClient.put<GroupRecoveryProbeBillingSettings>(
+    '/admin/groups/recovery-probe/billing',
+    payload
   )
   return data
 }
@@ -513,6 +538,8 @@ export const groupsAPI = {
   getById,
   getModelsListCandidates,
   getSmartSchedulerPreview,
+  getRecoveryProbeBilling,
+  updateRecoveryProbeBilling,
   create,
   duplicate,
   update,

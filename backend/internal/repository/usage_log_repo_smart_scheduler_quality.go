@@ -73,7 +73,9 @@ func (r *usageLogRepository) GetSmartSchedulerQualityStatsBatch(
 				AND ul.created_at >= $2
 				AND ul.created_at < $4
 				AND ul.actual_cost > 0
+				AND ul.request_type <> 6
 				AND ul.stream = TRUE
+				AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 				AND ($5 = '' OR LOWER(COALESCE(NULLIF(ul.requested_model, ''), ul.model)) = LOWER($5))
 				AND ($6 = 'any' OR LOWER(COALESCE(NULLIF(ul.inbound_endpoint, ''), '')) = LOWER($6))
 		), ranked AS (

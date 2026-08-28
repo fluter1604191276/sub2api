@@ -382,6 +382,78 @@ func TestRateLimitService_HandleUpstreamError_CodexPlanGatedModelIgnoresAPIKeyAc
 	require.Empty(t, repo.modelRateLimitCalls)
 }
 
+func TestRateLimitService_DynamicModelCapabilityUsesEndpointAndMappedModel(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.6-luna": "luna-upstream"}
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "responses")
+
+	handled := svc.HandleUpstreamModelNotFound(
+		ctx,
+		account,
+		"gpt-5.6-luna",
+		http.StatusBadGateway,
+		[]byte(`{"error":{"message":"The luna-upstream model is not supported by this upstream account"}}`),
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, dynamicModelCapabilityRateLimitKey("responses", "luna-upstream"), call.scope)
+	require.Equal(t, upstreamDynamicModelCapabilityReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamDynamicModelCapabilityCooldown), call.resetAt, 5*time.Second)
+}
+
+func TestRateLimitService_DynamicModelCapabilityRecognizesModelSpecificNoAccountError(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "responses")
+
+	handled := svc.HandleUpstreamModelNotFound(
+		ctx,
+		account,
+		"gpt-5.6-luna",
+		http.StatusServiceUnavailable,
+		[]byte(`{"error":{"message":"No OpenAI upstream account for gpt-5.6-luna is available"}}`),
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+}
+
+func TestRateLimitService_DynamicModelCapabilityIgnoresTransientAndRequestErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+	}{
+		{name: "cloudflare bad gateway", statusCode: http.StatusBadGateway, body: `{"title":"Error 502: Bad gateway"}`},
+		{name: "connection timeout", statusCode: http.StatusServiceUnavailable, body: `{"error":{"message":"upstream connection timed out"}}`},
+		{name: "unsupported parameter", statusCode: http.StatusBadRequest, body: `{"error":{"message":"Unsupported parameter: max_output_tokens"}}`},
+		{name: "cache ttl policy", statusCode: http.StatusBadRequest, body: `{"error":{"message":"no Anthropic upstream account with cache TTL mode matching request intent explicit_1h is available"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &modelNotFoundAccountRepoStub{}
+			svc := &RateLimitService{accountRepo: repo}
+			account := openAIModelNotFoundTempAccount()
+
+			handled := svc.HandleUpstreamModelNotFound(
+				WithSmartSchedulerEndpoint(context.Background(), "responses"),
+				account,
+				"gpt-5.6-luna",
+				tt.statusCode,
+				[]byte(tt.body),
+			)
+
+			require.False(t, handled)
+			require.Empty(t, repo.modelRateLimitCalls)
+		})
+	}
+}
+
 func openAICodexPlanGatedOAuthAccount() *Account {
 	return &Account{
 		ID:          202,

@@ -150,6 +150,94 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 	require.Contains(t, recorder.Body.String(), "test_complete")
 }
 
+func TestAccountTestService_RunTestBackgroundOpenAIExtractsUsageAndEstimatedCost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rateMultiplier := 1.7
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_text.delta","delta":"ok"}
+data: {"type":"response.completed","response":{"model":"gpt-5.6-sol","usage":{"input_tokens":11,"output_tokens":7,"input_tokens_details":{"cached_tokens":3}}}}
+
+`))
+	account := &Account{
+		ID:             91,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeOAuth,
+		Concurrency:    1,
+		RateMultiplier: &rateMultiplier,
+		Credentials:    map[string]any{"access_token": "test-token"},
+	}
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{91: account},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		accountRepo:    repo,
+		httpUpstream:   upstream,
+		billingService: NewBillingService(&config.Config{}, nil),
+		cfg:            &config.Config{},
+	}
+
+	result, err := svc.RunTestBackground(context.Background(), 91, "gpt-5.6-sol")
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Status)
+	require.Equal(t, UsageTokens{InputTokens: 11, OutputTokens: 7, CacheReadTokens: 3}, result.UsageTokens)
+	require.Equal(t, GroupRecoveryProbeCostStatusEstimated, result.CostStatus)
+	require.NotNil(t, result.EstimatedCost)
+
+	expected, err := svc.billingService.CalculateCost("gpt-5.6-sol", result.UsageTokens, rateMultiplier)
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, *result.EstimatedCost, 1e-12)
+}
+
+func TestAccountTestService_RunTestBackgroundClaudeExtractsUsageAndEstimatedCost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rateMultiplier := 1.25
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"message_start","message":{"usage":{"input_tokens":13,"cache_creation_input_tokens":5,"cache_read_input_tokens":2}}}
+data: {"type":"message_delta","usage":{"output_tokens":8}}
+data: {"type":"message_stop"}
+
+`))
+	account := &Account{
+		ID:             92,
+		Platform:       PlatformAnthropic,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		RateMultiplier: &rateMultiplier,
+		Credentials:    map[string]any{"api_key": "test-key"},
+	}
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{92: account},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		accountRepo:    repo,
+		httpUpstream:   upstream,
+		billingService: NewBillingService(&config.Config{}, nil),
+		cfg:            &config.Config{},
+	}
+
+	result, err := svc.RunTestBackground(context.Background(), 92, "claude-sonnet-4")
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Status)
+	require.Equal(t, UsageTokens{
+		InputTokens:         13,
+		OutputTokens:        8,
+		CacheCreationTokens: 5,
+		CacheReadTokens:     2,
+	}, result.UsageTokens)
+	require.Equal(t, GroupRecoveryProbeCostStatusEstimated, result.CostStatus)
+	require.NotNil(t, result.EstimatedCost)
+
+	expected, err := svc.billingService.CalculateCost("claude-sonnet-4", result.UsageTokens, rateMultiplier)
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, *result.EstimatedCost, 1e-12)
+}
+
 func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()

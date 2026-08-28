@@ -245,6 +245,17 @@ func TestSetClaudeCodeClientContext_ReuseParsedRequest(t *testing.T) {
 	})
 }
 
+func TestWithSmartSchedulerRequestContextMarksChannelMonitorProbe(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request.Header.Set(service.ChannelMonitorProbeHeader, service.ChannelMonitorProbeHeaderValue)
+
+	ctx := withSmartSchedulerRequestContext(c, c.Request.Context(), "responses")
+
+	require.True(t, service.IsChannelMonitorProbe(ctx))
+}
+
 func TestWaitForSlotWithPingTimeout_AccountAndUserAcquire(t *testing.T) {
 	cache := &helperConcurrencyCacheStub{
 		accountSeq: []bool{false, true},

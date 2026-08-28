@@ -70,9 +70,11 @@ type AdminService interface {
 
 	// Account management
 	ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error)
+	ListAccountsWithModel(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode, model, sortBy, sortOrder string) ([]Account, int64, error)
 	// ListAccountsForSchedulerScoreFilter 返回符合过滤条件的全部账号（不分页），
 	// 作为账号列表页计算 OpenAI 调度分数的过滤范围池。
 	ListAccountsForSchedulerScoreFilter(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
+	ListAccountsForSchedulerScoreFilterWithModel(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode, model string) ([]Account, error)
 	// ListOpenAISchedulableAccountsForSchedulerScore 返回指定分组（nil 为未分组）内
 	// 可调度的 OpenAI 账号，用于按组计算调度分数。
 	ListOpenAISchedulableAccountsForSchedulerScore(ctx context.Context, groupID *int64) ([]Account, error)
@@ -265,9 +267,22 @@ type CreateGroupInput struct {
 	// ReasoningEffortMappings OpenAI/Codex 推理强度精确映射。
 	ReasoningEffortMappings []ReasoningEffortMapping
 	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数，nil 按 0 处理）
-	ProfitControlEnabled bool
-	ProfitMinMargin      *float64
-	ProfitSafetyBuffer   *float64
+	ProfitControlEnabled              bool
+	ProfitMinMargin                   *float64
+	ProfitSafetyBuffer                *float64
+	SmartSchedulerEnabled             bool
+	RecoveryProbeEnabled              bool
+	RecoveryProbeMode                 string
+	RecoveryProbeModel                string
+	RecoveryProbeIntervalSeconds      int
+	RecoveryProbeAttemptsPerRound     int
+	RecoveryProbeIdleThresholdSeconds int
+	RecoveryProbeBackoffCapSeconds    int
+	PoolModeEnabled                   *bool
+	PoolModeRetryCount                *int
+	PoolModeRetryStatusCodes          *[]int
+	CustomErrorCodesEnabled           *bool
+	CustomErrorCodes                  *[]int
 	// 从指定分组复制账号（创建分组后在同一事务内绑定）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -330,9 +345,27 @@ type UpdateGroupInput struct {
 	// ReasoningEffortMappings nil 表示不修改，空数组表示清空，非空数组表示替换。
 	ReasoningEffortMappings *[]ReasoningEffortMapping
 	// 分组利润控制（nil 表示不修改；margin/buffer 为小数）
-	ProfitControlEnabled *bool
-	ProfitMinMargin      *float64
-	ProfitSafetyBuffer   *float64
+	ProfitControlEnabled              *bool
+	ProfitMinMargin                   *float64
+	ProfitSafetyBuffer                *float64
+	SmartSchedulerEnabled             *bool
+	RecoveryProbeEnabled              *bool
+	RecoveryProbeMode                 *string
+	RecoveryProbeModel                *string
+	RecoveryProbeIntervalSeconds      *int
+	RecoveryProbeAttemptsPerRound     *int
+	RecoveryProbeIdleThresholdSeconds *int
+	RecoveryProbeBackoffCapSeconds    *int
+	PoolModeEnabled                   *bool
+	PoolModeRetryCount                *int
+	PoolModeRetryStatusCodes          *[]int
+	CustomErrorCodesEnabled           *bool
+	CustomErrorCodes                  *[]int
+	PoolModeEnabledClear              bool
+	PoolModeRetryCountClear           bool
+	PoolModeRetryStatusCodesClear     bool
+	CustomErrorCodesEnabledClear      bool
+	CustomErrorCodesClear             bool
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64
 }
@@ -417,6 +450,7 @@ type BulkUpdateAccountFilters struct {
 	Group       string
 	Search      string
 	PrivacyMode string
+	Model       string
 }
 
 // BulkUpdateAccountResult captures the result for a single account update.

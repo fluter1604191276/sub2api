@@ -957,6 +957,55 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 		isOpenAITransientProcessingError(http.StatusBadRequest, message, payload)
 }
 
+const openAIStreamRecoverySessionHashKey = "openai_stream_recovery_session_hash"
+
+func rememberOpenAIStreamRecoverySession(c *gin.Context, sessionHash string) {
+	if c == nil || strings.TrimSpace(sessionHash) == "" {
+		return
+	}
+	c.Set(openAIStreamRecoverySessionHashKey, strings.TrimSpace(sessionHash))
+}
+
+func openAIStreamRecoverySession(c *gin.Context, service *OpenAIGatewayService) string {
+	if c == nil {
+		return ""
+	}
+	if value, ok := c.Get(openAIStreamRecoverySessionHashKey); ok {
+		if sessionHash, _ := value.(string); strings.TrimSpace(sessionHash) != "" {
+			return strings.TrimSpace(sessionHash)
+		}
+	}
+	if service == nil {
+		return ""
+	}
+	return service.GenerateSessionHash(c, nil)
+}
+
+func (s *OpenAIGatewayService) handleCommittedOpenAIStreamFailure(c *gin.Context, account *Account, canonicalModel string, payload []byte, message string) {
+	if s == nil || account == nil || !openAIStreamFailedEventShouldFailover(payload, message) {
+		return
+	}
+	status := openAIStreamFailedEventSemanticStatus(payload, message)
+	if status != http.StatusBadGateway && status != http.StatusServiceUnavailable {
+		return
+	}
+	decision := s.forceBlockOpenAIAccountModel(account, canonicalModel, time.Now(), openAICommittedStreamFailureCooldown)
+	if decision.Cooldown <= 0 {
+		return
+	}
+	if c == nil || c.Request == nil {
+		return
+	}
+	apiKey := getAPIKeyFromContext(c)
+	var groupID *int64
+	if apiKey != nil {
+		groupID = apiKey.GroupID
+	}
+	if sessionHash := openAIStreamRecoverySession(c, s); sessionHash != "" {
+		_ = s.deleteStickySessionAccountIDAllFormats(c.Request.Context(), groupID, sessionHash)
+	}
+}
+
 func (s *OpenAIGatewayService) recordOpenAIStreamUpstreamError(
 	c *gin.Context,
 	account *Account,
@@ -1194,6 +1243,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						return resultWithUsage(),
 							s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, dataBytes, failedMessage, resp.Header)
 					}
+				}
+				if openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					s.handleCommittedOpenAIStreamFailure(c, account, mappedModel, dataBytes, failedMessage)
 				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true

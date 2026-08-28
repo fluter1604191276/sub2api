@@ -453,6 +453,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 						return
 					}
 				}
+				if openAIStreamClientOutputStarted(c, clientOutputStarted) {
+					s.handleCommittedOpenAIStreamFailure(c, account, mappedModel, dataBytes, failedMessage)
+				}
 				forceFlushFailedEvent = true
 				sawFailedEvent = true
 			}

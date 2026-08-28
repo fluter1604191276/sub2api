@@ -258,6 +258,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 
 	var usage OpenAIUsage
+	var webSearchUsage webSearchUsageTracker
 	var firstTokenMs *int
 	clientDisconnected := false
 	clientOutputStarted := false
@@ -302,6 +303,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
 			if trimmedPayload != "[DONE]" {
+				webSearchUsage.ObserveJSON([]byte(payload))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
@@ -364,6 +366,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
 		Stream:          true,
+		WebSearchCalls:  webSearchUsage.Count(),
 		Duration:        time.Since(startTime),
 		FirstTokenMs:    firstTokenMs,
 	}, nil
@@ -427,9 +430,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 
 	var usage OpenAIUsage
+	var webSearchUsage webSearchUsageTracker
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
 	}
+	webSearchUsage.ObserveJSON(respBody)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -451,6 +456,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ReasoningEffort: reasoningEffort,
 		ServiceTier:     serviceTier,
 		Stream:          false,
+		WebSearchCalls:  webSearchUsage.Count(),
 		Duration:        time.Since(startTime),
 	}, nil
 }

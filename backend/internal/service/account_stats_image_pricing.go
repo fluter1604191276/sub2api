@@ -6,6 +6,7 @@ import "strings"
 // resolve account-stats upstream cost.
 type AccountStatsUsageContext struct {
 	Tokens             UsageTokens
+	ServiceTier        string
 	ImageCount         int
 	ImageSize          string
 	ImageSizeBreakdown map[string]int

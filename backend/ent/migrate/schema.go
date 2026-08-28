@@ -950,6 +950,19 @@ var (
 		{Name: "profit_control_enabled", Type: field.TypeBool, Default: false},
 		{Name: "profit_min_margin", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "profit_safety_buffer", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "smart_scheduler_enabled", Type: field.TypeBool, Default: false},
+		{Name: "recovery_probe_enabled", Type: field.TypeBool, Default: false},
+		{Name: "recovery_probe_mode", Type: field.TypeString, Size: 16, Default: "smart"},
+		{Name: "recovery_probe_model", Type: field.TypeString, Size: 200, Default: ""},
+		{Name: "recovery_probe_interval_seconds", Type: field.TypeInt, Default: 900},
+		{Name: "recovery_probe_attempts_per_round", Type: field.TypeInt, Default: 1},
+		{Name: "recovery_probe_idle_threshold_seconds", Type: field.TypeInt, Default: 3600},
+		{Name: "recovery_probe_backoff_cap_seconds", Type: field.TypeInt, Default: 1800},
+		{Name: "pool_mode_enabled", Type: field.TypeBool, Nullable: true},
+		{Name: "pool_mode_retry_count", Type: field.TypeInt, Nullable: true},
+		{Name: "pool_mode_retry_status_codes", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
+		{Name: "custom_error_codes_enabled", Type: field.TypeBool, Nullable: true},
+		{Name: "custom_error_codes", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{

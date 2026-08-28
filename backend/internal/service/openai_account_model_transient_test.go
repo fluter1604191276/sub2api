@@ -86,6 +86,22 @@ func TestOpenAIModelTransient_StaleStreakExpires(t *testing.T) {
 	assert.Zero(t, decision.Cooldown)
 }
 
+func TestOpenAIModelTransient_ForcedBlockOutlivesFailureWindow(t *testing.T) {
+	state := newOpenAIAccountModelTransientState(128)
+	now := time.Date(2026, 8, 11, 10, 0, 0, 0, time.UTC)
+	key, ok := openAIAccountModelTransientKey(35, "gpt-5.6-sol")
+	require.True(t, ok)
+	state.entries[key] = openAIAccountModelTransientEntry{
+		failureStreak: 1,
+		lastFailure:   now,
+		blockUntil:    now.Add(90 * time.Second),
+		lastTouched:   now,
+	}
+
+	assert.True(t, state.isBlocked(35, "gpt-5.6-sol", now.Add(70*time.Second)))
+	assert.False(t, state.isBlocked(35, "gpt-5.6-sol", now.Add(91*time.Second)))
+}
+
 func TestOpenAIModelTransient_IgnoresInvalidKeys(t *testing.T) {
 	state := newOpenAIAccountModelTransientState(128)
 	now := time.Date(2026, 7, 10, 10, 0, 0, 0, time.UTC)

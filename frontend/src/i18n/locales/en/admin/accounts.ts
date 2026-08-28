@@ -86,6 +86,12 @@ export default {
       allTypes: 'All Types',
       allStatus: 'All Status',
       allGroups: 'All Groups',
+      allModels: 'All Models',
+      syncAllModels: 'Sync All Account Models',
+      syncingAllModels: 'Syncing account models...',
+      syncAllModelsSuccess: 'Model sync completed: {success} succeeded, {unsupported} unsupported',
+      syncAllModelsPartial: 'Model sync completed: {success} succeeded, {failed} failed, {unsupported} unsupported',
+      syncAllModelsFailed: 'Failed to sync account models',
       ungroupedGroup: 'Ungrouped',
       oauthType: 'OAuth',
       setupToken: 'Setup Token',
@@ -158,6 +164,8 @@ export default {
         status: 'Status',
         schedulable: 'Schedulable',
         todayStats: 'Today Stats',
+        cacheHitRate: '24h Cache Hit Rate',
+        unifiedQuality: 'Overall Quality',
         realtimeQualityStats: '1h Quality',
         qualityStats: '24h Quality',
         groups: 'Groups',
@@ -185,6 +193,17 @@ export default {
         ttftOnly: 'Scored from TTFT only',
         hint: 'Uses successful streaming usage records from the last 24 hours and the latest 10/100 timed requests. Score v2 uses a piecewise-linear curve calibrated from this site\'s historical usage: TTFT weighs 85% and total duration 15%. With fewer than 3 TTFT samples, duration-only scoring is capped at 69. S+/S/S-/A+/A/A-/B+/B/B-/C is shown beside the numeric score for scheduling review only and never changes account priority automatically.',
         realtimeHint: 'Uses streaming requests from the last hour only. Participation combines successful and failed attempts; Idle means the account received no real traffic in the last hour, not that it is broken. When there is no successful request in the last hour, the 24-hour score is muted as a historical baseline.',
+        unified: {
+          hint: 'The account-level score merges evidence across groups so one account does not show conflicting overall scores merely because it belongs to several groups. It blends current 1-hour quality with the stable 24-hour baseline and lowers confidence for sparse samples. This column is an admin overview; smart scheduling remains model-, endpoint-, and pool-specific.',
+          confidence: '{percent}% confidence',
+          title: 'Grade {grade} / score {score}, {source}, {confidence}% confidence, {count} valid sample(s), {firstCount} TTFT sample(s)',
+          sources: {
+            realtime_blend: 'Live + baseline',
+            realtime_only: 'Live only',
+            historical: '24h baseline',
+            unscored: 'Unscored'
+          }
+        },
         activity: {
           active: 'Active',
           low_sample: 'Low sample',
@@ -201,6 +220,7 @@ export default {
         }
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
+      cacheHitRateTooltip: 'Last 24h: {requests} requests · uncached {input} · created {creation} · read {read}',
       ollamaCloud: {
         title: 'Ollama Cloud usage',
         sessionSecurityHint: 'The browser session is encrypted at rest and sent only to the fixed official settings URL.',
