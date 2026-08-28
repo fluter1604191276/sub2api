@@ -102,6 +102,10 @@ class ReleaseManifestStructureTests(unittest.TestCase):
     def test_valid_structure_has_no_structure_errors(self):
         self.assertEqual([], verify.validate_manifest_structure(valid_manifest()))
 
+    def test_current_source_capability_markers_match_registered_routes(self):
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertEqual([], verify.validate_source_capabilities(repo_root))
+
     def test_inspect_image_reads_identity_labels(self):
         payload = [{
             "Id": "sha256:" + "c" * 64,

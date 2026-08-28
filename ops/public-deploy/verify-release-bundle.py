@@ -99,7 +99,7 @@ CAPABILITY_FILES = {
 
 REQUIRED_ROUTES = (
     "accounts.POST(\"/sync/models\"",
-    "accounts.POST(\"/cache-hit-stats/batch\"",
+    "accounts.POST(\"/quality-stats/batch\"",
     "plans.POST(\"\"",
     "channels.GET(\"/model-calibration/preview\"",
     "channels.POST(\"/model-calibration/apply\"",
