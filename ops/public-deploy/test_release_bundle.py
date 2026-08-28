@@ -151,6 +151,16 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             release_manifest["release"]["image_inspection"]["source_snapshot_label"],
         )
 
+    def test_production_dockerfiles_persist_build_identity_labels(self):
+        repo_root = SCRIPT_DIR.parents[1]
+        for dockerfile_name in ("Dockerfile", "deploy/Dockerfile"):
+            dockerfile = (repo_root / dockerfile_name).read_text(encoding="utf-8")
+            self.assertIn("ARG SOURCE_SNAPSHOT", dockerfile, dockerfile_name)
+            self.assertIn('org.opencontainers.image.version="${VERSION}"', dockerfile, dockerfile_name)
+            self.assertIn('org.opencontainers.image.revision="${COMMIT}"', dockerfile, dockerfile_name)
+            self.assertIn('org.opencontainers.image.created="${DATE}"', dockerfile, dockerfile_name)
+            self.assertIn('org.opencontainers.image.source-snapshot="${SOURCE_SNAPSHOT}"', dockerfile, dockerfile_name)
+
     def test_capability_evidence_is_recorded_without_editing_json(self):
         release_manifest = valid_manifest()
         release_manifest["release"]["allow_release"] = False
