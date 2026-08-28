@@ -60,6 +60,11 @@ Use Lore-protocol commits with a reason, constraint, rejected alternative,
 confidence, scope risk, directive, tested evidence, and known gaps. Push only
 the named feature branch; do not push or force-push `main`.
 
+Write the body with real newline characters (for example, via a temporary
+message file or multiple `-m` paragraphs), not escaped `\\n` text. Verify the
+stored message with `git show -s --format='%B' HEAD` before pushing so the
+Lore fields remain separate and machine-readable.
+
 After pushing, verify the remote commit and require a clean worktree. Do not
 build until this point.
 
