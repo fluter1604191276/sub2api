@@ -49,9 +49,14 @@ CAPABILITY_FILES = {
     ),
     "cache-hit-rate": (
         "backend/internal/pkg/usagestats/account_stats.go",
+        "backend/internal/repository/usage_log_repo_stats.go",
         "backend/internal/service/account_usage_service.go",
+        "backend/internal/handler/admin/account_handler.go",
+        "backend/internal/server/routes/admin.go",
         "frontend/src/api/admin/accounts.ts",
+        "frontend/src/types/index.ts",
         "frontend/src/views/admin/AccountsView.vue",
+        "frontend/src/views/admin/__tests__/AccountsView.cacheHitRate.spec.ts",
     ),
     "image-cost": (
         "backend/internal/service/account_stats_image_pricing.go",
@@ -100,6 +105,7 @@ CAPABILITY_FILES = {
 REQUIRED_ROUTES = (
     "accounts.POST(\"/sync/models\"",
     "accounts.POST(\"/quality-stats/batch\"",
+    "accounts.POST(\"/cache-hit-stats/batch\"",
     "plans.POST(\"\"",
     "channels.GET(\"/model-calibration/preview\"",
     "channels.POST(\"/model-calibration/apply\"",

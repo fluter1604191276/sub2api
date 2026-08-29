@@ -1261,6 +1261,14 @@ export interface WindowStats {
   user_cost?: number
 }
 
+export interface CacheHitStats {
+  requests: number
+  input_tokens: number
+  cache_creation_tokens: number
+  cache_read_tokens: number
+  cache_hit_rate: number | null
+}
+
 export interface AccountQualityWindow {
   sample_count: number
   first_token_sample_count: number

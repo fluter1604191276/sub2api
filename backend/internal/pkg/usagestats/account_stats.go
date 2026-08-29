@@ -12,3 +12,33 @@ type AccountStats struct {
 	StandardCost float64 `json:"standard_cost"`
 	UserCost     float64 `json:"user_cost"`
 }
+
+// CacheHitStats is the rolling cache usage summary for one account.
+// InputTokens is the uncached input token count stored in usage_logs.
+type CacheHitStats struct {
+	Requests            int64    `json:"requests"`
+	InputTokens         int64    `json:"input_tokens"`
+	CacheCreationTokens int64    `json:"cache_creation_tokens"`
+	CacheReadTokens     int64    `json:"cache_read_tokens"`
+	CacheHitRate        *float64 `json:"cache_hit_rate"`
+}
+
+// CalculateCacheHitRate returns a token-weighted cache hit percentage.
+// Cache creation is counted as a miss, while output tokens are excluded.
+func CalculateCacheHitRate(inputTokens, cacheCreationTokens, cacheReadTokens int64) (float64, bool) {
+	if inputTokens < 0 {
+		inputTokens = 0
+	}
+	if cacheCreationTokens < 0 {
+		cacheCreationTokens = 0
+	}
+	if cacheReadTokens < 0 {
+		cacheReadTokens = 0
+	}
+
+	cacheableTokens := inputTokens + cacheCreationTokens + cacheReadTokens
+	if cacheableTokens == 0 {
+		return 0, false
+	}
+	return float64(cacheReadTokens) / float64(cacheableTokens) * 100, true
+}

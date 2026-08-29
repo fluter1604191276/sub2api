@@ -2472,6 +2472,58 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 	response.Success(c, payload)
 }
 
+// BatchCacheHitStatsRequest represents a batch rolling cache-hit statistics request.
+type BatchCacheHitStatsRequest struct {
+	AccountIDs []int64 `json:"account_ids" binding:"required"`
+}
+
+// GetBatchCacheHitStats returns token-weighted cache hit rates for the rolling
+// 24-hour window of the requested accounts.
+// POST /api/v1/admin/accounts/cache-hit-stats/batch
+func (h *AccountHandler) GetBatchCacheHitStats(c *gin.Context) {
+	var req BatchCacheHitStatsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+
+	cacheKey := buildAccountCacheHitStatsBatchCacheKey(accountIDs)
+	if cached, ok := accountCacheHitStatsBatchCache.Get(cacheKey); ok {
+		if cached.ETag != "" {
+			c.Header("ETag", cached.ETag)
+			c.Header("Vary", "If-None-Match")
+			if ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+				c.Status(http.StatusNotModified)
+				return
+			}
+		}
+		c.Header("X-Snapshot-Cache", "hit")
+		response.Success(c, cached.Payload)
+		return
+	}
+
+	stats, err := h.accountUsageService.GetCacheHitStatsBatch(c.Request.Context(), accountIDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	payload := gin.H{"stats": stats}
+	cached := accountCacheHitStatsBatchCache.Set(cacheKey, payload)
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	c.Header("X-Snapshot-Cache", "miss")
+	response.Success(c, payload)
+}
+
 // GetBatchQualityStats returns display-only latency summaries for the current
 // account page. It never changes priority, schedulability, or scheduler scores.
 // POST /api/v1/admin/accounts/quality-stats/batch

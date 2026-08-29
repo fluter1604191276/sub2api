@@ -84,6 +84,10 @@ type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
 
+type accountCacheHitStatsBatchReader interface {
+	GetAccountCacheHitStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.CacheHitStats, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -1342,6 +1346,50 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	for _, accountID := range uniqueIDs {
 		if _, ok := result[accountID]; !ok {
 			result[accountID] = &WindowStats{}
+		}
+	}
+	return result, nil
+}
+
+// GetCacheHitStatsBatch returns token-weighted cache hit rates for the rolling
+// 24-hour window. It intentionally uses a separate endpoint from today's
+// calendar-day statistics so the UI does not mix the two time semantics.
+func (s *AccountUsageService) GetCacheHitStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*usagestats.CacheHitStats, error) {
+	uniqueIDs := make([]int64, 0, len(accountIDs))
+	seen := make(map[int64]struct{}, len(accountIDs))
+	for _, accountID := range accountIDs {
+		if accountID <= 0 {
+			continue
+		}
+		if _, exists := seen[accountID]; exists {
+			continue
+		}
+		seen[accountID] = struct{}{}
+		uniqueIDs = append(uniqueIDs, accountID)
+	}
+
+	result := make(map[int64]*usagestats.CacheHitStats, len(uniqueIDs))
+	if len(uniqueIDs) == 0 {
+		return result, nil
+	}
+
+	reader, ok := s.usageLogRepo.(accountCacheHitStatsBatchReader)
+	if !ok {
+		for _, accountID := range uniqueIDs {
+			result[accountID] = &usagestats.CacheHitStats{}
+		}
+		return result, nil
+	}
+
+	statsByAccount, err := reader.GetAccountCacheHitStatsBatch(ctx, uniqueIDs, time.Now().UTC().Add(-24*time.Hour))
+	if err != nil {
+		return nil, fmt.Errorf("get account cache hit stats failed: %w", err)
+	}
+	for _, accountID := range uniqueIDs {
+		if stats := statsByAccount[accountID]; stats != nil {
+			result[accountID] = stats
+		} else {
+			result[accountID] = &usagestats.CacheHitStats{}
 		}
 	}
 	return result, nil

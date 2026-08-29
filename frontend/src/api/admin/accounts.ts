@@ -11,6 +11,7 @@ import type {
   PaginatedResponse,
   AccountUsageInfo,
   WindowStats,
+  CacheHitStats,
   ClaudeModel,
   AccountUsageStatsResponse,
   TempUnschedulableStatus,
@@ -499,6 +500,18 @@ export interface BatchTodayStatsResponse {
  */
 export async function getBatchTodayStats(accountIds: number[]): Promise<BatchTodayStatsResponse> {
   const { data } = await apiClient.post<BatchTodayStatsResponse>('/admin/accounts/today-stats/batch', {
+    account_ids: accountIds
+  })
+  return data
+}
+
+export interface BatchCacheHitStatsResponse {
+  stats: Record<string, CacheHitStats>
+}
+
+/** Fetch token-weighted cache hit rates over the rolling 24-hour window. */
+export async function getBatchCacheHitStats(accountIds: number[]): Promise<BatchCacheHitStatsResponse> {
+  const { data } = await apiClient.post<BatchCacheHitStatsResponse>('/admin/accounts/cache-hit-stats/batch', {
     account_ids: accountIds
   })
   return data
@@ -1038,6 +1051,7 @@ export const accountsAPI = {
   getUsage,
   getTodayStats,
   getBatchTodayStats,
+  getBatchCacheHitStats,
   getBatchQualityStats,
   clearRateLimit,
   recoverState,

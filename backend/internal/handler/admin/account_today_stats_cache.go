@@ -7,6 +7,7 @@ import (
 )
 
 var accountTodayStatsBatchCache = newSnapshotCache(30 * time.Second)
+var accountCacheHitStatsBatchCache = newSnapshotCache(30 * time.Second)
 
 func buildAccountTodayStatsBatchCacheKey(accountIDs []int64) string {
 	if len(accountIDs) == 0 {
@@ -15,6 +16,22 @@ func buildAccountTodayStatsBatchCacheKey(accountIDs []int64) string {
 	var b strings.Builder
 	b.Grow(len(accountIDs) * 6)
 	_, _ = b.WriteString("accounts_today_stats:")
+	for i, id := range accountIDs {
+		if i > 0 {
+			_ = b.WriteByte(',')
+		}
+		_, _ = b.WriteString(strconv.FormatInt(id, 10))
+	}
+	return b.String()
+}
+
+func buildAccountCacheHitStatsBatchCacheKey(accountIDs []int64) string {
+	if len(accountIDs) == 0 {
+		return "accounts_cache_hit_stats_empty"
+	}
+	var b strings.Builder
+	b.Grow(len(accountIDs) * 6)
+	_, _ = b.WriteString("accounts_cache_hit_stats:")
 	for i, id := range accountIDs {
 		if i > 0 {
 			_ = b.WriteByte(',')

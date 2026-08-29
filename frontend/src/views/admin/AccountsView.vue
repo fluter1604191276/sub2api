@@ -310,6 +310,31 @@
               :error="todayStatsError"
             />
           </template>
+          <template #cell-cache_hit_rate="{ row }">
+            <div
+              v-if="cacheHitStatsLoading && !cacheHitStatsByAccountId[String(row.id)]"
+              class="h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-gray-700"
+            />
+            <div
+              v-else-if="cacheHitStatsError && !cacheHitStatsByAccountId[String(row.id)]"
+              class="text-xs text-red-500"
+            >
+              -
+            </div>
+            <div
+              v-else-if="cacheHitStatsByAccountId[String(row.id)]?.cache_hit_rate != null"
+              class="flex flex-col items-start"
+              :title="formatCacheHitStatsTitle(cacheHitStatsByAccountId[String(row.id)]!)"
+            >
+              <span :class="['text-sm font-semibold tabular-nums', cacheHitRateClass(cacheHitStatsByAccountId[String(row.id)]!.cache_hit_rate)]">
+                {{ formatCacheHitRate(cacheHitStatsByAccountId[String(row.id)]!.cache_hit_rate) }}
+              </span>
+              <span class="text-[10px] text-gray-400 dark:text-gray-500">
+                {{ formatNumber(cacheHitStatsByAccountId[String(row.id)]!.requests) }} req
+              </span>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
           <template #header-unified_quality="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -575,13 +600,13 @@ import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRules
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { formatDateTime, formatRelativeTime } from '@/utils/format'
+import { formatDateTime, formatNumber, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
+import type { Account, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -686,11 +711,14 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'cache_hit_rate', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
 const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
+// One-time migration: keep the new cache aggregate opt-in for existing admins.
+const CACHE_HIT_RATE_COLUMNS_VERSION_KEY = 'account-cache-hit-rate-column-version'
+const CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION = 'hidden-by-default'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -751,6 +779,11 @@ const qualityStatsLoading = ref(false)
 const qualityStatsError = ref<string | null>(null)
 const qualityStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
+const cacheHitStatsByAccountId = ref<Record<string, CacheHitStats>>({})
+const cacheHitStatsLoading = ref(false)
+const cacheHitStatsError = ref<string | null>(null)
+const cacheHitStatsReqSeq = ref(0)
+const pendingCacheHitStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
 
 const hasFutureAccountTimestamp = (value: string | null | undefined): boolean => {
@@ -826,6 +859,51 @@ const refreshTodayStatsBatch = async () => {
   } finally {
     if (reqSeq === todayStatsReqSeq.value) {
       todayStatsLoading.value = false
+    }
+  }
+}
+
+const refreshCacheHitStatsBatch = async () => {
+  if (hiddenColumns.has('cache_hit_rate')) {
+    cacheHitStatsLoading.value = false
+    cacheHitStatsError.value = null
+    return
+  }
+
+  const accountIDs = accounts.value.map(account => account.id)
+  const reqSeq = ++cacheHitStatsReqSeq.value
+  if (accountIDs.length === 0) {
+    cacheHitStatsByAccountId.value = {}
+    cacheHitStatsError.value = null
+    cacheHitStatsLoading.value = false
+    return
+  }
+
+  cacheHitStatsLoading.value = true
+  cacheHitStatsError.value = null
+  try {
+    const result = await adminAPI.accounts.getBatchCacheHitStats(accountIDs)
+    if (reqSeq !== cacheHitStatsReqSeq.value) return
+    const serverStats = result.stats ?? {}
+    const nextStats: Record<string, CacheHitStats> = {}
+    for (const accountID of accountIDs) {
+      const key = String(accountID)
+      nextStats[key] = serverStats[key] ?? {
+        requests: 0,
+        input_tokens: 0,
+        cache_creation_tokens: 0,
+        cache_read_tokens: 0,
+        cache_hit_rate: null
+      }
+    }
+    cacheHitStatsByAccountId.value = nextStats
+  } catch (error) {
+    if (reqSeq !== cacheHitStatsReqSeq.value) return
+    cacheHitStatsError.value = 'Failed'
+    console.error('Failed to load account cache hit stats:', error)
+  } finally {
+    if (reqSeq === cacheHitStatsReqSeq.value) {
+      cacheHitStatsLoading.value = false
     }
   }
 }
@@ -919,11 +997,18 @@ const loadSavedColumns = () => {
         localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
         localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
       }
+      // Existing layouts predate the cache hit rate column; keep it opt-in once.
+      if (localStorage.getItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY) !== CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION) {
+        hiddenColumns.add('cache_hit_rate')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
+      }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
       })
       localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
@@ -937,6 +1022,7 @@ const saveColumnsToStorage = () => {
   try {
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
     localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+    localStorage.setItem(CACHE_HIT_RATE_COLUMNS_VERSION_KEY, CACHE_HIT_RATE_COLUMNS_CURRENT_VERSION)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
@@ -1011,6 +1097,11 @@ const toggleColumn = (key: string) => {
   if ((key === 'today_stats' || key === 'usage') && wasHidden) {
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to load account today stats after showing column:', error)
+    })
+  }
+  if (key === 'cache_hit_rate' && wasHidden) {
+    refreshCacheHitStatsBatch().catch((error) => {
+      console.error('Failed to load account cache hit stats after showing column:', error)
     })
   }
   if (
@@ -1136,6 +1227,7 @@ const load = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
+  pendingCacheHitStatsRefresh.value = false
   if (isFirstLoad.value) {
     requestParams.lite = '1'
   }
@@ -1144,7 +1236,7 @@ const load = async () => {
     isFirstLoad.value = false
     delete requestParams.lite
   }
-  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
+  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshAccountQualityBatch()])
 }
 
 const reload = async () => {
@@ -1153,8 +1245,9 @@ const reload = async () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
+  pendingCacheHitStatsRefresh.value = false
   await baseReload()
-  await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
+  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshAccountQualityBatch()])
 }
 
 const refreshUpstreamBillingSortedList = async (force = false) => {
@@ -1176,6 +1269,7 @@ const debouncedReload = () => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseDebouncedReload()
 }
 
@@ -1184,6 +1278,7 @@ const handlePageChange = (page: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseHandlePageChange(page)
 }
 
@@ -1192,6 +1287,7 @@ const handlePageSizeChange = (size: number) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   baseHandlePageSizeChange(size)
 }
 
@@ -1206,6 +1302,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
+  pendingCacheHitStatsRefresh.value = true
   load()
 }
 
@@ -1213,10 +1310,16 @@ watch(loading, (isLoading, wasLoading) => {
   if (wasLoading && !isLoading) {
     upstreamBillingNow.value = Date.now()
   }
-  if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
+  if (wasLoading && !isLoading && (pendingTodayStatsRefresh.value || pendingCacheHitStatsRefresh.value)) {
+    const shouldRefreshTodayStats = pendingTodayStatsRefresh.value
+    const shouldRefreshCacheHitStats = pendingCacheHitStatsRefresh.value
     pendingTodayStatsRefresh.value = false
-    refreshTodayStatsBatch().catch((error) => {
+    pendingCacheHitStatsRefresh.value = false
+    if (shouldRefreshTodayStats) refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
+    })
+    if (shouldRefreshCacheHitStats) refreshCacheHitStatsBatch().catch((error) => {
+      console.error('Failed to refresh account cache hit stats after table load:', error)
     })
     refreshAccountQualityBatch().catch((error) => {
       console.error('Failed to refresh account quality stats after table load:', error)
@@ -1346,7 +1449,7 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
-    await Promise.all([refreshTodayStatsBatch(), refreshAccountQualityBatch()])
+    await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshAccountQualityBatch()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1590,6 +1693,26 @@ function getOpenAICompactTitle(row: any): string {
   return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
 }
 
+function formatCacheHitRate(rate: number | null | undefined): string {
+  return rate == null ? '-' : `${rate.toFixed(1)}%`
+}
+
+function cacheHitRateClass(rate: number | null | undefined): string {
+  if (rate == null) return 'text-gray-400 dark:text-dark-500'
+  if (rate >= 80) return 'text-emerald-600 dark:text-emerald-400'
+  if (rate >= 40) return 'text-amber-600 dark:text-amber-400'
+  return 'text-rose-600 dark:text-rose-400'
+}
+
+function formatCacheHitStatsTitle(stats: CacheHitStats): string {
+  return t('admin.accounts.cacheHitRateTooltip', {
+    requests: formatNumber(stats.requests),
+    input: formatNumber(stats.input_tokens),
+    creation: formatNumber(stats.cache_creation_tokens),
+    read: formatNumber(stats.cache_read_tokens)
+  })
+}
+
 function getAntigravityTierClass(row: any): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
@@ -1611,6 +1734,7 @@ const allColumns = computed(() => {
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
+    { key: 'cache_hit_rate', label: t('admin.accounts.columns.cacheHitRate'), sortable: false },
     { key: 'unified_quality', label: t('admin.accounts.columns.unifiedQuality'), sortable: false },
     { key: 'quality_stats_1h', label: t('admin.accounts.columns.realtimeQualityStats'), sortable: false },
     { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }
