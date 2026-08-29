@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 DEFAULT_HOST = "fluterapi-prod"
 DEFAULT_REMOTE_DIR = "/www/sub2api/backups"
 DEFAULT_LOCAL_ROOT = "~/Backups/fluterapi-sub2api"
-DEFAULT_MIN_SIZE_MB = 100
+DEFAULT_MIN_SIZE_MB = 0
 DEFAULT_RETENTION_TIMEZONE = "Asia/Shanghai"
 
 REMOTE_LIST_SCRIPT = r"""
@@ -139,7 +139,11 @@ def is_large_backup(item: RemoteItem, min_size: int) -> bool:
 
 
 def newest_daily_archive(items: Iterable[RemoteItem]) -> RemoteItem | None:
-    daily = [item for item in items if re.match(r"^sub2api-backup-\d{8}T\d{6}Z\.tar\.gz$", item.name)]
+    daily = [
+        item
+        for item in items
+        if re.match(r"^(?:sub2api|s2a-manager)-backup-\d{8}T\d{6}Z\.tar\.gz$", item.name)
+    ]
     if not daily:
         return None
     return max(daily, key=lambda item: item.mtime)
@@ -149,7 +153,12 @@ def managed_local_dirs(local_root: Path) -> list[Path]:
     if not local_root.exists():
         return []
     return sorted(
-        [p for p in local_root.iterdir() if p.is_dir() and p.name.startswith("vps-archive-")],
+        [
+            p
+            for p in local_root.iterdir()
+            if p.is_dir()
+            and (p.name.startswith("vps-archive-") or re.fullmatch(r"\d{8}-\d{6}", p.name))
+        ],
         key=lambda p: p.stat().st_mtime,
     )
 

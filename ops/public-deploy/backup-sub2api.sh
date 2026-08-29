@@ -4,9 +4,12 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/www/sub2api}"
 BACKUP_DIR="${BACKUP_DIR:-${DEPLOY_DIR}/backups}"
 NODE_ROLE_FILE="${NODE_ROLE_FILE:-/etc/fluterapi-node-role}"
-RETENTION_DAYS="${RETENTION_DAYS:-14}"
-MANUAL_SQL_RETENTION_DAYS="${MANUAL_SQL_RETENTION_DAYS:-7}"
+RETENTION_DAYS="${RETENTION_DAYS:-1}"
+MANUAL_SQL_RETENTION_DAYS="${MANUAL_SQL_RETENTION_DAYS:-1}"
+BACKUP_DIRECTORY_RETENTION_DAYS="${BACKUP_DIRECTORY_RETENTION_DAYS:-1}"
 BACKUP_CLEANUP_MODE="${BACKUP_CLEANUP_MODE:-delete}"
+COMPRESS_LARGE_SQL_MB="${COMPRESS_LARGE_SQL_MB:-1024}"
+MIN_BACKUP_FREE_GB="${MIN_BACKUP_FREE_GB:-12}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK_DIR="${BACKUP_DIR}/.tmp-${TIMESTAMP}"
 ARCHIVE="${BACKUP_DIR}/sub2api-backup-${TIMESTAMP}.tar.gz"
@@ -41,13 +44,85 @@ cleanup_old_backups() {
     exit 1
   fi
 
-  echo "cleaning old daily archives older than ${RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
-  find "$BACKUP_DIR" -maxdepth 1 -type f -name 'sub2api-backup-*.tar.gz' -mtime "+${RETENTION_DAYS}" "$action"
+  echo "daily archives are pruned only by the verified local retention sync"
 
   echo "cleaning manual SQL backups older than ${MANUAL_SQL_RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
-  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql' -mtime "+${MANUAL_SQL_RETENTION_DAYS}" "$action"
-  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -mtime "+${MANUAL_SQL_RETENTION_DAYS}" "$action"
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql' -mmin "+$((MANUAL_SQL_RETENTION_DAYS * 1440))" "$action"
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql.gz' -mmin "+$((MANUAL_SQL_RETENTION_DAYS * 1440))" "$action"
 }
+
+cleanup_old_backup_directories() {
+  local backup_dir
+
+  echo "cleaning old release/rollback backup directories older than ${BACKUP_DIRECTORY_RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
+  while IFS= read -r -d '' backup_dir; do
+    if [[ "$BACKUP_CLEANUP_MODE" == "delete" ]]; then
+      rm -rf -- "$backup_dir"
+    else
+      printf '%s\n' "$backup_dir"
+    fi
+  done < <(
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mmin "+$((BACKUP_DIRECTORY_RETENTION_DAYS * 1440))" \
+      \( -name 'pre-*' -o -name 'rollback-*' -o -name 'release-*' -o -name 'releases' \) \
+      -print0
+  )
+}
+
+cleanup_old_backup_misc() {
+  local backup_item backup_name
+
+  echo "cleaning old non-daily backup artifacts older than ${BACKUP_DIRECTORY_RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
+  while IFS= read -r -d '' backup_item; do
+    backup_name="${backup_item##*/}"
+    case "$backup_name" in
+      sub2api-backup-*.tar.gz|sub2api-backup-*.tar.gz.sha256)
+        continue
+        ;;
+    esac
+    if [[ "$BACKUP_CLEANUP_MODE" == "delete" ]]; then
+      rm -rf -- "$backup_item"
+    else
+      printf '%s\n' "$backup_item"
+    fi
+  done < <(
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -mmin "+$((BACKUP_DIRECTORY_RETENTION_DAYS * 1440))" -print0
+  )
+}
+
+compress_large_manual_sql() {
+  if ! command -v gzip >/dev/null 2>&1; then
+    echo "gzip not found; skip large manual SQL compression" >&2
+    return 0
+  fi
+
+  echo "compressing large manual SQL backups over ${COMPRESS_LARGE_SQL_MB} MB before backup..."
+  find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.sql' -size +"${COMPRESS_LARGE_SQL_MB}"M -print0 |
+    while IFS= read -r -d '' sql_file; do
+      if [[ -f "${sql_file}.gz" ]]; then
+        echo "skip existing compressed copy: ${sql_file}.gz"
+        continue
+      fi
+      local tmp_file="${sql_file}.gz.tmp"
+      echo "compressing ${sql_file}"
+      gzip -1 -c "$sql_file" > "$tmp_file"
+      gzip -t "$tmp_file"
+      rm -f "$sql_file"
+      mv "$tmp_file" "${sql_file}.gz"
+    done
+}
+
+ensure_backup_free_space() {
+  local free_kb required_kb
+  free_kb="$(df -Pk "$BACKUP_DIR" | awk 'NR==2 {print $4}')"
+  required_kb=$((MIN_BACKUP_FREE_GB * 1024 * 1024))
+  if (( free_kb < required_kb )); then
+    echo "not enough free space in ${BACKUP_DIR}: free $((free_kb / 1024 / 1024))G, require ${MIN_BACKUP_FREE_GB}G" >&2
+    exit 1
+  fi
+}
+
+compress_large_manual_sql
+ensure_backup_free_space
 
 set -a
 # shellcheck disable=SC1091
@@ -98,6 +173,8 @@ tar -C "$WORK_DIR" -czf "$ARCHIVE" .
 chmod 600 "$ARCHIVE"
 
 cleanup_old_backups
+cleanup_old_backup_directories
+cleanup_old_backup_misc
 
 echo "backup created: $ARCHIVE"
 ls -lh "$ARCHIVE"

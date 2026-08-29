@@ -4,7 +4,8 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/www/s2a-manager}"
 BACKUP_DIR="${BACKUP_DIR:-${DEPLOY_DIR}/backups}"
 NODE_ROLE_FILE="${NODE_ROLE_FILE:-/etc/fluterapi-node-role}"
-RETENTION_DAYS="${RETENTION_DAYS:-7}"
+RETENTION_DAYS="${RETENTION_DAYS:-1}"
+BACKUP_DIRECTORY_RETENTION_DAYS="${BACKUP_DIRECTORY_RETENTION_DAYS:-1}"
 BACKUP_CLEANUP_MODE="${BACKUP_CLEANUP_MODE:-delete}"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK_DIR="${BACKUP_DIR}/.tmp-${TIMESTAMP}"
@@ -45,10 +46,45 @@ cleanup_old_backups() {
     exit 1
   fi
 
-  echo "cleaning old archives older than ${RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
-  find "$BACKUP_DIR" -maxdepth 1 -type f \
-    \( -name 's2a-manager-backup-*.tar.gz' -o -name 's2a-manager-backup-*.tar.gz.sha256' \) \
-    -mtime "+${RETENTION_DAYS}" "$action"
+  echo "daily archives are pruned only by the verified local retention sync"
+}
+
+cleanup_old_backup_directories() {
+  local backup_dir
+
+  echo "cleaning old release/rollback backup directories older than ${BACKUP_DIRECTORY_RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
+  while IFS= read -r -d '' backup_dir; do
+    if [[ "$BACKUP_CLEANUP_MODE" == "delete" ]]; then
+      rm -rf -- "$backup_dir"
+    else
+      printf '%s\n' "$backup_dir"
+    fi
+  done < <(
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -mmin "+$((BACKUP_DIRECTORY_RETENTION_DAYS * 1440))" \
+      \( -name 'pre-*' -o -name 'rollback-*' -o -name 'release-*' -o -name 'releases' \) \
+      -print0
+  )
+}
+
+cleanup_old_backup_misc() {
+  local backup_item backup_name
+
+  echo "cleaning old non-daily backup artifacts older than ${BACKUP_DIRECTORY_RETENTION_DAYS} days (${BACKUP_CLEANUP_MODE})..."
+  while IFS= read -r -d '' backup_item; do
+    backup_name="${backup_item##*/}"
+    case "$backup_name" in
+      s2a-manager-backup-*.tar.gz|s2a-manager-backup-*.tar.gz.sha256)
+        continue
+        ;;
+    esac
+    if [[ "$BACKUP_CLEANUP_MODE" == "delete" ]]; then
+      rm -rf -- "$backup_item"
+    else
+      printf '%s\n' "$backup_item"
+    fi
+  done < <(
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -mmin "+$((BACKUP_DIRECTORY_RETENTION_DAYS * 1440))" -print0
+  )
 }
 
 echo "dumping postgres database..."
@@ -94,6 +130,8 @@ sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
 chmod 600 "$ARCHIVE" "${ARCHIVE}.sha256"
 
 cleanup_old_backups
+cleanup_old_backup_directories
+cleanup_old_backup_misc
 
 echo "backup created: $ARCHIVE"
 ls -lh "$ARCHIVE" "${ARCHIVE}.sha256"
