@@ -8,8 +8,9 @@ Default mode is dry-run.  In --apply mode each removable remote backup is:
 3. hashed locally,
 4. deleted remotely only when the hashes match.
 
-The script intentionally manages only files it classifies as large backup
-artifacts.  Small marker/config files and backup directories are left alone.
+The script intentionally manages only backup artifact files it recognizes by
+name.  Backup directories are left alone because they require a different
+recursive verification path.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
@@ -31,6 +33,7 @@ from zoneinfo import ZoneInfo
 
 
 DEFAULT_HOST = "fluterapi-prod"
+DEFAULT_EXPECTED_REMOTE_ROLE = "production"
 DEFAULT_REMOTE_DIR = "/www/sub2api/backups"
 DEFAULT_LOCAL_ROOT = "~/Backups/fluterapi-sub2api"
 DEFAULT_MIN_SIZE_MB = 0
@@ -124,18 +127,43 @@ def list_remote(host: str, remote_dir: str) -> list[RemoteItem]:
     return [RemoteItem(**item) for item in raw_items]
 
 
+def verify_remote_role(host: str, expected_role: str) -> dict[str, str]:
+    actual_role = ssh(host, "cat /etc/fluterapi-node-role 2>/dev/null || true").strip()
+    if actual_role != expected_role:
+        raise RuntimeError(
+            f"remote role mismatch for {host}: expected {expected_role}, got {actual_role or 'missing'}"
+        )
+    hostname = ssh(host, "hostname").strip()
+    node_fingerprint = ssh(host, "sha256sum /etc/machine-id | awk '{print $1}'").strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", node_fingerprint):
+        raise RuntimeError(f"invalid remote machine fingerprint for {host}")
+    return {
+        "role": actual_role,
+        "hostname": hostname,
+        "node_fingerprint": node_fingerprint,
+    }
+
+
 def is_large_backup(item: RemoteItem, min_size: int) -> bool:
-    if item.type != "file" or item.size < min_size:
-        return False
-    patterns = (
+    file_patterns = (
         r"^sub2api-backup-\d{8}T\d{6}Z\.tar\.gz$",
         r".*\.sql\.zst$",
         r".*\.sql\.gz$",
         r".*\.sql$",
         r".*\.dump$",
+        r".*\.tsv$",
         r".*\.tar\.gz$",
     )
-    return any(re.match(pattern, item.name) for pattern in patterns)
+    dir_patterns = (
+        r"^config-\d",
+        r"^config-before-",
+        r"^pages-before-",
+    )
+    if item.type == "file":
+        return item.size >= min_size and any(re.match(pattern, item.name) for pattern in file_patterns)
+    if item.type == "dir":
+        return any(re.match(pattern, item.name) for pattern in dir_patterns)
+    return False
 
 
 def newest_daily_archive(items: Iterable[RemoteItem]) -> RemoteItem | None:
@@ -216,6 +244,23 @@ def remote_sha256(host: str, path: str) -> str:
     return out.split()[0]
 
 
+def remote_archive_directory(host: str, dir_path: str, tmp_path: str) -> None:
+    clean_dir = dir_path.rstrip("/")
+    parent = posixpath.dirname(clean_dir)
+    name = posixpath.basename(clean_dir)
+    cmd = (
+        "rm -f -- "
+        + shell_quote(tmp_path)
+        + " && tar -C "
+        + shell_quote(parent)
+        + " -czf "
+        + shell_quote(tmp_path)
+        + " "
+        + shell_quote(name)
+    )
+    ssh(host, cmd)
+
+
 def scp_from_remote(host: str, remote_path: str, local_path: Path) -> None:
     local_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = local_path.with_suffix(local_path.suffix + ".partial")
@@ -229,12 +274,11 @@ def remote_delete(host: str, path: str) -> None:
     ssh(host, "rm -f -- " + shell_quote(path))
 
 
-def assert_remote_production(host: str) -> None:
-    role = ssh(host, "cat /etc/fluterapi-node-role").strip()
-    if role != "production":
-        raise RuntimeError(
-            f"refusing remote backup deletion: {host} role is {role!r}, expected 'production'"
-        )
+def remote_delete_item(host: str, item: RemoteItem) -> None:
+    if item.type == "dir":
+        ssh(host, "rm -rf -- " + shell_quote(item.path))
+    else:
+        remote_delete(host, item.path)
 
 
 def prune_local_dirs(paths: Iterable[Path]) -> None:
@@ -287,7 +331,16 @@ def print_plan(plan: Plan, local_root: Path, min_size: int) -> None:
         print("  (none)")
 
 
-def apply_plan(host: str, plan: Plan, local_root: Path) -> Path:
+def apply_plan(
+    host: str,
+    remote_identity: dict[str, str],
+    plan: Plan,
+    local_root: Path,
+) -> Path | None:
+    if not plan.transfer and not plan.local_prune:
+        print("[no changes] no remote migration or local pruning required")
+        return None
+
     run_id = dt.datetime.now(dt.timezone.utc).strftime("vps-archive-%Y%m%dT%H%M%SZ")
     run_dir = local_root / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -296,6 +349,9 @@ def apply_plan(host: str, plan: Plan, local_root: Path) -> Path:
     manifest: dict[str, object] = {
         "created_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "host": host,
+        "remote_role": remote_identity["role"],
+        "remote_hostname": remote_identity["hostname"],
+        "remote_node_fingerprint": remote_identity["node_fingerprint"],
         "run_dir": str(run_dir),
         "transferred": [],
         "deleted_remote": [],
@@ -304,24 +360,42 @@ def apply_plan(host: str, plan: Plan, local_root: Path) -> Path:
 
     try:
         for item in plan.transfer:
-            print(f"[transfer] remote sha256 {item.name}")
-            remote_hash = remote_sha256(host, item.path)
-            local_path = run_dir / item.name
-            print(f"[transfer] scp {item.name} -> {local_path}")
-            scp_from_remote(host, item.path, local_path)
-            local_hash = sha256_file(local_path)
-            if local_hash != remote_hash:
-                raise RuntimeError(f"sha256 mismatch for {item.name}: remote={remote_hash} local={local_hash}")
+            remote_source = item.path
+            local_name = item.name
+            remote_tmp: str | None = None
+            if item.type == "dir":
+                safe_name = re.sub(r"[^A-Za-z0-9_.-]", "_", item.name)
+                remote_tmp = f"/tmp/fluter-sub2api-backup-sync-{run_id}-{safe_name}.tar.gz"
+                local_name = f"{item.name}.tar.gz"
+                print(f"[transfer] remote archive dir {item.name} -> {remote_tmp}")
+                remote_archive_directory(host, item.path, remote_tmp)
+                remote_source = remote_tmp
+
+            try:
+                print(f"[transfer] remote sha256 {local_name}")
+                remote_hash = remote_sha256(host, remote_source)
+                local_path = run_dir / local_name
+                print(f"[transfer] scp {local_name} -> {local_path}")
+                scp_from_remote(host, remote_source, local_path)
+                local_hash = sha256_file(local_path)
+                if local_hash != remote_hash:
+                    raise RuntimeError(f"sha256 mismatch for {local_name}: remote={remote_hash} local={local_hash}")
+            finally:
+                if remote_tmp is not None:
+                    remote_delete(host, remote_tmp)
 
             sidecar = local_path.with_suffix(local_path.suffix + ".sha256")
-            sidecar.write_text(f"{local_hash}  {item.name}\n")
-            print(f"[verified] {item.name} sha256={local_hash}")
-            remote_delete(host, item.path)
+            sidecar.write_text(f"{local_hash}  {local_name}\n")
+            print(f"[verified] {local_name} sha256={local_hash}")
+            remote_delete_item(host, item)
+            remote_delete(host, item.path + ".sha256")
             print(f"[deleted remote] {item.path}")
 
             manifest["transferred"].append(  # type: ignore[index, union-attr]
                 {
                     "name": item.name,
+                    "type": item.type,
+                    "local_name": local_name,
                     "remote_path": item.path,
                     "size": item.size,
                     "mtime_utc": item.mtime_utc.isoformat(),
@@ -345,6 +419,7 @@ def apply_plan(host: str, plan: Plan, local_root: Path) -> Path:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=DEFAULT_HOST)
+    parser.add_argument("--expected-remote-role", default=DEFAULT_EXPECTED_REMOTE_ROLE)
     parser.add_argument("--remote-dir", default=DEFAULT_REMOTE_DIR)
     parser.add_argument("--local-root", default=DEFAULT_LOCAL_ROOT)
     parser.add_argument("--local-retention-days", type=int, default=7)
@@ -361,6 +436,12 @@ def main() -> int:
     now = dt.datetime.now(dt.timezone.utc)
     retention_tz = ZoneInfo(args.retention_timezone)
 
+    remote_identity = verify_remote_role(args.host, args.expected_remote_role)
+    print(
+        "remote_identity="
+        f"{remote_identity['hostname']} role={remote_identity['role']} "
+        f"node={remote_identity['node_fingerprint'][:12]}"
+    )
     items = list_remote(args.host, args.remote_dir)
     plan = build_plan(
         items,
@@ -377,9 +458,11 @@ def main() -> int:
         print("\nDRY RUN ONLY. Re-run with --apply to copy, verify, and delete remote migrated files.")
         return 0
 
-    assert_remote_production(args.host)
-    run_dir = apply_plan(args.host, plan, local_root)
-    print(f"\nDONE. Local verified archive dir: {run_dir}")
+    run_dir = apply_plan(args.host, remote_identity, plan, local_root)
+    if run_dir is None:
+        print("\nDONE. Retention is already satisfied.")
+    else:
+        print(f"\nDONE. Local verified archive dir: {run_dir}")
     return 0
 
 
