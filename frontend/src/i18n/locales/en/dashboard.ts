@@ -470,11 +470,19 @@ export default {
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
     columns: {
-      name: 'Channel',
-      description: 'Description',
+      category: 'Category',
       platform: 'Platform',
       groups: 'Your Accessible Groups',
       supportedModels: 'Supported Models'
+    },
+    categories: {
+      claude: 'Claude',
+      codex: 'Codex',
+      gemini: 'Gemini',
+      grok: 'Grok',
+      domestic: 'Domestic Models',
+      image: 'Image & Video',
+      other: 'Other'
     },
     pricing: {
       billingMode: 'Billing Mode',

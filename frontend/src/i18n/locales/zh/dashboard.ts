@@ -475,11 +475,19 @@ export default {
     exclusiveTooltip: '管理员授权给你的专属分组',
     publicTooltip: '对所有用户公开的分组',
     columns: {
-      name: '渠道名',
-      description: '描述',
+      category: '模型类别',
       platform: '平台',
       groups: '我可访问的分组',
       supportedModels: '支持模型'
+    },
+    categories: {
+      claude: 'Claude',
+      codex: 'Codex',
+      gemini: 'Gemini',
+      grok: 'Grok',
+      domestic: '国产模型',
+      image: '生图',
+      other: '其他'
     },
     pricing: {
       billingMode: '计费模式',

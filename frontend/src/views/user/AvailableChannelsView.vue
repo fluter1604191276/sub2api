@@ -69,8 +69,7 @@ const loading = ref(false)
 const searchQuery = ref('')
 
 const columnLabels = computed(() => ({
-  name: t('availableChannels.columns.name'),
-  description: t('availableChannels.columns.description'),
+  category: t('availableChannels.columns.category'),
   platform: t('availableChannels.columns.platform'),
   groups: t('availableChannels.columns.groups'),
   supportedModels: t('availableChannels.columns.supportedModels'),
