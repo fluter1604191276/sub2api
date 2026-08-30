@@ -21,6 +21,8 @@ if [[ -n "${status}" ]]; then
 fi
 
 COMMIT="$(git rev-parse HEAD)"
+"${SCRIPT_DIR}/check-production-baseline.sh"
+
 SOURCE_SNAPSHOT="$(python3 - "${REPO_ROOT}" <<'PY'
 import hashlib
 import pathlib

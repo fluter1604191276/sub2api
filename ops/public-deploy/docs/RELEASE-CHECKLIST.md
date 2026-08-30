@@ -4,9 +4,9 @@ This checklist is the stop condition for a Sub2API image switch. It exists becau
 
 ## Before Build
 
-- [ ] Confirm the worktree is the public deployment worktree.
+- [ ] Confirm the worktree was created from the live production revision; run `create-production-derived-worktree.sh` for a new二开 line.
 - [ ] Confirm all intended二开 are listed in PRODUCTION-EXTENSIONS.md.
-- [ ] Compare the candidate branch with the production baseline commit/tag.
+- [ ] Compare the candidate branch with the live production baseline commit; do not use a tag or remembered worktree as the baseline.
 - [ ] Require a clean worktree; if an emergency dirty snapshot is used, record the explicit exception and source snapshot hash.
 - [ ] Ensure no user change is being overwritten or reset.
 - [ ] Ensure every new/changed二开 has a dated registration under the release records directory.

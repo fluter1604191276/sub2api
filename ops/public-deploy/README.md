@@ -4,6 +4,15 @@ Operational helper scripts for the independent public VPS deployment.
 
 ## Release integrity
 
+### Permanent baseline rule
+
+Every new or modified二开 must start from the Git revision of the image that
+is actually serving production at that time. This rule applies after every
+production switch; it is not tied to `0.1.183`, a particular image tag, branch,
+or local worktree name. Bootstrap the next line with
+`create-production-derived-worktree.sh`, then let
+`check-production-baseline.sh` recheck the live node before every build.
+
 Production image switches require the capability inventory and evidence gate:
 
 - docs/PRODUCTION-EXTENSIONS.md is the source-of-truth list of site-specific二开.
@@ -15,8 +24,13 @@ Production image switches require the capability inventory and evidence gate:
   the protocol compatibility boundary that health checks did not catch.
 - generate-release-manifest.py creates a secret-free manifest for the exact source
   snapshot used to build an image.
+- check-production-baseline.sh binds the next development line to the image
+  that is actually serving production.
+- create-production-derived-worktree.sh creates each new development line
+  from the live production revision and records the immutable image identity.
 - verify-release-bundle.sh blocks a candidate when source identity, required
-  capabilities, immutable image identity, or test evidence is missing.
+  capabilities, immutable image identity, compiled-image markers, or test
+  evidence is missing.
 - build-production-image.sh binds the image to the source revision and snapshot
   labels, and refuses dirty worktrees unless an emergency exception is explicit.
 

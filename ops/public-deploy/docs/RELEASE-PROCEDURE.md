@@ -7,17 +7,39 @@ considered.
 
 ## 1. Reconcile source state
 
-For this release line, work only in the canonical release worktree:
+For every round of二开, start from the live production image that is actually
+serving production. Do not infer the
+baseline from a readable version tag, a remembered branch, or the newest local
+worktree. Query the live node first:
 
-```text
-/Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-0.1.183-full-custom-20260830
+```bash
+ssh fluterapi-prod 'cat /etc/fluterapi-node-role'
+ssh fluterapi-prod 'docker inspect sub2api --format "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.source-snapshot"}}"'
 ```
 
-This worktree is pinned to the official `v0.1.183` baseline and the branch
-`release/v0.1.183-fluter-full-custom-20260830`. Do not build from the main
-checkout at `project/`, the legacy `public-deploy` worktree, or any older
-version-specific preparation worktree. Those directories may contain user
-changes or partial historical patches and are not release inputs.
+The role must be exactly `production`. The image revision label is the required
+starting commit for the next development line. Create a new worktree from that
+commit, then run:
+
+```bash
+ops/public-deploy/check-production-baseline.sh
+```
+
+That check requires the current HEAD to be the production commit or a
+descendant of it. It blocks unrelated historical lines before any build can
+start.
+
+For the current incident-recovered line, the production-derived worktree is:
+
+```text
+/Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-from-production-20260830
+```
+
+The older `public-deploy` worktree remains preserved for investigation and
+uncommitted model-plaza work. It is not a release input. After an upstream
+upgrade or every production switch, repeat the live query and create a new
+production-derived line with `create-production-derived-worktree.sh`; do not
+keep extending an old version-named worktree.
 
 See `ops/public-deploy/docs/RELEASE-LINES.md` for the active candidate and
 historical-line registry.
@@ -88,7 +110,11 @@ ops/public-deploy/build-production-image.sh fluter/sub2api:<candidate>
 The image must be `linux/amd64` and carry labels for the Git commit and full
 source snapshot. Generate a secret-free manifest containing the exact image
 digest, previous production digest, every capability result, test results, and
-image smoke results. Run `verify-release-bundle.sh` with the manifest and image.
+image smoke results. `verify-release-bundle.sh --image ...` must inspect the
+compiled `/app/sub2api` binary and check runtime markers for scheduler,
+recovery probe, quality/cache telemetry, pricing, model sync, error handling,
+and Responses tools. Source-only evidence or `/health` is insufficient. Run
+the verifier with the manifest and image.
 
 Do not switch production in this procedure. A production switch is a separate
 explicit operation requiring the role-marker check, backup, rollback pair, and

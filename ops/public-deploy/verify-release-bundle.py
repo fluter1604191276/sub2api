@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -34,7 +36,11 @@ CAPABILITY_FILES = {
     "scheduler": (
         "backend/internal/service/gateway_scheduling.go",
         "backend/internal/service/openai_account_scheduler.go",
+        "backend/internal/service/smart_scheduler_routing.go",
+        "backend/internal/service/smart_scheduler_preview.go",
+        "backend/internal/service/smart_scheduler_routing_integration_test.go",
         "frontend/src/views/admin/AccountsView.vue",
+        "frontend/src/views/admin/GroupsView.vue",
     ),
     "scheduled-probe": (
         "backend/internal/service/scheduled_test_runner_service.go",
@@ -118,6 +124,21 @@ REQUIRED_TESTS = (
     "protocol_fixtures",
     "image_smoke",
 )
+
+# These markers are checked in the final image, not just in the source tree.
+# They are deliberately small, stable runtime symbols/log labels rather than
+# version strings, so a stale or partially merged image cannot pass on its tag.
+IMAGE_CAPABILITY_MARKERS = {
+    "scheduler": ("smart_scheduler", "sticky.smart_scheduler_switched"),
+    "scheduled-probe": ("scheduled-test-plans", "recovery_probe"),
+    "quality-score": ("quality_score", "quality_grade"),
+    "cache-hit-rate": ("cache_hit_rate",),
+    "image-cost": ("account_stats_image_pricing", "image_generation_call"),
+    "pricing-calibration": ("model_calibration",),
+    "model-sync-filter": ("sync/models",),
+    "error-passthrough": ("error_passthrough",),
+    "responses-tools": ("custom_tool_call", "response.custom_tool_call_input.delta"),
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -285,6 +306,14 @@ def validate_manifest(
             errors.append("inspected image revision label does not match manifest source.head")
         if image_metadata.get("source_snapshot_label") != source.get("snapshot_sha256"):
             errors.append("inspected image source snapshot label does not match manifest source.snapshot_sha256")
+        image_capabilities = image_metadata.get("capability_markers")
+        if not isinstance(image_capabilities, dict):
+            errors.append("image capability smoke evidence is missing")
+        else:
+            for capability_id in IMAGE_CAPABILITY_MARKERS:
+                result = image_capabilities.get(capability_id)
+                if not isinstance(result, dict) or result.get("status") != "present":
+                    errors.append(f"image capability smoke failed: {capability_id}")
     return errors
 
 
@@ -310,6 +339,49 @@ def inspect_image(image: str) -> dict[str, object]:
     }
 
 
+def inspect_binary_capabilities(payload: bytes) -> dict[str, dict[str, object]]:
+    printable = b"\0".join(re.findall(rb"[\x20-\x7e]{4,}", payload))
+    results: dict[str, dict[str, object]] = {}
+    for capability_id, markers in IMAGE_CAPABILITY_MARKERS.items():
+        matched = [marker for marker in markers if marker.encode("ascii") in printable]
+        results[capability_id] = {
+            "status": "present" if len(matched) == len(markers) else "missing",
+            "matched": matched,
+            "required": list(markers),
+        }
+    return results
+
+
+def inspect_image_capabilities(image: str) -> dict[str, dict[str, object]]:
+    """Inspect the compiled application binary without starting the service."""
+    result = subprocess.run(
+        ["docker", "create", "--entrypoint", "/bin/true", image],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    container_id = result.stdout.strip()
+    if not container_id:
+        raise ValueError(f"docker returned no container for {image}")
+    try:
+        with tempfile.TemporaryDirectory(prefix="sub2api-image-smoke-") as directory:
+            binary = Path(directory) / "sub2api"
+            subprocess.run(
+                ["docker", "cp", f"{container_id}:/app/sub2api", str(binary)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return inspect_binary_capabilities(binary.read_bytes())
+    finally:
+        subprocess.run(
+            ["docker", "rm", "-f", container_id],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -327,7 +399,8 @@ def main() -> int:
     if args.image:
         try:
             image_metadata = inspect_image(args.image)
-        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError, IndexError) as exc:
+            image_metadata["capability_markers"] = inspect_image_capabilities(args.image)
+        except (OSError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError, IndexError) as exc:
             print(f"RELEASE BLOCKED: cannot inspect image {args.image}: {exc}", file=sys.stderr)
             return 2
     errors = validate_manifest(
