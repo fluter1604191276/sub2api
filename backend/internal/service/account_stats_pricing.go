@@ -59,8 +59,12 @@ func resolveAccountStatsCost(
 }
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens) *float64 {
-	return tryModelFilePricingWithServiceTier(billingService, model, tokens, "")
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier ...string) *float64 {
+	tier := ""
+	if len(serviceTier) > 0 {
+		tier = serviceTier[0]
+	}
+	return tryModelFilePricingWithServiceTier(billingService, model, tokens, tier)
 }
 
 func tryModelFilePricingWithServiceTier(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
@@ -69,7 +73,8 @@ func tryModelFilePricingWithServiceTier(billingService *BillingService, model st
 		return nil
 	}
 	normalizedTier := normalizeBillingServiceTier(serviceTier)
-	if billingService.shouldApplySessionLongContextPricing(tokens, pricing) || normalizedTier == "priority" || normalizedTier == "flex" {
+	if normalizedTier == "priority" || normalizedTier == "fast" || normalizedTier == "flex" ||
+		billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
 		breakdown, err := billingService.CalculateCostWithServiceTier(model, tokens, 1, normalizedTier)
 		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 			return nil

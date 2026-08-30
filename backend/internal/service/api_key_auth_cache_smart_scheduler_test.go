@@ -15,7 +15,7 @@ func TestAPIKeyAuthSnapshotSmartSchedulerRoundtrip(t *testing.T) {
 
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
 	require.NotNil(t, snapshot)
-	require.Equal(t, 19, snapshot.Version)
+	require.Equal(t, apiKeyAuthSnapshotVersion, snapshot.Version)
 	require.True(t, snapshot.Group.SmartSchedulerEnabled)
 
 	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})

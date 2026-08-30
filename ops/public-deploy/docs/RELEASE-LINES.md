@@ -20,10 +20,10 @@ switched and verified. It is not a source checkout.
 ## Active Candidate Line
 
 ```text
-Official baseline: v0.1.171
-Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
-Branch: release/v0.1.171-fluter-full-custom-20260829
-Worktree: /Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep
+Official baseline: v0.1.183
+Official base commit: e8cb019fabf8b55199436229044cbf9aa7a82564
+Branch: release/v0.1.183-fluter-full-custom-20260830
+Worktree: /Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-0.1.183-full-custom-20260830
 ```
 
 This is the only approved source for the current full-custom candidate. It

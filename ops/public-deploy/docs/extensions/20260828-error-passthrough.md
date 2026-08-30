@@ -10,9 +10,11 @@ Environment-variable/config dependency: none
 Billing impact: none
 Scheduling impact: retry behavior can affect account availability and request recycling。
 Client protocol impact: OpenAI; Anthropic; compatible error envelopes。
-Upstream version/base commit: v0.1.171
-Official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
-Custom source branch: release/v0.1.171-fluter-full-custom-20260829
+First release upstream version/base commit: v0.1.171
+First release official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
+First release custom source branch: release/v0.1.171-fluter-full-custom-20260829
+Current candidate upstream version/base commit: v0.1.183 / e8cb019fabf8b55199436229044cbf9aa7a82564
+Current candidate custom source branch: release/v0.1.183-fluter-full-custom-20260830
 Tests/fixtures: sanitization, rewrite precedence and upstream URL redaction tests；发布后需验证用户响应不含 upstream_url。
 Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest；覆盖错误规则路由和上游 URL 脱敏边界。
 First release manifest: sub2api-release-20260829-r5.json

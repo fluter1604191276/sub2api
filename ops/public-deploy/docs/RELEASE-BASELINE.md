@@ -17,7 +17,7 @@ Pre-rollback Compose: /www/sub2api/backups/compose-before-rollback-20260828T1308
 The digest above is a recorded incident-review value. The next operator must query the running container and update the manifest; this document is not a substitute for live verification.
 
 The canonical candidate worktree for the current release line is
-`/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep`.
+`/Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-0.1.183-full-custom-20260830`.
 The main checkout and legacy preparation worktrees are not release sources.
 
 ## Immutable Release Contract
@@ -44,7 +44,7 @@ Dirty worktrees are not automatically forbidden for local experimentation, but a
 Read-only preflight:
 
 ~~~bash
-cd /Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep
+cd /Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-0.1.183-full-custom-20260830
 git status --short --branch
 git rev-parse HEAD
 ssh fluterapi-prod 'test "$(cat /etc/fluterapi-node-role)" = production'

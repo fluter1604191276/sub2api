@@ -190,7 +190,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(parsed.Model), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), false, nil)
 				if failoverErr.RetryableOnSameAccount {
 					retryLimit := account.GetPoolModeRetryCount()
 					if sameAccountRetryCount[account.ID] < retryLimit {
@@ -225,7 +225,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 				)
 				continue
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(parsed.Model), false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), false, nil)
 			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
 			reqLog.Warn("openai.video_generations.forward_failed",
 				zap.Int64("account_id", account.ID),
@@ -235,7 +235,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(parsed.Model), true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), true, nil)
 		if result != nil && strings.TrimSpace(result.VideoTaskID) != "" {
 			if err := h.gatewayService.BindOpenAIVideoTaskAccount(c.Request.Context(), apiKey.GroupID, result.VideoTaskID, account.ID); err != nil {
 				reqLog.Warn("openai.video_generations.bind_task_account_failed",
@@ -397,7 +397,7 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 	}
 	service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 	if err != nil {
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(""), false, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(""), false, nil)
 		wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
 		reqLog.Warn("openai.video_task.forward_failed",
 			zap.Int64("account_id", account.ID),
@@ -406,5 +406,5 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 		)
 		return
 	}
-	h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(""), true, nil)
+	h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(""), true, nil)
 }

@@ -64,7 +64,7 @@ def valid_manifest() -> dict:
 class ReleaseManifestStructureTests(unittest.TestCase):
     def test_operational_release_files_use_canonical_candidate_worktree(self):
         repo_root = SCRIPT_DIR.parents[1]
-        canonical = ".worktrees/public-0.1.171-imagecost-prep"
+        canonical = ".worktrees/public-0.1.183-full-custom-20260830"
         files = (
             "ops/public-deploy/docs/RELEASE-BASELINE.md",
             "ops/public-deploy/docs/RELEASE-PROCEDURE.md",

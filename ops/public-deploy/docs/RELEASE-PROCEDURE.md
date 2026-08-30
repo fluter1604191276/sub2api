@@ -10,11 +10,11 @@ considered.
 For this release line, work only in the canonical release worktree:
 
 ```text
-/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-0.1.171-imagecost-prep
+/Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-0.1.183-full-custom-20260830
 ```
 
-This worktree is pinned to the official `v0.1.171` baseline and the branch
-`release/v0.1.171-fluter-full-custom-20260829`. Do not build from the main
+This worktree is pinned to the official `v0.1.183` baseline and the branch
+`release/v0.1.183-fluter-full-custom-20260830`. Do not build from the main
 checkout at `project/`, the legacy `public-deploy` worktree, or any older
 version-specific preparation worktree. Those directories may contain user
 changes or partial historical patches and are not release inputs.
