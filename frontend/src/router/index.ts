@@ -255,6 +255,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/model-plaza',
+    name: 'ModelPlaza',
+    component: () => import('@/views/user/ModelPlazaView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Model Plaza',
+      titleKey: 'modelPlaza.title',
+      descriptionKey: 'modelPlaza.description'
+    }
+  },
+  {
     path: '/available-channels',
     name: 'UserAvailableChannels',
     component: () => import('@/views/user/AvailableChannelsView.vue'),

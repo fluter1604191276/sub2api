@@ -502,6 +502,41 @@ export default {
     }
   },
 
+  modelPlaza: {
+    title: 'Model Plaza',
+    description: 'Browse the models, channels, groups, and user-facing prices available to your account',
+    searchPlaceholder: 'Search models, channels, or groups...',
+    categoryFilter: 'Filter model categories',
+    empty: 'No available models',
+    noMatches: 'No matching models',
+    copyModel: 'Copy model name',
+    copied: 'Model name copied',
+    expand: 'Expand model details',
+    collapse: 'Collapse model details',
+    details: 'Available sources',
+    sources: 'sources',
+    channels: 'Available channels',
+    groups: 'Available groups',
+    pricing: 'User-facing price',
+    multiplePrices: 'Prices vary by source',
+    noGroups: 'No visible groups',
+    input: 'Input',
+    output: 'Output',
+    perToken: 'Per token',
+    perRequest: 'Per request',
+    perImage: 'Per image',
+    tiered: 'tiered pricing',
+    loadError: 'Failed to load model plaza',
+    stats: {
+      models: 'Total models',
+      channels: 'Total channels',
+      visible: 'Currently shown'
+    },
+    categories: {
+      all: 'All'
+    }
+  },
+
   affiliate: {
     title: 'Affiliate Rebates',
     description: 'Invite new users and convert your rebate quota into account balance',

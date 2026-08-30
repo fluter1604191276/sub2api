@@ -507,6 +507,41 @@ export default {
     }
   },
 
+  modelPlaza: {
+    title: '模型广场',
+    description: '浏览当前账号可访问的模型、渠道、分组与用户侧价格',
+    searchPlaceholder: '搜索模型、渠道或分组...',
+    categoryFilter: '模型类别筛选',
+    empty: '暂无可用模型',
+    noMatches: '没有匹配的模型',
+    copyModel: '复制模型名称',
+    copied: '模型名称已复制',
+    expand: '展开模型详情',
+    collapse: '收起模型详情',
+    details: '可用来源',
+    sources: '个来源',
+    channels: '可用渠道',
+    groups: '可用分组',
+    pricing: '用户侧价格',
+    multiplePrices: '不同来源价格不同',
+    noGroups: '暂无可见分组',
+    input: '输入',
+    output: '输出',
+    perToken: '按 Token',
+    perRequest: '按次',
+    perImage: '按图片',
+    tiered: '含阶梯价格',
+    loadError: '加载模型广场失败',
+    stats: {
+      models: '模型总数',
+      channels: '渠道总数',
+      visible: '当前显示'
+    },
+    categories: {
+      all: '全部'
+    }
+  },
+
   affiliate: {
     title: '邀请返利',
     description: '邀请新用户注册，并将返利额度转入账户余额',
