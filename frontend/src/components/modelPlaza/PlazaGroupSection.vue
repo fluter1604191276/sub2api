@@ -7,6 +7,7 @@
     <header class="border-b border-gray-100 px-5 py-4 dark:border-dark-700/60">
       <div class="flex flex-wrap items-center gap-2">
         <GroupBadge
+          class="max-w-full"
           :name="group.name"
           :platform="group.platform as GroupPlatform"
           :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
@@ -16,6 +17,7 @@
           :peak-start="group.peak_start"
           :peak-end="group.peak_end"
           :peak-rate-multiplier="group.peak_rate_multiplier"
+          full-name
           always-show-rate
         />
         <span

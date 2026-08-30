@@ -157,6 +157,7 @@ export default {
 
   // Navigation
   nav: {
+    catalog: 'Model catalog navigation',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

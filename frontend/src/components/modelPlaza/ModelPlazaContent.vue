@@ -1,5 +1,7 @@
 <template>
   <div class="space-y-5">
+    <CatalogSurfaceNav current="plaza" />
+
     <!-- 页头(独立形态下展示标题;后台形态 AppHeader 已有页面标题) -->
     <div v-if="!embedded">
       <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-3xl">{{ t('modelPlaza.title') }}</h1>
@@ -33,20 +35,42 @@
       {{ t('modelPlaza.loadFailed') }}
     </div>
     <template v-else>
-      <!-- 筛选区:平台 → 分组 → 倍率 -->
+      <!-- 筛选区:平台 → 可见性 → 分组 → 倍率 -->
       <PlazaFilterBar
         :platforms="platforms"
         :groups="groupOptions"
         :rates="rates"
         :platform="selectedPlatform"
+        :access="selectedAccess"
         :group-id="selectedGroupId"
         :rate="selectedRate"
         :search="searchQuery"
         @update:platform="selectedPlatform = $event"
+        @update:access="selectedAccess = $event"
         @update:group-id="selectedGroupId = $event"
         @update:rate="selectedRate = $event"
         @update:search="searchQuery = $event"
       />
+
+      <div class="flex flex-wrap items-center justify-between gap-3 border-y border-gray-200 py-3 dark:border-dark-700">
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-dark-400">
+          <span data-testid="plaza-result-summary">
+            {{ t('modelPlaza.summary.result', { groups: filteredGroups.length, models: visibleModelCount }) }}
+          </span>
+          <span v-if="searchActive" class="text-gray-400 dark:text-dark-500">
+            {{ t('modelPlaza.summary.searching', { query: searchQuery.trim() }) }}
+          </span>
+        </div>
+        <button
+          v-if="filtersActive"
+          type="button"
+          class="inline-flex items-center gap-1.5 text-xs font-medium text-gray-500 transition-colors hover:text-gray-900 dark:text-dark-300 dark:hover:text-white"
+          @click="clearFilters"
+        >
+          <Icon name="x" size="xs" />
+          {{ t('modelPlaza.clearFilters') }}
+        </button>
+      </div>
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
       <div v-if="filteredGroups.length > 0" class="space-y-5">
@@ -68,6 +92,7 @@ import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import Icon from '@/components/icons/Icon.vue'
+import CatalogSurfaceNav from '@/components/catalog/CatalogSurfaceNav.vue'
 import PlazaFilterBar from './PlazaFilterBar.vue'
 import PlazaGroupSection from './PlazaGroupSection.vue'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
@@ -86,6 +111,7 @@ const authStore = useAuthStore()
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 
 const selectedPlatform = ref<string>('all')
+const selectedAccess = ref<'all' | 'public' | 'exclusive' | 'subscription'>('all')
 const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
 const searchQuery = ref('')
@@ -112,7 +138,9 @@ const groupOptions = computed(() =>
     id: g.id,
     name: g.name,
     platform: g.platform,
-    rate: effectiveRate(g)
+    rate: effectiveRate(g),
+    isExclusive: g.is_exclusive,
+    subscriptionType: g.subscription_type
   }))
 )
 
@@ -128,10 +156,26 @@ watch(rates, (list) => {
   }
 })
 
+const filtersActive = computed(
+  () =>
+    selectedPlatform.value !== 'all' ||
+    selectedAccess.value !== 'all' ||
+    selectedGroupId.value !== 'all' ||
+    selectedRate.value !== 'all' ||
+    searchActive.value
+)
+
 const filteredGroups = computed(() => {
   let groups = props.response?.groups ?? []
   if (selectedPlatform.value !== 'all') {
     groups = groups.filter((g) => g.platform === selectedPlatform.value)
+  }
+  if (selectedAccess.value !== 'all') {
+    groups = groups.filter((g) => {
+      if (selectedAccess.value === 'exclusive') return g.is_exclusive
+      if (selectedAccess.value === 'subscription') return g.subscription_type === 'subscription'
+      return !g.is_exclusive && g.subscription_type !== 'subscription'
+    })
   }
   if (selectedGroupId.value !== 'all') {
     groups = groups.filter((g) => g.id === selectedGroupId.value)
@@ -151,6 +195,18 @@ const filteredGroups = computed(() => {
     (a, b) => effectiveRate(a) - effectiveRate(b) || a.name.localeCompare(b.name)
   )
 })
+
+const visibleModelCount = computed(() =>
+  filteredGroups.value.reduce((total, group) => total + group.models.length, 0)
+)
+
+function clearFilters() {
+  selectedPlatform.value = 'all'
+  selectedAccess.value = 'all'
+  selectedGroupId.value = 'all'
+  selectedRate.value = 'all'
+  searchQuery.value = ''
+}
 </script>
 
 <style scoped>

@@ -157,6 +157,7 @@ export default {
 
   // Navigation
   nav: {
+    catalog: '模型目录导航',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

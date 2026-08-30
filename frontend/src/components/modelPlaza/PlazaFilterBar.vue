@@ -25,6 +25,27 @@
     <!-- 二级:分组(按所属平台着色,当前组合下无结果的置灰) -->
     <div class="flex items-start gap-2">
       <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
+        {{ t('modelPlaza.filters.accessLabel') }}
+      </span>
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          v-for="option in accessOptions"
+          :key="`access-${option.value}`"
+          :data-testid="`plaza-access-${option.value}`"
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
+          :class="chipClass(access === option.value)"
+          :disabled="!accessEnabled(option.value)"
+          @click="$emit('update:access', option.value)"
+        >
+          {{ t(option.label) }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 三级:分组(按所属平台着色,当前组合下无结果的置灰) -->
+    <div class="flex items-start gap-2">
+      <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
         {{ t('modelPlaza.filters.groupLabel') }}
       </span>
       <div class="flex flex-wrap items-center gap-2">
@@ -51,7 +72,7 @@
       </div>
     </div>
 
-    <!-- 三级:倍率(当前组合下不存在的置灰) -->
+    <!-- 四级:倍率(当前组合下不存在的置灰) -->
     <div class="flex items-start gap-2">
       <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
         {{ t('modelPlaza.filters.rateLabel') }}
@@ -79,7 +100,7 @@
       </div>
     </div>
 
-    <!-- 四级:模型名搜索(纯前端过滤) -->
+    <!-- 五级:模型名搜索(纯前端过滤) -->
     <div class="flex flex-wrap items-start gap-2">
       <span class="w-10 shrink-0 pt-2 text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-dark-500">
         {{ t('modelPlaza.filters.modelLabel') }}
@@ -121,10 +142,18 @@ const props = defineProps<{
   /** 数据中出现的平台(去重排序后)。 */
   platforms: string[]
   /** 全量分组(含平台与生效倍率),三个维度的置灰联动由此推导。 */
-  groups: Array<{ id: number; name: string; platform: string; rate: number }>
+  groups: Array<{
+    id: number
+    name: string
+    platform: string
+    rate: number
+    isExclusive: boolean
+    subscriptionType: string
+  }>
   /** 全量生效倍率去重升序。 */
   rates: number[]
   platform: string
+  access: 'all' | 'public' | 'exclusive' | 'subscription'
   groupId: number | 'all'
   rate: number | 'all'
   /** 模型名搜索词(纯前端过滤)。 */
@@ -133,6 +162,7 @@ const props = defineProps<{
 
 defineEmits<{
   'update:platform': [value: string]
+  'update:access': [value: 'all' | 'public' | 'exclusive' | 'subscription']
   'update:groupId': [value: number | 'all']
   'update:rate': [value: number | 'all']
   'update:search': [value: string]
@@ -140,8 +170,15 @@ defineEmits<{
 
 const { t } = useI18n()
 
+const accessOptions = [
+  { value: 'all', label: 'modelPlaza.filters.all' },
+  { value: 'public', label: 'modelPlaza.filters.public' },
+  { value: 'exclusive', label: 'modelPlaza.filters.exclusive' },
+  { value: 'subscription', label: 'modelPlaza.filters.subscription' }
+] as const
+
 /**
- * 三个维度互为约束(faceted):某选项可点 ⟺ 在「其他两维」当前选择下仍有分组命中。
+ * 四个维度互为约束(faceted):某选项可点 ⟺ 在「其他维度」当前选择下仍有分组命中。
  * 「全部」永远可点,作为解除本维约束的出口;可点项组合恒有结果,无需选择修正。
  */
 function platformEnabled(p: string): boolean {
@@ -149,15 +186,47 @@ function platformEnabled(p: string): boolean {
     (g) =>
       g.platform === p &&
       (props.groupId === 'all' || g.id === props.groupId) &&
-      (props.rate === 'all' || g.rate === props.rate)
+      (props.rate === 'all' || g.rate === props.rate) &&
+      matchesAccess(g, props.access)
   )
 }
 
-function groupEnabled(g: { platform: string; rate: number }): boolean {
+function groupEnabled(g: {
+  platform: string
+  rate: number
+  isExclusive?: boolean
+  subscriptionType?: string
+}): boolean {
   return (
     (props.platform === 'all' || g.platform === props.platform) &&
-    (props.rate === 'all' || g.rate === props.rate)
+    (props.rate === 'all' || g.rate === props.rate) &&
+    accessEnabledForGroup(g)
   )
+}
+
+function accessEnabled(access: (typeof accessOptions)[number]['value']): boolean {
+  if (access === 'all') return true
+  return props.groups.some(
+    (g) =>
+      (props.platform === 'all' || g.platform === props.platform) &&
+      (props.groupId === 'all' || g.id === props.groupId) &&
+      (props.rate === 'all' || g.rate === props.rate) &&
+      matchesAccess(g, access)
+  )
+}
+
+function accessEnabledForGroup(g: { isExclusive?: boolean; subscriptionType?: string }): boolean {
+  return matchesAccess(g, props.access)
+}
+
+function matchesAccess(
+  group: { isExclusive?: boolean; subscriptionType?: string },
+  access: (typeof accessOptions)[number]['value']
+): boolean {
+  if (access === 'all') return true
+  if (access === 'exclusive') return group.isExclusive === true
+  if (access === 'subscription') return group.subscriptionType === 'subscription'
+  return group.isExclusive !== true && group.subscriptionType !== 'subscription'
 }
 
 function rateEnabled(r: number): boolean {
@@ -165,7 +234,8 @@ function rateEnabled(r: number): boolean {
     (g) =>
       g.rate === r &&
       (props.platform === 'all' || g.platform === props.platform) &&
-      (props.groupId === 'all' || g.id === props.groupId)
+      (props.groupId === 'all' || g.id === props.groupId) &&
+      matchesAccess(g, props.access)
   )
 }
 

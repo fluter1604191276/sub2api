@@ -532,7 +532,10 @@ export default {
   availableChannels: {
     title: 'Available Channels',
     description: 'Channels you can access, along with their supported models and pricing',
+    searchLabel: 'Search available channels',
     searchPlaceholder: 'Search channels or models...',
+    clearSearch: 'Clear search',
+    clearFilters: 'Clear filters',
     empty: 'No available channels',
     noModels: 'No models configured',
     noPricing: 'Pricing not configured',
@@ -540,6 +543,20 @@ export default {
     public: 'Public',
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
+    filters: {
+      platform: 'Platform',
+      allPlatforms: 'All platforms',
+      access: 'Access',
+      allAccess: 'All access',
+      public: 'Public groups',
+      exclusive: 'Exclusive groups'
+    },
+    summary: {
+      channels: 'Channels',
+      platforms: 'Platforms',
+      groups: 'Groups',
+      models: 'Models'
+    },
     columns: {
       name: 'Channel',
       description: 'Description',
@@ -575,12 +592,21 @@ export default {
     loadFailed: 'Failed to load model plaza',
     noSearchResult: 'No matching models',
     anonymousHint: 'Sign in to see your exclusive groups and personal rates',
+    clearFilters: 'Clear filters',
+    summary: {
+      result: '{groups} groups and {models} models shown',
+      searching: 'Matching “{query}”'
+    },
     filters: {
       platformLabel: 'Platform',
+      accessLabel: 'Access',
       groupLabel: 'Group',
       rateLabel: 'Rate',
       modelLabel: 'Model',
       searchPlaceholder: 'Search models',
+      public: 'Public',
+      exclusive: 'Exclusive',
+      subscription: 'Subscription',
       all: 'All'
     },
     badges: {

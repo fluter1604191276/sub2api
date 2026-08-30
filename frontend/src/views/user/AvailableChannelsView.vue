@@ -2,33 +2,110 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-          <div class="flex flex-1 flex-wrap items-center gap-3">
-            <div class="relative w-full sm:w-80">
-              <Icon
-                name="search"
-                size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-              />
-              <input
-                v-model="searchQuery"
-                type="text"
-                :placeholder="t('availableChannels.searchPlaceholder')"
-                class="input pl-10"
-              />
+        <div class="space-y-4">
+          <CatalogSurfaceNav current="channels" />
+
+          <div class="flex flex-col justify-between gap-3 xl:flex-row xl:items-end">
+            <div class="flex min-w-0 flex-1 flex-wrap items-end gap-3">
+              <label class="relative w-full sm:w-80">
+                <span class="sr-only">{{ t('availableChannels.searchLabel') }}</span>
+                <Icon
+                  name="search"
+                  size="md"
+                  class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
+                />
+                <input
+                  v-model="searchQuery"
+                  type="text"
+                  :placeholder="t('availableChannels.searchPlaceholder')"
+                  class="input pl-10 pr-9"
+                />
+                <button
+                  v-if="searchQuery"
+                  type="button"
+                  class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
+                  :aria-label="t('availableChannels.clearSearch')"
+                  @click="searchQuery = ''"
+                >
+                  <Icon name="x" size="xs" />
+                </button>
+              </label>
+
+              <label class="w-full sm:w-44">
+                <span class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                  {{ t('availableChannels.filters.platform') }}
+                </span>
+                <select v-model="selectedPlatform" class="input py-2">
+                  <option value="all">{{ t('availableChannels.filters.allPlatforms') }}</option>
+                  <option v-for="platform in platforms" :key="platform" :value="platform">
+                    {{ platform }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="w-full sm:w-44">
+                <span class="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                  {{ t('availableChannels.filters.access') }}
+                </span>
+                <select v-model="selectedAccess" class="input py-2">
+                  <option value="all">{{ t('availableChannels.filters.allAccess') }}</option>
+                  <option value="public">{{ t('availableChannels.filters.public') }}</option>
+                  <option value="exclusive">{{ t('availableChannels.filters.exclusive') }}</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="flex w-full flex-shrink-0 items-center gap-2 xl:w-auto xl:justify-end">
+              <button
+                v-if="filtersActive"
+                type="button"
+                class="btn btn-ghost gap-1.5 text-gray-500 dark:text-dark-300"
+                @click="clearFilters"
+              >
+                <Icon name="x" size="sm" />
+                {{ t('availableChannels.clearFilters') }}
+              </button>
+              <button
+                type="button"
+                @click="loadChannels"
+                :disabled="loading"
+                class="btn btn-secondary"
+                :title="t('common.refresh', 'Refresh')"
+              >
+                <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+              </button>
             </div>
           </div>
 
-          <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
-            <button
-              @click="loadChannels"
-              :disabled="loading"
-              class="btn btn-secondary"
-              :title="t('common.refresh', 'Refresh')"
-            >
-              <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
-          </div>
+          <dl
+            data-testid="available-summary"
+            class="grid grid-cols-2 divide-x divide-gray-200 border-y border-gray-200 py-2.5 dark:divide-dark-700 dark:border-dark-700 sm:grid-cols-4"
+          >
+            <div class="px-3 first:pl-0 sm:px-4">
+              <dt class="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                {{ t('availableChannels.summary.channels') }}
+              </dt>
+              <dd class="mt-0.5 text-lg font-semibold text-gray-900 dark:text-white">{{ summary.channels }}</dd>
+            </div>
+            <div class="px-3 sm:px-4">
+              <dt class="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                {{ t('availableChannels.summary.platforms') }}
+              </dt>
+              <dd class="mt-0.5 text-lg font-semibold text-gray-900 dark:text-white">{{ summary.platforms }}</dd>
+            </div>
+            <div class="px-3 sm:px-4">
+              <dt class="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                {{ t('availableChannels.summary.groups') }}
+              </dt>
+              <dd class="mt-0.5 text-lg font-semibold text-gray-900 dark:text-white">{{ summary.groups }}</dd>
+            </div>
+            <div class="px-3 last:pr-0 sm:px-4">
+              <dt class="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-dark-500">
+                {{ t('availableChannels.summary.models') }}
+              </dt>
+              <dd class="mt-0.5 text-lg font-semibold text-gray-900 dark:text-white">{{ summary.models }}</dd>
+            </div>
+          </dl>
         </div>
       </template>
 
@@ -54,11 +131,13 @@ import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CatalogSurfaceNav from '@/components/catalog/CatalogSurfaceNav.vue'
 import AvailableChannelsTable from '@/components/channels/AvailableChannelsTable.vue'
 import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { filterAvailableChannels, summarizeAvailableChannels } from '@/utils/availableChannelsCatalog'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -67,6 +146,8 @@ const channels = ref<UserAvailableChannel[]>([])
 const userGroupRates = ref<Record<number, number>>({})
 const loading = ref(false)
 const searchQuery = ref('')
+const selectedPlatform = ref('all')
+const selectedAccess = ref<'all' | 'public' | 'exclusive'>('all')
 
 const columnLabels = computed(() => ({
   name: t('availableChannels.columns.name'),
@@ -76,31 +157,33 @@ const columnLabels = computed(() => ({
   supportedModels: t('availableChannels.columns.supportedModels'),
 }))
 
+const platforms = computed(() =>
+  [...new Set(channels.value.flatMap((channel) => channel.platforms.map((section) => section.platform)))].sort()
+)
+
+const filtersActive = computed(
+  () => searchQuery.value.trim() !== '' || selectedPlatform.value !== 'all' || selectedAccess.value !== 'all'
+)
+
 /**
- * 搜索过滤：
- * - 命中渠道名/描述 → 整个渠道（所有 platforms）都保留
- * - 否则按 platform/group/model 维度在 sections 里过滤，保留有匹配的 section
- * - 所有 sections 都不匹配时，渠道本身被过滤掉
+ * 渠道筛选保留原有聚合结构：命中渠道名/描述时保留其全部子项，
+ * 命中平台/分组/模型时只保留相关 section，方便用户看到完整的上下文。
  */
 const filteredChannels = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return channels.value
-  return channels.value
-    .map((ch) => {
-      const nameHit = ch.name.toLowerCase().includes(q)
-      const descHit = (ch.description || '').toLowerCase().includes(q)
-      if (nameHit || descHit) return ch
-      const matchingSections = ch.platforms.filter(
-        (p) =>
-          p.platform.toLowerCase().includes(q) ||
-          p.groups.some((g) => g.name.toLowerCase().includes(q)) ||
-          p.supported_models.some((m) => m.name.toLowerCase().includes(q)),
-      )
-      if (matchingSections.length === 0) return null
-      return { ...ch, platforms: matchingSections }
-    })
-    .filter((ch): ch is UserAvailableChannel => ch !== null)
+  return filterAvailableChannels(channels.value, {
+    query: searchQuery.value,
+    platform: selectedPlatform.value,
+    access: selectedAccess.value
+  })
 })
+
+const summary = computed(() => summarizeAvailableChannels(filteredChannels.value))
+
+function clearFilters() {
+  searchQuery.value = ''
+  selectedPlatform.value = 'all'
+  selectedAccess.value = 'all'
+}
 
 async function loadChannels() {
   loading.value = true
