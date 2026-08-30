@@ -53,14 +53,23 @@ echo "building ${IMAGE_REF}"
 echo "source commit: ${COMMIT}"
 echo "source snapshot: ${SOURCE_SNAPSHOT}"
 
+BUILD_ARGS=(
+  --build-arg "GOPROXY=${GOPROXY:-https://goproxy.cn,direct}"
+  --build-arg "GOSUMDB=${GOSUMDB:-sum.golang.google.cn}"
+  --build-arg "VERSION=${VERSION}"
+  --build-arg "COMMIT=${COMMIT}"
+  --build-arg "DATE=${DATE}"
+  --build-arg "SOURCE_SNAPSHOT=${SOURCE_SNAPSHOT}"
+)
+for base_arg in NODE_IMAGE GOLANG_IMAGE ALPINE_IMAGE POSTGRES_IMAGE; do
+  if [[ -n "${!base_arg:-}" ]]; then
+    BUILD_ARGS+=(--build-arg "${base_arg}=${!base_arg}")
+  fi
+done
+
 docker build \
   --platform linux/amd64 \
-  --build-arg GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" \
-  --build-arg GOSUMDB="${GOSUMDB:-sum.golang.google.cn}" \
-  --build-arg VERSION="${VERSION}" \
-  --build-arg COMMIT="${COMMIT}" \
-  --build-arg DATE="${DATE}" \
-  --build-arg SOURCE_SNAPSHOT="${SOURCE_SNAPSHOT}" \
+  "${BUILD_ARGS[@]}" \
   -t "${IMAGE_REF}" \
   -f "${REPO_ROOT}/Dockerfile" \
   "${REPO_ROOT}"
