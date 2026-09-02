@@ -224,7 +224,9 @@ IMAGE_CAPABILITY_MARKERS = {
     ),
     "model-capability-failover": (
         "unknown provider for model",
-        "smart_capability:",
+        # The endpoint/model suffix is composed at runtime, so only the stable
+        # prefix is guaranteed to survive Go's string construction in a binary.
+        "smart_capability",
     ),
 }
 

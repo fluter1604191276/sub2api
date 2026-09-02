@@ -217,7 +217,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
                 for relative in verify.CAPABILITY_FILES["model-capability-failover"]
             )
         )
-        complete = b"unknown provider for model smart_capability:"
+        complete = b"unknown provider for model smart_capability"
         results = verify.inspect_binary_capabilities(complete)
         self.assertEqual("present", results["model-capability-failover"]["status"])
 
