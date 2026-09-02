@@ -40,6 +40,26 @@ func (r *openAIAuthPolicyAccountRepo) SetError(context.Context, int64, string) e
 	return nil
 }
 
+type openAIModelCapabilityRateLimitCall struct {
+	scope string
+}
+
+type openAIModelCapabilityAccountRepo struct {
+	AccountRepository
+	tempCalls           int
+	modelRateLimitCalls []openAIModelCapabilityRateLimitCall
+}
+
+func (r *openAIModelCapabilityAccountRepo) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+	r.tempCalls++
+	return nil
+}
+
+func (r *openAIModelCapabilityAccountRepo) SetModelRateLimit(_ context.Context, _ int64, scope string, _ time.Time, _ ...string) error {
+	r.modelRateLimitCalls = append(r.modelRateLimitCalls, openAIModelCapabilityRateLimitCall{scope: scope})
+	return nil
+}
+
 type openAIAuthPolicy403Counter struct {
 	counts []int64
 }
@@ -176,9 +196,9 @@ func TestOpenAIStreamModelCapabilityErrorTriggersFailover(t *testing.T) {
 
 func TestOpenAIStreamModelCapabilityErrorUsesContextModelWhenEventOmitsModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	repo := &modelNotFoundAccountRepoStub{}
+	repo := &openAIModelCapabilityAccountRepo{}
 	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
-	account := openAIModelNotFoundTempAccount()
+	account := &Account{ID: 101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(
