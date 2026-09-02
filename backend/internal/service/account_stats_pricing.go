@@ -245,12 +245,10 @@ func calculateStatsCost(pricing *ChannelModelPricing, usage AccountStatsUsageCon
 	case BillingModePerRequest:
 		return calculatePerRequestStatsCost(pricing, usage.RequestCount())
 	default:
-		cost := calculateTokenStatsCost(pricing, usage.Tokens)
-		if cost == nil {
-			return nil
-		}
-		adjusted := *cost * serviceTierCostMultiplier(usage.ServiceTier)
-		return &adjusted
+		// Custom account-stat pricing is already an explicit upstream cost
+		// declaration. Do not apply the request's user-facing service-tier
+		// multiplier again, otherwise a priority/fast request double-counts it.
+		return calculateTokenStatsCost(pricing, usage.Tokens)
 	}
 }
 

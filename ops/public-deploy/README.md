@@ -122,87 +122,42 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now s2a-manager-backup.timer
 ```
 
-## KBQ upstream pricing table
+## Upstream pricing and cost audit
 
-`scripts/generate-kbq-pricing-table.mjs` reads KBQ upstream data and generates
-a local price report without changing production config.
+The maintained upstream ledger tools live under
+`ops/public-deploy/upstream-rates/`. The old Node.js examples are retired
+and must not be used for release or pricing decisions.
 
-It reads:
-
-- `GET /v1/models` to confirm the models visible to the current upstream key.
-- `GET /api/pricing` to calculate model pricing and ratios.
-
-Run from this repository root:
-
-```bash
-KBQ_API_KEY='sk-...' node ops/public-deploy/scripts/generate-kbq-pricing-table.mjs
-```
-
-Generated files:
-
-- `ops/public-deploy/reports/kbq-openai-anthropic-pricing.md`
-- `ops/public-deploy/reports/kbq-openai-anthropic-pricing.json`
-
-Generate a token-only report that excludes per-call models:
+The safe refresh entrypoint reads allowlisted upstream observations and
+production metadata, writes only the independent ledger SQLite database, and
+renders the read-only dashboard. It does not edit Sub2API accounts, groups,
+channels, pricing, or user data:
 
 ```bash
-KBQ_API_KEY='sk-...' node ops/public-deploy/scripts/generate-kbq-pricing-table.mjs \
-  --token-only \
-  --output ops/public-deploy/reports/kbq-openai-anthropic-token-pricing.md \
-  --json-output ops/public-deploy/reports/kbq-openai-anthropic-token-pricing.json
+sudo python3 /var/lib/fluterapi-upstream-rates/refresh_upstream_ledger.py \
+  --local-postgres
 ```
 
-For a pricing-only preview that does not call `/v1/models`:
+The refresh includes public KBQ pricing, supported public pricing adapters,
+read-only account/group snapshots, mapping preflight, the historical KBQ
+true-cost audit, and the static dashboard render. Use `--fail-on-loss` as a
+release or pricing-change gate. Use `--skip-kbq-audit` and related skip flags
+only for a documented diagnostic run.
 
-```bash
-node ops/public-deploy/scripts/generate-kbq-pricing-table.mjs --pricing-only
-```
+The individual maintained tools are:
 
-Do not commit or store upstream API keys in this repo.
+- `refresh_upstream_ledger.py`: orchestrates the safe read-only refresh.
+- `audit_kbq_configuration.py`: checks current mappings, reachable billing
+  tiers, missing prices, and uncovered tool fees.
+- `audit_kbq_true_costs.py`: reconstructs historical KBQ token-cost lower
+  bounds from usage records and identifies confirmed loss buckets.
+- `compare_ledger_with_site_truth.py`: compares ledger observations with the
+  current site snapshot without changing production.
+- `refresh_from_upstream_hub.py` and
+  `sync_upstream_hub_snapshot_to_vps.py`: import a sanitized upstream-hub
+  snapshot without copying credentials or raw upstream data.
 
-## Upstream cost audit
-
-`scripts/audit-upstream-costs.mjs` creates a read-only report for all active
-upstream accounts in the public production database.
-
-It does not select or print API keys. It reads only account names, base URLs,
-model mappings, recorded account multipliers, and group bindings.
-
-Run from this repository root:
-
-```bash
-node ops/public-deploy/scripts/audit-upstream-costs.mjs
-```
-
-Generated files:
-
-- `ops/public-deploy/reports/upstream-cost-audit.md`
-- `ops/public-deploy/reports/upstream-cost-audit.json`
-
-What it can do automatically:
-
-- Read production account/group metadata through SSH.
-- Probe public NewAPI-style pricing endpoints such as `/api/pricing`.
-- Convert supported token prices into Fluter's cost-ratio convention:
-  `upstream actual price / official baseline price`.
-- Mark rows as `OK`, `WATCH`, `RISK`, `MISSING`, `PER_CALL`, or `NO_BASELINE`.
-
-What it cannot safely do by itself:
-
-- Log into upstream websites.
-- Read upstream API keys from production.
-- Infer private per-key group multipliers when the upstream only shows them
-  inside a logged-in dashboard.
-
-When a host appears under "needs manual confirmation", log into that upstream
-dashboard and check the API key group multiplier, model price page, or recent
-billing logs. For image-generation-only accounts, use small real calls and
-upstream billing records to update the account notes.
-
-Useful options:
-
-```bash
-node ops/public-deploy/scripts/audit-upstream-costs.mjs --timeout-ms 15000
-node ops/public-deploy/scripts/audit-upstream-costs.mjs --include-inactive
-node ops/public-deploy/scripts/audit-upstream-costs.mjs --no-probe
-```
+For local development, run the tools from the repository root and provide
+credentials only through the process environment when a diagnostic requires
+them. Never commit or store upstream API keys, cookies, bearer tokens, or
+database passwords in this repository.

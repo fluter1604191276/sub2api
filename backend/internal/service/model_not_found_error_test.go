@@ -112,3 +112,45 @@ func TestIsOpenAICodexPlanGatedModelError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsUpstreamDynamicModelCapabilityError_UnknownProvider(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		body       string
+		want       bool
+	}{
+		{
+			name:       "400 unknown provider for model",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"message":"unknown provider for model gpt-5.6-sol"}}`,
+			want:       true,
+		},
+		{
+			name:       "400 unknown provider without model context",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"message":"unknown provider"}}`,
+			want:       false,
+		},
+		{
+			name:       "400 unrelated provider validation error",
+			statusCode: http.StatusBadRequest,
+			body:       `{"error":{"message":"provider must be one of the configured providers"}}`,
+			want:       false,
+		},
+		{
+			name:       "502 unknown provider remains capability scoped",
+			statusCode: http.StatusBadGateway,
+			body:       `{"error":{"message":"unknown provider for model gpt-5.6-sol"}}`,
+			want:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isUpstreamDynamicModelCapabilityError(tt.statusCode, []byte(tt.body), "gpt-5.6-sol"); got != tt.want {
+				t.Fatalf("isUpstreamDynamicModelCapabilityError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

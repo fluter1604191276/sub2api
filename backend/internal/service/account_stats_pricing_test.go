@@ -207,7 +207,7 @@ func TestCalculateStatsCost_TokenBilling(t *testing.T) {
 	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
-func TestCalculateStatsCost_TokenBilling_PriorityDoublesUpstreamCost(t *testing.T) {
+func TestCalculateStatsCost_TokenBilling_ServiceTierDoesNotDoubleExplicitUpstreamCost(t *testing.T) {
 	pricing := &ChannelModelPricing{
 		BillingMode: BillingModeToken,
 		InputPrice:  testPtrFloat64(0.001),
@@ -219,7 +219,9 @@ func TestCalculateStatsCost_TokenBilling_PriorityDoublesUpstreamCost(t *testing.
 	}
 	result := calculateStatsCost(pricing, usage)
 	require.NotNil(t, result)
-	require.InDelta(t, 0.4, *result, 1e-12)
+	// Explicit account-stat pricing is already the upstream cost. The
+	// request service tier must not be applied a second time.
+	require.InDelta(t, 0.2, *result, 1e-12)
 }
 
 func TestCalculateStatsCost_TokenBilling_WithCache(t *testing.T) {
@@ -882,8 +884,11 @@ func TestResolveAccountStatsCost_FallbackHonorsAnthropicFast(t *testing.T) {
 	result := resolveAccountStatsCost(
 		context.Background(), cs, bs,
 		1, 10, "claude-opus-5",
-		UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000},
-		1, 0, "fast",
+		AccountStatsUsageContext{
+			Tokens:      UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000},
+			ServiceTier: "fast",
+		},
+		60,
 	)
 	require.NotNil(t, result)
 	require.InDelta(t, 60, *result, 1e-12)

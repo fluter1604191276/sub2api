@@ -154,6 +154,51 @@ func TestOpenAIHTTPAccessStateTrustsStructuredCode(t *testing.T) {
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 }
 
+func TestOpenAIModelCapabilityErrorTriggersAccountFailover(t *testing.T) {
+	body := []byte(`{"error":{"type":"invalid_request_error","message":"unknown provider for model gpt-5.6-sol"}}`)
+	svc := &OpenAIGatewayService{}
+
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "unknown provider for model gpt-5.6-sol", body))
+	require.True(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeAPIKey}, http.StatusBadRequest, body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		http.StatusBadRequest,
+		"Invalid request",
+		[]byte(`{"error":{"type":"invalid_request_error","message":"Invalid request"}}`),
+	))
+}
+
+func TestOpenAIStreamModelCapabilityErrorTriggersFailover(t *testing.T) {
+	payload := []byte(`{"type":"response.failed","response":{"model":"gpt-5.6-sol","error":{"type":"invalid_request_error","message":"unknown provider for model gpt-5.6-sol"}}}`)
+
+	require.True(t, openAIStreamFailedEventShouldFailover(payload, "unknown provider for model gpt-5.6-sol"))
+	require.True(t, openAIStreamErrorEventShouldFailover(payload, "unknown provider for model gpt-5.6-sol"))
+}
+
+func TestOpenAIStreamModelCapabilityErrorUsesContextModelWhenEventOmitsModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
+	account := openAIModelNotFoundTempAccount()
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(
+		WithSmartSchedulerEndpoint(context.Background(), "responses"),
+	)
+	SetOpsUpstreamModel(c, "gpt-5.6-sol")
+	payload := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"unknown provider for model gpt-5.6-sol"}}`)
+
+	status, shouldFailover := svc.handleOpenAIStreamTerminalAccountSideEffects(
+		c, account, payload, "unknown provider for model gpt-5.6-sol", nil,
+	)
+
+	require.Equal(t, http.StatusBadGateway, status, "没有语义状态的流内 error 事件沿用默认上游失败状态")
+	require.True(t, shouldFailover)
+	require.Zero(t, repo.tempCalls, "model capability errors must not disable the whole account")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, dynamicModelCapabilityRateLimitKey("responses", "gpt-5.6-sol"), repo.modelRateLimitCalls[0].scope)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 func TestOpenAIHTTPAuthMessagesUseExistingStatusPolicies(t *testing.T) {
 	t.Run("oauth 401 remains recoverable", func(t *testing.T) {
 		repo := &openAIAuthPolicyAccountRepo{}

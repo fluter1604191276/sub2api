@@ -50,6 +50,30 @@ func TestFilterPlazaVisibleGroups_AuthedEmptySetSeesNoExclusive(t *testing.T) {
 	require.Len(t, visible, 2)
 }
 
+func TestFilterPublicPlazaModelsRemovesHiddenModelsAndEmptyGroups(t *testing.T) {
+	groups := []service.PlazaGroup{
+		{
+			ID: 1, Name: "mixed", Platform: service.PlatformComposite,
+			Models: []service.PlazaModel{
+				{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeToken}},
+				{Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
+			},
+		},
+		{
+			ID: 2, Name: "media-only", Platform: service.PlatformGemini,
+			Models: []service.PlazaModel{{Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}}},
+		},
+	}
+
+	filtered := filterPublicPlazaModels(groups, service.DefaultPublicCatalogVisibilityConfig())
+
+	require.Len(t, filtered, 1)
+	require.Equal(t, int64(1), filtered[0].ID)
+	require.Len(t, filtered[0].Models, 1)
+	require.Equal(t, "gpt-5.6-sol", filtered[0].Models[0].Name)
+	require.Len(t, groups[0].Models, 2, "catalog filtering must not mutate plaza service results")
+}
+
 func TestModelPlazaHandler_NilSettingServiceFailsClosed404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &ModelPlazaHandler{} // settingService == nil → fail-closed

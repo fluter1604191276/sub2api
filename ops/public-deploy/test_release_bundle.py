@@ -192,6 +192,53 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             verify.CAPABILITY_FILES["scheduler"],
         )
 
+    def test_catalog_surfaces_are_required_and_all_source_evidence_exists(self):
+        self.assertIn("catalog-surfaces", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("catalog-surfaces", verify.IMAGE_CAPABILITY_MARKERS)
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertTrue(
+            all(
+                (repo_root / relative).is_file()
+                for relative in verify.CAPABILITY_FILES["catalog-surfaces"]
+            )
+        )
+        self.assertEqual(
+            [],
+            verify.validate_source_capabilities(repo_root),
+        )
+
+    def test_model_capability_failover_is_required_and_has_runtime_markers(self):
+        self.assertIn("model-capability-failover", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("model-capability-failover", verify.IMAGE_CAPABILITY_MARKERS)
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertTrue(
+            all(
+                (repo_root / relative).is_file()
+                for relative in verify.CAPABILITY_FILES["model-capability-failover"]
+            )
+        )
+        complete = b"unknown provider for model smart_capability:"
+        results = verify.inspect_binary_capabilities(complete)
+        self.assertEqual("present", results["model-capability-failover"]["status"])
+
+    def test_catalog_surface_image_smoke_requires_all_runtime_markers(self):
+        complete = b"public_catalog_visibility model_plaza available_channels"
+        results = verify.inspect_binary_capabilities(complete)
+        self.assertEqual("present", results["catalog-surfaces"]["status"])
+
+        incomplete = b"public_catalog_visibility model_plaza"
+        results = verify.inspect_binary_capabilities(incomplete)
+        self.assertEqual("missing", results["catalog-surfaces"]["status"])
+
+    def test_maintained_upstream_docs_do_not_reference_removed_script_directory(self):
+        repo_root = SCRIPT_DIR.parents[1]
+        for relative in (
+            "ops/public-deploy/README.md",
+            "ops/public-deploy/docs/extensions/20260828-upstream-ledger.md",
+        ):
+            content = (repo_root / relative).read_text(encoding="utf-8")
+            self.assertNotIn("ops/public-deploy/scripts/", content, relative)
+
     def test_build_manifest_preserves_image_source_snapshot_evidence(self):
         repo_root = SCRIPT_DIR.parents[1]
         release_manifest = manifest_generator.build_manifest(

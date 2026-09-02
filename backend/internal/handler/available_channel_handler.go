@@ -146,6 +146,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	visibility := h.settingService.GetPublicCatalogVisibility(c.Request.Context())
 
 	out := make([]userAvailableChannel, 0, len(channels))
 	for _, ch := range channels {
@@ -156,7 +157,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		if len(visibleGroups) == 0 {
 			continue
 		}
-		sections := buildPlatformSections(ch, visibleGroups)
+		sections := buildPublicPlatformSections(ch, visibleGroups, visibility)
 		if len(sections) == 0 {
 			continue
 		}
@@ -168,6 +169,54 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 	}
 
 	response.Success(c, out)
+}
+
+// buildPublicPlatformSections applies the presentation-only catalogue policy
+// before the existing platform isolation logic. It copies the model slice so
+// shared ChannelService results remain untouched.
+func buildPublicPlatformSections(
+	ch service.AvailableChannel,
+	visibleGroups []userAvailableGroup,
+	visibility service.PublicCatalogVisibilityConfig,
+) []userChannelPlatformSection {
+	originalModels := ch.SupportedModels
+	visibleModels := make([]service.SupportedModel, 0, len(originalModels))
+	originalPlatforms := make(map[string]struct{}, len(originalModels))
+	for i := range originalModels {
+		model := originalModels[i]
+		if model.Platform != "" {
+			originalPlatforms[model.Platform] = struct{}{}
+		}
+		mode := service.BillingMode("")
+		if model.Pricing != nil {
+			mode = model.Pricing.BillingMode
+		}
+		if visibility.IsVisible(model.Platform, model.Name, mode) {
+			visibleModels = append(visibleModels, model)
+		}
+	}
+
+	filteredChannel := ch
+	filteredChannel.SupportedModels = visibleModels
+	sections := buildPlatformSections(filteredChannel, visibleGroups)
+	if len(sections) == 0 {
+		return nil
+	}
+
+	out := make([]userChannelPlatformSection, 0, len(sections))
+	for i := range sections {
+		section := sections[i]
+		if len(section.SupportedModels) > 0 {
+			out = append(out, section)
+			continue
+		}
+		_, hadModels := originalPlatforms[section.Platform]
+		if hadModels || (section.Platform == service.PlatformComposite && len(originalModels) > 0) {
+			continue
+		}
+		out = append(out, section)
+	}
+	return out
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：

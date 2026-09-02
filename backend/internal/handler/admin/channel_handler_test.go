@@ -358,7 +358,7 @@ func TestPricingRequestToService_ImageOperationResponsesRoundTrip(t *testing.T) 
 		},
 	}
 
-	result := pricingRequestToService(reqs)
+	result := pricingRequestToService(reqs, true)
 	require.Len(t, result, 1)
 	require.Equal(t, service.AccountStatsImageOperationResponses, result[0].ImageOperation)
 
@@ -373,7 +373,7 @@ func TestPricingRequestToService_ImageOperationOmittedRemainsEmpty(t *testing.T)
 			Models:      []string{"gpt-image-1"},
 			BillingMode: "image",
 		},
-	})
+	}, true)
 
 	require.Len(t, result, 1)
 	require.Empty(t, result[0].ImageOperation)

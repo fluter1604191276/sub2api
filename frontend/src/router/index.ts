@@ -498,6 +498,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/channels/catalog',
+    name: 'AdminPublicCatalog',
+    component: () => import('@/views/admin/PublicCatalogView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Public Catalog',
+      titleKey: 'admin.publicCatalog.title',
+      descriptionKey: 'admin.publicCatalog.description'
+    }
+  },
+  {
     path: '/monitor',
     name: 'ChannelStatus',
     component: () => import('@/views/user/ChannelStatusView.vue'),

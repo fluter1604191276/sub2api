@@ -253,3 +253,45 @@ func TestBuildPlatformSections_CompositeWithoutModelsKeepsEmptyCompositeSection(
 	require.Len(t, sections[0].Groups, 1)
 	require.Empty(t, sections[0].SupportedModels)
 }
+
+func TestBuildPublicPlatformSectionsFiltersHiddenModelsAndEmptySections(t *testing.T) {
+	ch := service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{
+			{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeToken}},
+			{Name: "gpt-image-1.5", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
+			{Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
+		},
+	}
+	visible := []userAvailableGroup{
+		{ID: 1, Name: "openai", Platform: service.PlatformOpenAI},
+		{ID: 2, Name: "gemini", Platform: service.PlatformGemini},
+	}
+
+	sections := buildPublicPlatformSections(ch, visible, service.DefaultPublicCatalogVisibilityConfig())
+
+	require.Len(t, sections, 1)
+	require.Equal(t, service.PlatformOpenAI, sections[0].Platform)
+	require.Equal(t, []string{"gpt-5.6-sol", "gpt-image-1.5"}, []string{
+		sections[0].SupportedModels[0].Name,
+		sections[0].SupportedModels[1].Name,
+	})
+	require.Len(t, ch.SupportedModels, 3, "catalog filtering must not mutate the shared service result")
+}
+
+func TestBuildPublicPlatformSectionsHonorsExplicitMediaOverride(t *testing.T) {
+	ch := service.AvailableChannel{SupportedModels: []service.SupportedModel{{
+		Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini,
+		Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage},
+	}}}
+	visible := []userAvailableGroup{{ID: 2, Name: "gemini", Platform: service.PlatformGemini}}
+	cfg, err := service.ValidateAndNormalizePublicCatalogVisibility(service.PublicCatalogVisibilityConfig{
+		DefaultMediaVisibility: service.PublicCatalogMediaHidden,
+		Models:                 map[string]bool{"gemini:gemini-3.1-flash-image": true},
+	})
+	require.NoError(t, err)
+
+	sections := buildPublicPlatformSections(ch, visible, cfg)
+
+	require.Len(t, sections, 1)
+	require.Len(t, sections[0].SupportedModels, 1)
+}

@@ -317,16 +317,18 @@ func TestResolve_WithChannelOverride_TokenWithIntervals(t *testing.T) {
 	iv := r.GetIntervalPricing(resolved, 50000)
 	require.NotNil(t, iv)
 	require.InDelta(t, 2e-6, iv.InputPricePerToken, 1e-12)
-	require.InDelta(t, 4e-6, iv.InputPricePerTokenPriority, 1e-12)
+	// The fallback catalog has no explicit priority tier; billing applies the
+	// generic priority multiplier instead of materializing a priority slot.
+	require.Zero(t, iv.InputPricePerTokenPriority)
 	require.InDelta(t, 8e-6, iv.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 16e-6, iv.OutputPricePerTokenPriority, 1e-12)
+	require.Zero(t, iv.OutputPricePerTokenPriority)
 
 	iv2 := r.GetIntervalPricing(resolved, 200000)
 	require.NotNil(t, iv2)
 	require.InDelta(t, 4e-6, iv2.InputPricePerToken, 1e-12)
-	require.InDelta(t, 8e-6, iv2.InputPricePerTokenPriority, 1e-12)
+	require.Zero(t, iv2.InputPricePerTokenPriority)
 	require.InDelta(t, 16e-6, iv2.OutputPricePerToken, 1e-12)
-	require.InDelta(t, 32e-6, iv2.OutputPricePerTokenPriority, 1e-12)
+	require.Zero(t, iv2.OutputPricePerTokenPriority)
 }
 
 func TestResolve_WithChannelOverride_TokenNilBasePricing(t *testing.T) {

@@ -115,6 +115,9 @@ func RegisterAdminRoutes(
 		// 渠道管理
 		registerChannelRoutes(admin, h)
 
+		// 用户侧目录展示管理（与渠道定价、映射和调度分离）
+		registerPublicCatalogRoutes(admin, h)
+
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
@@ -130,6 +133,14 @@ func RegisterAdminRoutes(
 
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
+	}
+}
+
+func registerPublicCatalogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	catalog := admin.Group("/public-catalog")
+	{
+		catalog.GET("/visibility", h.Admin.PublicCatalog.GetVisibility)
+		catalog.PUT("/visibility", h.Admin.PublicCatalog.UpdateVisibility)
 	}
 }
 

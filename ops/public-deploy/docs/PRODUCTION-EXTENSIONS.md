@@ -16,9 +16,10 @@ Every release manifest must record the status and evidence for each capability b
 | cache-hit-rate | Rolling 24h cache-hit statistics in account management | GetBatchCacheHitStats, account_usage_service.go, account API/UI/tests | Cost analysis, pricing decisions | Required |
 | image-cost | Separate image upstream cost from user billing and size/operation context | account_stats_image_pricing.go, pricing tests, channel UI/tests | Billing and margin | Required |
 | pricing-calibration | Channel/model pricing calibration and explicit billing boundaries | channel calibration service/repository/tests, pricing routes | User charges, loss risk | Required |
-| catalog-surfaces | User-facing available-channel catalog and model-plaza navigation, filtering, summaries, and readable group names | AvailableChannelsView.vue, availableChannelsCatalog.ts, CatalogSurfaceNav.vue, ModelPlazaContent.vue, PlazaFilterBar.vue, catalog/model-plaza tests | Catalog discoverability only; no billing or routing effect | Required |
+| catalog-surfaces | User-facing available-channel catalog and model-plaza navigation, filtering, summaries, readable group names, plus administrator-controlled public model visibility | backend/internal/service/public_catalog_visibility.go, backend/internal/handler/admin/public_catalog_handler.go, frontend/src/views/admin/PublicCatalogView.vue, frontend/src/api/admin/publicCatalog.ts, public catalog and model-plaza tests | Catalog discoverability only; no billing, mapping, routing, probe, or scheduler effect | Required |
 | model-sync-filter | Sync upstream-supported models, model filtering, page-size behavior | account model sync service, account routes/UI/tests | Availability and mapping | Required |
 | error-passthrough | Configurable error rewriting without leaking upstream URLs | error passthrough handler/service/routes/tests | Security and client retry behavior | Required |
+| model-capability-failover | Deterministic upstream model-capability rejection isolation and account failover | model_not_found_error.go, ratelimit_service.go, OpenAI failover handlers, classifier/rate-limit tests | Routing, model availability, sticky-session escape | Required |
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
 | ops-baseline | Backups, role marker, release evidence, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
@@ -59,6 +60,26 @@ production image digest + release-manifest.json + source snapshot hash + this in
 ~~~
 
 Git branch names, image tag names, local folder names, and memory are labels only.
+
+## Catalog Visibility Boundary
+
+The `public_catalog_visibility` setting is an independent presentation policy. The
+administrator page is `/admin/channels/catalog`, backed by:
+
+~~~text
+GET /api/v1/admin/public-catalog/visibility
+PUT /api/v1/admin/public-catalog/visibility
+~~~
+
+The policy supports a default media visibility and explicit `platform:model`
+overrides. Text models remain visible by default; `gpt-image` and
+`gpt-image-*` remain visible by default; other media models remain hidden until
+explicitly enabled. Historical overrides are retained when a model temporarily
+disappears from the active-channel candidate list.
+
+This setting must not be reused as a source for channel pricing, model mappings,
+group routing, user billing, upstream cost accounting, probes, monitoring, or
+smart scheduling.
 
 ## Required Release Records
 

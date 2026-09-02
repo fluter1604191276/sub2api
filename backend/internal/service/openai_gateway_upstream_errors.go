@@ -250,6 +250,36 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 	}
 }
 
+// isOpenAIModelCapabilityFailoverError recognizes a deterministic provider
+// capability rejection that should move the request to another account. The
+// upstream may return this as HTTP 400 even though retrying the same account
+// cannot succeed. Keep the body matching limited to error fields so echoed
+// request content cannot turn an ordinary client error into a failover.
+func isOpenAIModelCapabilityFailoverError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	switch statusCode {
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusBadGateway, http.StatusServiceUnavailable:
+	default:
+		return false
+	}
+	if isUpstreamDynamicModelCapabilityError(statusCode, []byte(upstreamMsg)) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	for _, path := range []string{
+		"error.message",
+		"response.error.message",
+		"message",
+		"detail",
+	} {
+		if isUpstreamDynamicModelCapabilityError(statusCode, []byte(gjson.GetBytes(upstreamBody, path).String())) {
+			return true
+		}
+	}
+	return !gjson.ValidBytes(upstreamBody) && isUpstreamDynamicModelCapabilityError(statusCode, upstreamBody)
+}
+
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	// cyber_policy is request-scoped even when an intermediary wraps the
 	// provider response in a retryable 5xx status. Never punish or rotate the
@@ -264,6 +294,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 		return true
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
+		return true
+	}
+	if isOpenAIModelCapabilityFailoverError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
 	if s.shouldFailoverUpstreamError(statusCode) {

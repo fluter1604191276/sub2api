@@ -36,6 +36,12 @@ import riskControlAPI from './riskControl'
 import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 import pluginsAPI from './plugins'
+import { getVisibility, updateVisibility } from './publicCatalog'
+
+const publicCatalogAPI = {
+  getVisibility,
+  updateVisibility,
+}
 
 /**
  * Unified admin API object for convenient access
@@ -73,7 +79,8 @@ export const adminAPI = {
   riskControl: riskControlAPI,
   compliance: adminComplianceAPI,
   audit: auditAPI,
-  plugins: pluginsAPI
+  plugins: pluginsAPI,
+  publicCatalog: publicCatalogAPI
 }
 
 export {
@@ -109,7 +116,8 @@ export {
   riskControlAPI,
   adminComplianceAPI,
   auditAPI,
-  pluginsAPI
+  pluginsAPI,
+  publicCatalogAPI
 }
 
 export default adminAPI

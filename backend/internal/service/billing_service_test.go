@@ -1832,7 +1832,9 @@ func TestGetModelPricingWithChannel_OverrideAllFields(t *testing.T) {
 	require.InDelta(t, 10e-6, pricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, 20e-6, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 5e-6, pricing.CacheCreationPricePerToken, 1e-12)
-	require.InDelta(t, 10e-6, pricing.CacheCreationPricePerTokenPriority, 1e-12)
+	// claude-sonnet-4 has no catalog priority tier; the runtime applies the
+	// generic priority multiplier when billing, so the resolved slot is zero.
+	require.Zero(t, pricing.CacheCreationPricePerTokenPriority)
 	require.InDelta(t, 5e-6, pricing.CacheCreation5mPrice, 1e-12)
 	require.InDelta(t, 5e-6, pricing.CacheCreation1hPrice, 1e-12)
 	require.InDelta(t, 1e-6, pricing.CacheReadPricePerToken, 1e-12)

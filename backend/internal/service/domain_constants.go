@@ -517,6 +517,11 @@ const (
 	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
 	SettingKeyModelPlazaDescription = "model_plaza_description"
 
+	// SettingKeyPublicCatalogVisibility stores user-facing model visibility overrides
+	// shared by Available Channels and Model Plaza. It is deliberately separate from
+	// channel pricing, mappings, account capabilities, billing, and scheduling.
+	SettingKeyPublicCatalogVisibility = "public_catalog_visibility"
+
 	// SettingKeyPluginManagementEnabled controls sidebar visibility only; it does
 	// not stop or otherwise change already loaded plugin runtimes.
 	SettingKeyPluginManagementEnabled = "plugin_management_enabled"

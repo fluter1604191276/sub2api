@@ -8,6 +8,11 @@ import (
 var upstreamModelNotFoundKeywords = []string{"model not found", "unknown model", "not found"}
 
 var upstreamDynamicModelCapabilityKeywords = []string{
+	// Some upstream routers return a 400 instead of model_not_found when the
+	// selected account/provider cannot serve the requested model. Keep this
+	// phrase specific so unrelated provider validation errors do not isolate an
+	// account-model pair.
+	"unknown provider for model",
 	"model is not supported",
 	"model not supported",
 	"model is unsupported",

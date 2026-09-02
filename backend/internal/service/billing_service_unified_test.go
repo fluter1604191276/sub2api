@@ -447,6 +447,7 @@ func TestCalculateCostUnified_TokenIntervalsUseOpenAIContextBoundary(t *testing.
 				CacheReadPrice:  testPtrFloat64(1e-6),
 			},
 		},
+		longContextPricingEnabled: true,
 	}
 
 	shortCost, err := bs.CalculateCostUnified(CostInput{
@@ -480,7 +481,8 @@ func TestCalculateCostUnified_TokenIntervalsUseCacheCreationForContext(t *testin
 
 	shortMax := 272000
 	resolved := &ResolvedPricing{
-		Mode: BillingModeToken,
+		Mode:                      BillingModeToken,
+		longContextPricingEnabled: true,
 		Intervals: []PricingInterval{
 			{
 				MinTokens:       0,

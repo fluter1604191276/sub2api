@@ -257,7 +257,10 @@ func TestAccountTestService_AnthropicProtocolRejectsOpenAICompatBaseURL(t *testi
 	// Fails fast locally: no upstream request with the wrong endpoint shape.
 	require.Empty(t, upstream.requests)
 	require.Contains(t, recorder.Body.String(), "looks like an OpenAI-compatible endpoint")
-	require.Contains(t, recorder.Body.String(), "https://open.bigmodel.cn/api/anthropic")
+	// Client-visible errors redact upstream locations to avoid exposing provider
+	// endpoints; the internal error retains the actionable classification.
+	require.Contains(t, recorder.Body.String(), "[upstream_url]")
+	require.NotContains(t, recorder.Body.String(), "https://open.bigmodel.cn/api/anthropic")
 }
 
 func TestAccountTestService_AnthropicProtocol401MarksAccountError(t *testing.T) {

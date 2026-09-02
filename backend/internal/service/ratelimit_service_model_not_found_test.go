@@ -423,6 +423,28 @@ func TestRateLimitService_DynamicModelCapabilityRecognizesModelSpecificNoAccount
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
+func TestRateLimitService_DynamicModelCapabilityRecognizesUnknownProvider(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "responses")
+
+	handled := svc.HandleUpstreamModelNotFound(
+		ctx,
+		account,
+		"gpt-5.6-sol",
+		http.StatusBadRequest,
+		[]byte(`{"error":{"message":"unknown provider for model gpt-5.6-sol"}}`),
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, dynamicModelCapabilityRateLimitKey("responses", "gpt-5.6-sol"), call.scope)
+	require.Equal(t, upstreamDynamicModelCapabilityReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamDynamicModelCapabilityCooldown), call.resetAt, 5*time.Second)
+}
+
 func TestRateLimitService_DynamicModelCapabilityIgnoresTransientAndRequestErrors(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -433,6 +455,7 @@ func TestRateLimitService_DynamicModelCapabilityIgnoresTransientAndRequestErrors
 		{name: "connection timeout", statusCode: http.StatusServiceUnavailable, body: `{"error":{"message":"upstream connection timed out"}}`},
 		{name: "unsupported parameter", statusCode: http.StatusBadRequest, body: `{"error":{"message":"Unsupported parameter: max_output_tokens"}}`},
 		{name: "cache ttl policy", statusCode: http.StatusBadRequest, body: `{"error":{"message":"no Anthropic upstream account with cache TTL mode matching request intent explicit_1h is available"}}`},
+		{name: "unknown provider without model context", statusCode: http.StatusBadRequest, body: `{"error":{"message":"unknown provider"}}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

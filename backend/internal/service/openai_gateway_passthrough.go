@@ -770,6 +770,9 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 	if isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
 		return true
 	}
+	if isOpenAIModelCapabilityFailoverError(statusCode, "", responseBody) {
+		return true
+	}
 	if account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode) {
 		return true
 	}
@@ -1480,6 +1483,9 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
+	if isOpenAIModelCapabilityFailoverError(openAIStreamFailureStatus(payload, message), message, payload) {
+		return true
+	}
 	if isOpenAIUpstreamAccessStateError(message, payload) {
 		return true
 	}
@@ -1532,6 +1538,9 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
+	if isOpenAIModelCapabilityFailoverError(openAIStreamFailureStatus(payload, message), message, payload) {
+		return true
+	}
 	if isOpenAIUpstreamAccessStateError(message, payload) {
 		return true
 	}
@@ -1560,6 +1569,28 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	headers http.Header,
 ) (int, bool) {
 	statusCode := openAIStreamFailureStatus(payload, message)
+	if isOpenAIModelCapabilityFailoverError(statusCode, message, payload) {
+		model := strings.TrimSpace(gjson.GetBytes(payload, "response.model").String())
+		if model == "" {
+			model = strings.TrimSpace(gjson.GetBytes(payload, "model").String())
+		}
+		// Some upstream terminal events omit model metadata. The effective
+		// upstream model is staged on the request context before dispatch, so use
+		// it to keep capability cooldowns model-scoped instead of losing failover.
+		if model == "" && c != nil {
+			if value, ok := c.Get(OpsUpstreamModelKey); ok {
+				model, _ = value.(string)
+				model = strings.TrimSpace(model)
+			}
+		}
+		if model != "" {
+			ctx := context.Background()
+			if c != nil && c.Request != nil {
+				ctx = c.Request.Context()
+			}
+			return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, headers, payload, model)
+		}
+	}
 	switch statusCode {
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {

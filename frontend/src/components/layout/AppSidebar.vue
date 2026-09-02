@@ -530,6 +530,10 @@ const PluginIcon = {
   render: () => h(Icon, { name: 'cube' })
 }
 
+const PublicCatalogIcon = {
+  render: () => h(Icon, { name: 'grid' })
+}
+
 const BellIcon = {
   render: () =>
     h(
@@ -829,6 +833,7 @@ const adminNavItems = computed((): NavItem[] => {
       children: [
         { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: PriceTagIcon },
         { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: SignalIcon, featureFlag: flagChannelMonitor },
+        { path: '/admin/channels/catalog', label: t('nav.publicCatalog'), icon: PublicCatalogIcon },
       ],
     },
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },

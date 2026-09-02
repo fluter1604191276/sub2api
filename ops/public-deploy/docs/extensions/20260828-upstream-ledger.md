@@ -3,7 +3,7 @@
 ```text
 Capability ID: upstream-ledger
 Business purpose: 维护上游倍率、真实成本、网页搜索费和账号映射的只读审计工具；KBQ 专用逻辑已退出生产请求热路径。
-Backend/frontend files: ops/public-deploy/upstream-rates/*.py; ops/public-deploy/scripts/*
+Backend/frontend files: ops/public-deploy/upstream-rates/refresh_upstream_ledger.py; ops/public-deploy/upstream-rates/audit_kbq_configuration.py; ops/public-deploy/upstream-rates/audit_kbq_true_costs.py; ops/public-deploy/upstream-rates/compare_ledger_with_site_truth.py; ops/public-deploy/upstream-rates/refresh_from_upstream_hub.py; ops/public-deploy/upstream-rates/sync_upstream_hub_snapshot_to_vps.py; ops/public-deploy/upstream-rates/test_refresh_upstream_ledger.py; ops/public-deploy/upstream-rates/test_audit_kbq_configuration.py; ops/public-deploy/upstream-rates/test_audit_kbq_true_costs.py
 Routes or jobs: upstream ledger refresh/preview scripts；不新增生产 API 路由。
 Database migration/data dependency: local SQLite snapshots and production read-only exports; local artifacts are ignored。
 Environment-variable/config dependency: operator-supplied upstream credentials only via environment, never repository files。

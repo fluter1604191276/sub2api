@@ -146,6 +146,10 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	}
 
 	visible := filterPlazaVisibleGroups(groups, allowedExclusive)
+	visible = filterPublicPlazaModels(
+		visible,
+		h.settingService.GetPublicCatalogVisibility(c.Request.Context()),
+	)
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	for i := range visible {
@@ -155,6 +159,35 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		Description: rt.Description,
 		Groups:      out,
 	})
+}
+
+// filterPublicPlazaModels returns a presentation-only copy of the plaza data.
+// Groups left with no public models are omitted without mutating service data.
+func filterPublicPlazaModels(
+	groups []service.PlazaGroup,
+	visibility service.PublicCatalogVisibilityConfig,
+) []service.PlazaGroup {
+	filtered := make([]service.PlazaGroup, 0, len(groups))
+	for i := range groups {
+		group := groups[i]
+		models := make([]service.PlazaModel, 0, len(group.Models))
+		for j := range group.Models {
+			model := group.Models[j]
+			mode := service.BillingMode("")
+			if model.Pricing != nil {
+				mode = model.Pricing.BillingMode
+			}
+			if visibility.IsVisible(model.Platform, model.Name, mode) {
+				models = append(models, model)
+			}
+		}
+		if len(models) == 0 {
+			continue
+		}
+		group.Models = models
+		filtered = append(filtered, group)
+	}
+	return filtered
 }
 
 // filterPlazaVisibleGroups 按登录态裁剪分组可见性。
