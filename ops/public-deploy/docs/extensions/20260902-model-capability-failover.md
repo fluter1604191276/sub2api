@@ -10,7 +10,7 @@ Billing impact: none
 Scheduling impact: account selection; only the affected account-model-endpoint pair is temporarily excluded, the whole account remains available for other models。
 Client protocol impact: OpenAI Responses; Chat Completions; compatible OpenAI routes。流式响应尚未写出数据时允许切换，已写出数据后仍禁止拼接式切换。
 Tests/fixtures: model_not_found_error_test.go; ratelimit_service_model_not_found_test.go; openai_access_state_failover_test.go; release smoke must verify unknown-provider classification, model-scoped exclusion, context-model fallback, failover, and sticky-session escape。
-First release manifest: pending candidate build; developed from the live production-derived 0.1.183 line。
+First release manifest: fluter-0.1.183-full-custom-20260902-r4-release-manifest.json; developed from the live production-derived 0.1.183 line。
 Rollback note: restore the prior production image; the existing model-rate-limit rows may expire naturally, and no schema rollback is required。
 Owner/status: fluter / candidate implementation, not released to production
 ```

@@ -10,7 +10,7 @@ Billing impact: none; hidden models remain unchanged in internal pricing and bil
 Scheduling impact: none; visibility is not an account or group eligibility signal
 Client protocol impact: none
 Tests/fixtures: public_catalog_visibility_test.go; available_channel_handler_test.go; model_plaza_handler_test.go; PublicCatalogView.spec.ts; availableChannelsCatalog.spec.ts; frontend typecheck; ESLint; frontend build; git diff --check
-First release manifest: pending candidate build; release smoke remains pending
+First release manifest: fluter-0.1.183-full-custom-20260902-r4-release-manifest.json; release smoke recorded in that evidence bundle
 Rollback note: restore the prior frontend application image or revert this display-only commit; no database rollback is required
 Owner/status: fluter / candidate implementation, not released to production
 ```

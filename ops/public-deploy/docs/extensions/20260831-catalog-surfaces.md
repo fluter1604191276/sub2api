@@ -10,7 +10,7 @@ Billing impact: none
 Scheduling impact: none
 Client protocol impact: none
 Tests/fixtures: public_catalog_visibility_test.go; available_channel_handler_test.go; model_plaza_handler_test.go; PublicCatalogView.spec.ts; availableChannelsCatalog.spec.ts; CatalogSurfaceNav.spec.ts; PlazaFilterBar.spec.ts; PlazaGroupSection.spec.ts; AvailableChannelsTable.spec.ts; frontend typecheck; ESLint; frontend build; git diff --check.
-First release manifest: pending candidate build; developed from the live production-derived 0.1.183 line. The exact source commit and snapshot hash must be captured by the release manifest.
+First release manifest: fluter-0.1.183-full-custom-20260902-r4-release-manifest.json; developed from the live production-derived 0.1.183 line. The exact source commit and snapshot hash are captured by that release manifest.
 Rollback note: revert the catalog-surface commit or restore the prior application image; no database or runtime configuration rollback is required.
 Owner/status: fluter / development complete, not released to production
 ```
