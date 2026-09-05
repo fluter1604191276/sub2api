@@ -14,9 +14,11 @@ production baseline block, and create the next line from that new revision.
 Role: production
 SSH alias: fluterapi-prod
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.1.183-full-custom-20260830-r1
-Digest: sha256:3c5a393bc801008e88a846f90d4e927f2ce4335b0b1b0f90dead659e2bb60ffa
-Revision: 224f53ce5ca93933cf7a0fabd700422e52fd0eeb
+Image: fluter/sub2api:fluter-0.1.183-full-custom-20260905-generic-400-failover-r2
+Digest: sha256:325ffd47738eb8e2d1aff5440f28dd19fd352c9b06a64f339eb19ff220cbc458
+Revision: afc912e2d6d11293b155e69c3e76d2683212e34a
+Source snapshot: 56e4486c227d867351e4fa97f3a5a8c1eaac18284e9a2c0ce29c6189f88661dc
+Switched: 2026-09-06 Asia/Shanghai; post-switch health and auth-boundary checks passed
 ```
 
 The baseline is the image currently serving production. The next development
@@ -27,11 +29,11 @@ for live verification.
 ## Production-Derived Development Line
 
 ```text
-Base image: fluter/sub2api:fluter-0.1.183-full-custom-20260830-r1
-Base digest: sha256:3c5a393bc801008e88a846f90d4e927f2ce4335b0b1b0f90dead659e2bb60ffa
-Base revision: 224f53ce5ca93933cf7a0fabd700422e52fd0eeb
-Branch: feature/post-production-20260830
-Worktree: /Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-from-production-20260830
+Base image: fluter/sub2api:fluter-0.1.183-full-custom-20260905-generic-400-failover-r2
+Base digest: sha256:325ffd47738eb8e2d1aff5440f28dd19fd352c9b06a64f339eb19ff220cbc458
+Base revision: afc912e2d6d11293b155e69c3e76d2683212e34a
+Branch: create the next line from the live revision after this switch
+Worktree: create a new production-derived worktree; do not reuse the previous candidate path
 ```
 
 This is the only approved source for the current round of二开 until production
