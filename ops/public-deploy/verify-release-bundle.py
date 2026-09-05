@@ -28,6 +28,7 @@ REQUIRED_CAPABILITIES = (
     "model-sync-filter",
     "error-passthrough",
     "model-capability-failover",
+    "generic-400-failover",
     "responses-tools",
     "upstream-ledger",
     "ops-baseline",
@@ -126,6 +127,18 @@ CAPABILITY_FILES = {
         "backend/internal/service/model_not_found_error_test.go",
         "backend/internal/service/ratelimit_service_model_not_found_test.go",
         "backend/internal/service/openai_access_state_failover_test.go",
+    ),
+    "generic-400-failover": (
+        "backend/internal/service/openai_gateway_upstream_errors.go",
+        "backend/internal/service/openai_account_runtime_block_fastpath.go",
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_gateway_cc_pipeline.go",
+        "backend/internal/service/openai_gateway_forward.go",
+        "backend/internal/handler/openai_gateway_handler.go",
+        "backend/internal/service/openai_generic_upstream_failure_test.go",
+        "backend/internal/service/openai_account_runtime_transient_test.go",
+        "backend/internal/handler/openai_gateway_first_output_timeout_test.go",
+        "backend/internal/service/openai_sticky_compat_test.go",
     ),
     "responses-tools": (
         "backend/internal/pkg/apicompat/responses_client_tools.go",
@@ -227,6 +240,10 @@ IMAGE_CAPABILITY_MARKERS = {
         # The endpoint/model suffix is composed at runtime, so only the stable
         # prefix is guaranteed to survive Go's string construction in a binary.
         "smart_capability",
+    ),
+    "generic-400-failover": (
+        "openai_generic_upstream_failure",
+        "openai_generic_upstream_failure_cooldown",
     ),
 }
 
