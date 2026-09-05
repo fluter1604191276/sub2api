@@ -20,6 +20,7 @@ const (
 	openAIOAuth429StormWindow             = 10 * time.Second
 	openAIOAuth429StormMaxAccountSwitches = 1
 	openAICommittedStreamFailureCooldown  = 90 * time.Second
+	openAIGenericUpstreamFailureCooldown  = 90 * time.Second
 )
 
 // OpenAIOAuth429FailoverState tracks the request-local follow-up budget after
@@ -141,6 +142,27 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 
 	if account != nil && account.Platform == PlatformOpenAI && isOpenAIContextWindowError("", responseBody) {
+		return false
+	}
+	// Some OpenAI-compatible gateways report an account-side failure as HTTP 400
+	// with the unhelpful message "Upstream request failed". Keep the account
+	// available for other models, but cool this account+model pair briefly so
+	// the next request does not immediately return to the same broken binding.
+	if account != nil && account.Platform == PlatformOpenAI &&
+		isOpenAIGenericUpstreamFailure(statusCode, "", responseBody) {
+		model := ""
+		if len(canonicalModel) > 0 {
+			model = canonicalModel[0]
+		}
+		decision := s.forceBlockOpenAIAccountModel(account, model, time.Now(), openAIGenericUpstreamFailureCooldown)
+		if decision.Cooldown > 0 {
+			slog.Warn("openai_generic_upstream_failure_cooldown",
+				"account_id", account.ID,
+				"model", openAIAccountModelTransientModel(model),
+				"cooldown_ms", decision.Cooldown.Milliseconds(),
+				"block_scope", "account_model",
+			)
+		}
 		return false
 	}
 

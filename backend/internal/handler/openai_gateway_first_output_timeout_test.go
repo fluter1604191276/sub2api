@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -35,6 +36,26 @@ func TestOpenAIFirstOutputFailoverStopsAfterOneAccountSwitch(t *testing.T) {
 	require.Equal(t, 1, count)
 	require.True(t, openAIFirstOutputFailoverExhausted(failoverErr, &count))
 	require.Equal(t, 1, count)
+}
+
+func TestOpenAIGenericUpstreamFailureFailoverStopsAfterOneAlternate(t *testing.T) {
+	failoverErr := &service.UpstreamFailoverError{Reason: service.OpenAIGenericUpstreamFailureReason}
+	count := 0
+
+	require.False(t, openAIGenericUpstreamFailureFailoverExhausted(failoverErr, &count))
+	require.Equal(t, 1, count)
+	require.True(t, openAIGenericUpstreamFailureFailoverExhausted(failoverErr, &count))
+	require.Equal(t, 1, count)
+}
+
+func TestOpenAIGenericUpstreamFailureFailoverBudgetIgnoresOtherErrors(t *testing.T) {
+	count := 0
+
+	require.False(t, openAIGenericUpstreamFailureFailoverExhausted(
+		&service.UpstreamFailoverError{StatusCode: http.StatusBadGateway}, &count,
+	))
+	require.Zero(t, count)
+	require.False(t, openAIGenericUpstreamFailureFailoverExhausted(nil, &count))
 }
 
 func TestOpenAIRequestAllowsFailoverReplayStopsCanceledClient(t *testing.T) {

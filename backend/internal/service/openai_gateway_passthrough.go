@@ -1658,6 +1658,25 @@ func openAIStreamRecoverySession(c *gin.Context, service *OpenAIGatewayService) 
 	return service.GenerateSessionHash(c, nil)
 }
 
+// clearStickyAfterOpenAIFailover removes the current group/session binding for
+// account-scoped recovery failures. Keep the deletion group-scoped: the same
+// account may legitimately serve other groups and sessions.
+func (s *OpenAIGatewayService) clearStickyAfterOpenAIFailover(c *gin.Context, failoverErr *UpstreamFailoverError) {
+	if s == nil || c == nil || c.Request == nil || failoverErr == nil ||
+		failoverErr.Reason != OpenAIGenericUpstreamFailureReason {
+		return
+	}
+
+	apiKey := getAPIKeyFromContext(c)
+	var groupID *int64
+	if apiKey != nil {
+		groupID = apiKey.GroupID
+	}
+	if sessionHash := openAIStreamRecoverySession(c, s); sessionHash != "" {
+		_ = s.deleteStickySessionAccountIDAllFormats(c.Request.Context(), groupID, sessionHash)
+	}
+}
+
 func (s *OpenAIGatewayService) handleCommittedOpenAIStreamFailure(c *gin.Context, account *Account, canonicalModel string, payload []byte, message string) {
 	if s == nil || account == nil || !openAIStreamFailedEventShouldFailover(payload, message) {
 		return

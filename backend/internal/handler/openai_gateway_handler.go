@@ -526,6 +526,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
 	firstOutputTimeoutSwitchCount := 0
+	genericUpstreamFailureSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -772,6 +773,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, nil), false, nil, err)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
+					if openAIGenericUpstreamFailureFailoverExhausted(failoverErr, &genericUpstreamFailureSwitchCount) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -1141,6 +1146,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	genericUpstreamFailureSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -1332,6 +1338,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, nil), false, nil, err)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
+						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
+					if openAIGenericUpstreamFailureFailoverExhausted(failoverErr, &genericUpstreamFailureSwitchCount) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -3112,6 +3122,21 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 		return false
 	}
 	if *switchCount >= maxOpenAIFirstOutputTimeoutSwitches {
+		return true
+	}
+	*switchCount = *switchCount + 1
+	return false
+}
+
+// openAIGenericUpstreamFailureFailoverExhausted bounds repeated retries for
+// gateways that return the same account-scoped HTTP 400. One alternate account
+// is enough to distinguish a bad binding from a group-wide outage; continuing
+// through the whole pool only multiplies upstream cost and latency.
+func openAIGenericUpstreamFailureFailoverExhausted(failoverErr *service.UpstreamFailoverError, switchCount *int) bool {
+	if failoverErr == nil || failoverErr.Reason != service.OpenAIGenericUpstreamFailureReason || switchCount == nil {
+		return false
+	}
+	if *switchCount >= 1 {
 		return true
 	}
 	*switchCount = *switchCount + 1

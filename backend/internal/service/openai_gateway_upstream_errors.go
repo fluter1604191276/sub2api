@@ -180,6 +180,44 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return !gjson.ValidBytes(upstreamBody) && match(string(upstreamBody))
 }
 
+// isOpenAIGenericUpstreamFailure recognizes the narrow 400 response emitted by
+// some OpenAI-compatible gateways when the selected account cannot complete the
+// request. It must remain narrower than the generic status-based failover rule:
+// ordinary invalid-request 400s are caused by the caller and replaying them on
+// another account only duplicates cost and obscures the real error.
+//
+// Structured JSON is inspected only through known error-message fields because
+// providers may echo arbitrary request content in the rest of the response.
+// Plain-text bodies are safe to scan as a whole when they are not valid JSON.
+func isOpenAIGenericUpstreamFailure(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if statusCode != http.StatusBadRequest {
+		return false
+	}
+
+	match := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "upstream request failed")
+	}
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	if gjson.ValidBytes(upstreamBody) {
+		for _, path := range []string{
+			"error.message",
+			"response.error.message",
+			"message",
+		} {
+			if match(gjson.GetBytes(upstreamBody, path).String()) {
+				return true
+			}
+		}
+		return false
+	}
+	return match(string(upstreamBody))
+}
+
 func isOpenAICapacityShedMessage(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
 	return strings.Contains(lower, "server is overloaded") ||
@@ -299,6 +337,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if isOpenAIModelCapabilityFailoverError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
+	if isOpenAIGenericUpstreamFailure(statusCode, upstreamMsg, upstreamBody) {
+		return true
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
@@ -310,6 +351,10 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 const OpenAIRequestBodyTooLargeClientMessage = "Request payload is too large"
 
 const openAIRequestBodyTooLargeReason = GatewayFailureReason("openai_request_body_too_large")
+
+// OpenAIGenericUpstreamFailureReason identifies the narrow 400 failure that is
+// account-scoped and should escape the current sticky binding.
+const OpenAIGenericUpstreamFailureReason = GatewayFailureReason("openai_generic_upstream_failure")
 
 func isOpenAIRequestBodyTooLargeError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	return statusCode == http.StatusRequestEntityTooLarge && !isOpenAIContextWindowError(upstreamMsg, upstreamBody)
@@ -339,7 +384,15 @@ func newOpenAIUpstreamFailoverError(
 		failoverErr.ClientStatusCode = http.StatusRequestEntityTooLarge
 		failoverErr.ClientMessage = OpenAIRequestBodyTooLargeClientMessage
 	}
-	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, responseBody) {
+	if isOpenAIGenericUpstreamFailure(statusCode, upstreamMsg, responseBody) {
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.RequestScopedTransient = false
+		failoverErr.Scope = GatewayFailureScopeAccount
+		failoverErr.Reason = OpenAIGenericUpstreamFailureReason
+		failoverErr.NextAccountAction = NextAccountRetry
+		failoverErr.ClientStatusCode = http.StatusBadGateway
+		failoverErr.ClientMessage = "Upstream request failed"
+	} else if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false
 		failoverErr.RequestScopedTransient = false
 		failoverErr.Stage = GatewayFailureStageAccountAuth

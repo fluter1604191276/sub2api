@@ -105,6 +105,26 @@ func TestHandleOpenAITransientError_DoesNotBlockParameter400(t *testing.T) {
 	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
 }
 
+func TestHandleOpenAIGenericUpstreamFailure_CoolsOnlyRequestedModel(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	account := &Account{
+		ID:       5108,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	shouldDisable := svc.handleOpenAIAccountUpstreamError(
+		context.Background(), account, http.StatusBadRequest, http.Header{},
+		[]byte(`{"error":{"type":"upstream_error","message":"Upstream request failed"}}`),
+		"gpt-5.6-sol",
+	)
+
+	require.False(t, shouldDisable)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+	require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-terra"))
+}
+
 func TestHandleOpenAITransientError_HardDisableStillBlocksWholeAccount(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 5106, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
