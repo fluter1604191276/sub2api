@@ -11,9 +11,9 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -461,32 +461,43 @@ def inspect_binary_capabilities(payload: bytes) -> dict[str, dict[str, object]]:
 
 def inspect_image_capabilities(image: str) -> dict[str, dict[str, object]]:
     """Inspect the compiled application binary without starting the service."""
+    markers = tuple(
+        dict.fromkeys(
+            marker
+            for capability_markers in IMAGE_CAPABILITY_MARKERS.values()
+            for marker in capability_markers
+        )
+    )
+    marker_args = " ".join(shlex.quote(marker) for marker in markers)
+    script = f"""set -eu
+strings /app/sub2api > /tmp/sub2api-capability-strings
+for marker in {marker_args}; do
+    if grep -F -q -- "$marker" /tmp/sub2api-capability-strings; then
+        printf '%s\\n' "$marker"
+    fi
+done
+"""
     result = subprocess.run(
-        ["docker", "create", "--entrypoint", "/bin/true", image],
+        [
+            "docker",
+            "run",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "--entrypoint",
+            "/bin/sh",
+            image,
+            "-c",
+            script,
+        ],
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
-    container_id = result.stdout.strip()
-    if not container_id:
-        raise ValueError(f"docker returned no container for {image}")
-    try:
-        with tempfile.TemporaryDirectory(prefix="sub2api-image-smoke-") as directory:
-            binary = Path(directory) / "sub2api"
-            subprocess.run(
-                ["docker", "cp", f"{container_id}:/app/sub2api", str(binary)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            return inspect_binary_capabilities(binary.read_bytes())
-    finally:
-        subprocess.run(
-            ["docker", "rm", "-f", container_id],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+    matched_markers = set(result.stdout.splitlines())
+    payload = b"\0".join(marker.encode("ascii") for marker in matched_markers)
+    return inspect_binary_capabilities(payload)
 
 
 def main() -> int:
@@ -507,7 +518,7 @@ def main() -> int:
         try:
             image_metadata = inspect_image(args.image)
             image_metadata["capability_markers"] = inspect_image_capabilities(args.image)
-        except (OSError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError, IndexError) as exc:
+        except (OSError, ValueError, subprocess.SubprocessError, json.JSONDecodeError, IndexError) as exc:
             print(f"RELEASE BLOCKED: cannot inspect image {args.image}: {exc}", file=sys.stderr)
             return 2
     errors = validate_manifest(

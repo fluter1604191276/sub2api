@@ -23,7 +23,7 @@ Every release manifest must record the status and evidence for each capability b
 | generic-400-failover | Account-scoped failover for the narrow `HTTP 400 Upstream request failed` gateway response | openai_gateway_upstream_errors.go, openai_account_runtime_block_fastpath.go, OpenAI gateway handlers/forwarders, failover and sticky tests | Routing, retry budget, sticky-session escape | Required |
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
-| ops-baseline | Backups, role marker, release evidence, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
+| ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
 
 ## Status Semantics
 

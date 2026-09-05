@@ -182,6 +182,33 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertEqual("present", results["scheduled-probe"]["status"])
         self.assertEqual("missing", results["quality-score"]["status"])
 
+    def test_image_capability_smoke_runs_inside_amd64_container(self):
+        original_run = verify.subprocess.run
+        calls = []
+        try:
+            def fake_run(args, **kwargs):
+                calls.append((args, kwargs))
+                return type(
+                    "Completed",
+                    (),
+                    {"stdout": "smart_scheduler\nsticky.smart_scheduler_switched\n"},
+                )()
+
+            verify.subprocess.run = fake_run
+            results = verify.inspect_image_capabilities("example/image:test")
+        finally:
+            verify.subprocess.run = original_run
+
+        args, kwargs = calls[0]
+        self.assertEqual("docker", args[0])
+        self.assertIn("run", args)
+        self.assertIn("--rm", args)
+        self.assertIn("linux/amd64", args)
+        self.assertNotIn("cp", args)
+        self.assertEqual(120, kwargs["timeout"])
+        self.assertEqual("present", results["scheduler"]["status"])
+        self.assertEqual("missing", results["scheduled-probe"]["status"])
+
     def test_scheduler_source_requires_complete_routing_implementation(self):
         self.assertIn(
             "backend/internal/service/smart_scheduler_routing.go",
