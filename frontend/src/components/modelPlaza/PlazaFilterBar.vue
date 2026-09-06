@@ -17,7 +17,7 @@
           @click="$emit('update:platform', p)"
         >
           <PlatformIcon v-if="p !== 'all'" :platform="p as GroupPlatform" size="xs" />
-          {{ p === 'all' ? t('modelPlaza.filters.all') : p }}
+          {{ p === 'all' ? t('modelPlaza.filters.all') : platformLabel(p) }}
         </button>
       </div>
     </div>
@@ -135,7 +135,7 @@
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
-import { platformAccentColor } from '@/utils/platformColors'
+import { platformAccentColor, platformLabel } from '@/utils/platformColors'
 import type { GroupPlatform } from '@/types'
 
 const props = defineProps<{
@@ -146,6 +146,7 @@ const props = defineProps<{
     id: number
     name: string
     platform: string
+    providers?: string[]
     rate: number
     isExclusive: boolean
     subscriptionType: string
@@ -184,7 +185,7 @@ const accessOptions = [
 function platformEnabled(p: string): boolean {
   return props.groups.some(
     (g) =>
-      g.platform === p &&
+      groupProviders(g).includes(p) &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       (props.rate === 'all' || g.rate === props.rate) &&
       matchesAccess(g, props.access)
@@ -198,7 +199,7 @@ function groupEnabled(g: {
   subscriptionType?: string
 }): boolean {
   return (
-    (props.platform === 'all' || g.platform === props.platform) &&
+    (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
     (props.rate === 'all' || g.rate === props.rate) &&
     accessEnabledForGroup(g)
   )
@@ -208,7 +209,7 @@ function accessEnabled(access: (typeof accessOptions)[number]['value']): boolean
   if (access === 'all') return true
   return props.groups.some(
     (g) =>
-      (props.platform === 'all' || g.platform === props.platform) &&
+      (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       (props.rate === 'all' || g.rate === props.rate) &&
       matchesAccess(g, access)
@@ -233,10 +234,14 @@ function rateEnabled(r: number): boolean {
   return props.groups.some(
     (g) =>
       g.rate === r &&
-      (props.platform === 'all' || g.platform === props.platform) &&
+      (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       matchesAccess(g, props.access)
   )
+}
+
+function groupProviders(g: { platform: string; providers?: string[] }): string[] {
+  return g.providers?.length ? g.providers : [g.platform]
 }
 
 function chipClass(active: boolean): string {

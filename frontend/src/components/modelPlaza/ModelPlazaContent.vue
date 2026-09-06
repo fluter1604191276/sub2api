@@ -97,6 +97,7 @@ import PlazaFilterBar from './PlazaFilterBar.vue'
 import PlazaGroupSection from './PlazaGroupSection.vue'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
+import { modelProvider } from '@/utils/modelProvider'
 
 const props = defineProps<{
   response: ModelPlazaResponse | null
@@ -129,8 +130,16 @@ function effectiveRate(g: ModelPlazaGroup): number {
   return g.user_rate_multiplier ?? g.rate_multiplier
 }
 
+function groupProviders(group: ModelPlazaGroup): string[] {
+  const providers = new Set(
+    group.models.map((model) => modelProvider(model.name, model.platform)).filter(Boolean)
+  )
+  if (providers.size === 0 && group.platform) providers.add(group.platform)
+  return [...providers].sort()
+}
+
 const platforms = computed(() =>
-  [...new Set((props.response?.groups ?? []).map((g) => g.platform).filter(Boolean))].sort()
+  [...new Set((props.response?.groups ?? []).flatMap(groupProviders))].sort()
 )
 
 const groupOptions = computed(() =>
@@ -138,6 +147,7 @@ const groupOptions = computed(() =>
     id: g.id,
     name: g.name,
     platform: g.platform,
+    providers: groupProviders(g),
     rate: effectiveRate(g),
     isExclusive: g.is_exclusive,
     subscriptionType: g.subscription_type
@@ -168,7 +178,17 @@ const filtersActive = computed(
 const filteredGroups = computed(() => {
   let groups = props.response?.groups ?? []
   if (selectedPlatform.value !== 'all') {
-    groups = groups.filter((g) => g.platform === selectedPlatform.value)
+    groups = groups
+      .map((g) => ({
+        ...g,
+        // Keep protocol platform in the API, but make the selected supplier
+        // visible in the group header while the supplier filter is active.
+        platform: selectedPlatform.value,
+        models: g.models
+          .filter((model) => modelProvider(model.name, model.platform) === selectedPlatform.value)
+          .map((model) => ({ ...model, platform: selectedPlatform.value }))
+      }))
+      .filter((g) => g.models.length > 0)
   }
   if (selectedAccess.value !== 'all') {
     groups = groups.filter((g) => {

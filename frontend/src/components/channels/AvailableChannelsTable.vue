@@ -72,7 +72,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              {{ platformLabel(section.platform) }}
             </span>
           </td>
 
@@ -97,7 +97,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="g.platform as GroupPlatform"
+                    :platform="(g.display_platform || g.platform) as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -131,7 +131,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="g.platform as GroupPlatform"
+                    :platform="(g.display_platform || g.platform) as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -208,7 +208,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              {{ platformLabel(section.platform) }}
             </span>
 
             <dl class="mt-3 space-y-3">
@@ -236,7 +236,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="g.platform as GroupPlatform"
+                        :platform="(g.display_platform || g.platform) as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -271,7 +271,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="g.platform as GroupPlatform"
+                        :platform="(g.display_platform || g.platform) as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -327,7 +327,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import SupportedModelChip from './SupportedModelChip.vue'
 import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
-import { platformBadgeClass } from '@/utils/platformColors'
+import { platformBadgeClass, platformLabel } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 

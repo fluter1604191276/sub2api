@@ -38,7 +38,7 @@
                 <select v-model="selectedPlatform" class="input py-2">
                   <option value="all">{{ t('availableChannels.filters.allPlatforms') }}</option>
                   <option v-for="platform in platforms" :key="platform" :value="platform">
-                    {{ platform }}
+                    {{ platformLabel(platform) }}
                   </option>
                 </select>
               </label>
@@ -137,7 +137,12 @@ import userChannelsAPI, { type UserAvailableChannel } from '@/api/channels'
 import userGroupsAPI from '@/api/groups'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { filterAvailableChannels, summarizeAvailableChannels } from '@/utils/availableChannelsCatalog'
+import {
+  availableCatalogPlatforms,
+  filterAvailableChannels,
+  summarizeAvailableChannels
+} from '@/utils/availableChannelsCatalog'
+import { platformLabel } from '@/utils/platformColors'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -158,7 +163,7 @@ const columnLabels = computed(() => ({
 }))
 
 const platforms = computed(() =>
-  [...new Set(channels.value.flatMap((channel) => channel.platforms.map((section) => section.platform)))].sort()
+  availableCatalogPlatforms(channels.value)
 )
 
 const filtersActive = computed(
