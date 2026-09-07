@@ -234,7 +234,7 @@ func newOpenAICompatibleChatAdapter(path string) providerAdapter {
 				"model":      model,
 				"messages":   []map[string]string{{"role": "user", "content": prompt}},
 				"max_tokens": monitorChallengeMaxTokens,
-				"stream":     false,
+				"stream":     true,
 			})
 		},
 		buildHeaders: func(apiKey string) map[string]string {
@@ -253,7 +253,7 @@ var providerOpenAIResponsesAdapter = providerAdapter{
 			"instructions":      "You are a channel health-check endpoint. Answer the arithmetic challenge exactly and briefly.",
 			"input":             prompt,
 			"max_output_tokens": monitorChallengeMaxTokens,
-			"stream":            false,
+			"stream":            true,
 		})
 	},
 	buildHeaders: func(apiKey string) map[string]string {
@@ -298,12 +298,72 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	if err != nil {
 		return "", "", status, err
 	}
+	// A few OpenAI-compatible gateways reject only non-streaming requests. Keep
+	// this compatibility retry narrow: custom replace bodies plus an explicit
+	// stream-only 400. Ordinary 400/502/timeout failures are never duplicated.
+	if shouldRetryWithStreamingBody(provider, status, respBytes, body, opts) {
+		if streamingBody, ok := forceStreamingRequestBody(body); ok {
+			respBytes, status, err = postRawJSON(ctx, full, streamingBody, headers)
+			if err != nil {
+				return "", "", status, err
+			}
+		}
+	}
 	if provider == MonitorProviderOpenAI && apiMode == MonitorAPIModeResponses {
 		if text := strings.TrimSpace(extractOpenAIResponsesText(respBytes)); text != "" {
 			return text, string(respBytes), status, nil
 		}
 	}
 	return extractMonitorResponseTextForAdapter(adapter, respBytes), string(respBytes), status, nil
+}
+
+func shouldRetryWithStreamingBody(provider string, status int, response []byte, requestBody []byte, opts *CheckOptions) bool {
+	return status == http.StatusBadRequest &&
+		bodyOverrideMode(opts) == MonitorBodyOverrideModeReplace &&
+		isOpenAICompatibleChatProvider(provider) &&
+		isStreamOnlyErrorBody(response) &&
+		!requestBodyUsesStreaming(requestBody)
+}
+
+func requestBodyUsesStreaming(body []byte) bool {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	stream, _ := parsed["stream"].(bool)
+	return stream
+}
+
+func forceStreamingRequestBody(body []byte) ([]byte, bool) {
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, false
+	}
+	if stream, ok := parsed["stream"].(bool); ok && stream {
+		return nil, false
+	}
+	parsed["stream"] = true
+	updated, err := json.Marshal(parsed)
+	if err != nil {
+		return nil, false
+	}
+	return updated, true
+}
+
+func isStreamOnlyErrorBody(body []byte) bool {
+	message := strings.ToLower(string(body))
+	for _, marker := range []string{
+		"stream=true is required",
+		"stream = true is required",
+		"streaming requests only",
+		"non_streaming_not_supported",
+		"non-streaming requests are not supported",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractAnthropicMonitorText(respBytes []byte) string {
@@ -338,6 +398,26 @@ func extractMonitorResponseTextForAdapter(adapter providerAdapter, respBytes []b
 // extractMonitorResponseText first uses the provider's canonical JSON path, then
 // falls back to common compatibility response shapes seen behind proxy services.
 func extractMonitorResponseText(respBytes []byte, primaryPath string) string {
+	if looksLikeSSE(respBytes) {
+		return extractMonitorResponseTextFromSSE(respBytes, primaryPath)
+	}
+	if text := extractMonitorResponseTextJSON(respBytes, primaryPath); text != "" {
+		return text
+	}
+	return extractMonitorResponseTextFromSSE(respBytes, primaryPath)
+}
+
+func looksLikeSSE(respBytes []byte) bool {
+	for _, line := range strings.Split(string(respBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "data:") || strings.HasPrefix(line, "event:") {
+			return true
+		}
+	}
+	return false
+}
+
+func extractMonitorResponseTextJSON(respBytes []byte, primaryPath string) string {
 	if text := firstStringFromGJSON(gjson.GetBytes(respBytes, primaryPath)); text != "" {
 		return text
 	}
@@ -348,9 +428,6 @@ func extractMonitorResponseText(respBytes []byte, primaryPath string) string {
 		if text := firstStringFromGJSON(gjson.GetBytes(respBytes, path)); text != "" {
 			return text
 		}
-	}
-	if text := extractMonitorResponseTextFromSSE(respBytes, primaryPath); text != "" {
-		return text
 	}
 	return ""
 }
@@ -402,6 +479,7 @@ func firstStringFromGJSON(v gjson.Result) string {
 }
 
 func extractMonitorResponseTextFromSSE(respBytes []byte, primaryPath string) string {
+	var parts []string
 	for _, line := range strings.Split(string(respBytes), "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "data:") {
@@ -411,17 +489,20 @@ func extractMonitorResponseTextFromSSE(respBytes []byte, primaryPath string) str
 		if payload == "" || payload == "[DONE]" || !gjson.Valid(payload) {
 			continue
 		}
-		if text := extractMonitorResponseText([]byte(payload), primaryPath); text != "" {
-			return text
+		if text := extractMonitorResponseTextJSON([]byte(payload), primaryPath); text != "" {
+			parts = append(parts, text)
 		}
 	}
-	return ""
+	return strings.Join(parts, "")
 }
 
 // extractOpenAIResponsesText 聚合 Responses API 的最终 assistant 文本。
 // Responses 的 output 数组顺序由模型决定：reasoning / tool-call item 可能排在 message 前面，
 // 因此不能假设文本永远在 output.0.content.0.text。
 func extractOpenAIResponsesText(respBytes []byte) string {
+	if looksLikeSSE(respBytes) {
+		return extractOpenAIResponsesTextFromSSE(respBytes)
+	}
 	if text := gjson.GetBytes(respBytes, "output_text").String(); strings.TrimSpace(text) != "" {
 		return text
 	}
@@ -457,7 +538,50 @@ func extractOpenAIResponsesText(respBytes []byte) string {
 	if len(texts) > 0 {
 		return strings.Join(texts, "")
 	}
-	return gjson.GetBytes(respBytes, providerOpenAIResponsesAdapter.textPath).String()
+	if text := gjson.GetBytes(respBytes, providerOpenAIResponsesAdapter.textPath).String(); strings.TrimSpace(text) != "" {
+		return text
+	}
+	return extractOpenAIResponsesTextFromSSE(respBytes)
+}
+
+func extractOpenAIResponsesTextFromSSE(respBytes []byte) string {
+	var parts []string
+	sawDelta := false
+	for _, line := range strings.Split(string(respBytes), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" || !gjson.Valid(payload) {
+			continue
+		}
+		eventType := gjson.Get(payload, "type").String()
+		if eventType == "response.output_text.delta" || eventType == "" {
+			if delta := gjson.Get(payload, "delta").String(); delta != "" {
+				parts = append(parts, delta)
+				sawDelta = true
+				continue
+			}
+		}
+		// Prefer the delta stream when present. A completed response often
+		// repeats the full output and must not be appended a second time.
+		if eventType == "response.output_text.done" {
+			if !sawDelta {
+				if text := gjson.Get(payload, "text").String(); text != "" {
+					parts = append(parts, text)
+				}
+			}
+			continue
+		}
+		if sawDelta {
+			continue
+		}
+		if text := extractMonitorResponseTextJSON([]byte(payload), "output_text"); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "")
 }
 
 // mergeHeaders 把用户自定义 headers 合并到 adapter 默认 headers 上。
@@ -621,6 +745,9 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	if requestBodyUsesStreaming(payload) {
+		req.Header.Set("Accept", "text/event-stream")
+	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}

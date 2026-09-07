@@ -65,10 +65,15 @@ type openAICaptureHandler struct {
 	lastPath                  string
 	status                    int
 	rawResponse               string
+	rawResponses              []string
 	responsesLeadingReasoning bool
+	streamSSE                 bool
+	statuses                  []int
+	requests                  int
 }
 
 func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.requests++
 	h.lastHeaders = r.Header.Clone()
 	h.lastPath = r.URL.Path
 	defer func() { _ = r.Body.Close() }()
@@ -76,17 +81,49 @@ func (h *openAICaptureHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 	_ = json.NewDecoder(r.Body).Decode(&parsed)
 	h.lastBody = parsed
 
-	if h.status == 0 {
-		h.status = http.StatusOK
+	status := h.status
+	if len(h.statuses) > 0 {
+		index := h.requests - 1
+		if index >= len(h.statuses) {
+			index = len(h.statuses) - 1
+		}
+		status = h.statuses[index]
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(h.status)
-	if h.rawResponse != "" {
-		_, _ = w.Write([]byte(h.rawResponse))
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if h.streamSSE {
+		w.Header().Set("Content-Type", "text/event-stream")
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.WriteHeader(status)
+	rawResponse := h.rawResponse
+	if len(h.rawResponses) > 0 {
+		index := h.requests - 1
+		if index >= len(h.rawResponses) {
+			index = len(h.rawResponses) - 1
+		}
+		rawResponse = h.rawResponses[index]
+	}
+	if rawResponse != "" {
+		_, _ = w.Write([]byte(rawResponse))
 		return
 	}
 
 	answer := answerFromOpenAIRequest(parsed)
+	if h.streamSSE {
+		if h.lastPath == providerOpenAIResponsesPath {
+			_, _ = w.Write([]byte(`data: {"type":"response.output_text.delta","delta":"` + answer[:1] + `"}` + "\n\n"))
+			_, _ = w.Write([]byte(`data: {"type":"response.output_text.delta","delta":"` + answer[1:] + `"}` + "\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"` + answer[:1] + `"}}]}` + "\n\n"))
+		_, _ = w.Write([]byte(`data: {"choices":[{"delta":{"content":"` + answer[1:] + `"}}]}` + "\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		return
+	}
 	if h.lastPath == providerOpenAIResponsesPath {
 		output := []map[string]any{}
 		if h.responsesLeadingReasoning {
@@ -187,11 +224,28 @@ func TestRunCheckForModel_OpenAI_DefaultChatRequest(t *testing.T) {
 	if _, ok := h.lastBody["instructions"]; ok {
 		t.Error("chat body must not contain top-level instructions")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("chat body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("chat body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer sk-openai" {
 		t.Errorf("expected bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
+	}
+}
+
+func TestRunCheckForModel_OpenAI_DefaultChatStreamResponse(t *testing.T) {
+	h := &openAICaptureHandler{streamSSE: true}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("streaming chat request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastBody["stream"] != true {
+		t.Fatalf("streaming chat request should send stream=true, got %v", h.lastBody["stream"])
+	}
+	if h.lastHeaders.Get("Accept") != "text/event-stream" {
+		t.Fatalf("streaming chat request should negotiate SSE, got Accept=%q", h.lastHeaders.Get("Accept"))
 	}
 }
 
@@ -234,8 +288,8 @@ func TestRunCheckForModel_Grok_DefaultChatRequest(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; !ok {
 		t.Error("Grok body should contain messages")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("Grok body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("Grok body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer xai-key" {
 		t.Errorf("expected Grok bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
@@ -307,8 +361,8 @@ func TestRunCheckForModel_OpenAIResponses_DefaultRequest(t *testing.T) {
 	if _, ok := h.lastBody["messages"]; ok {
 		t.Error("responses body must not contain chat messages")
 	}
-	if h.lastBody["stream"] != false {
-		t.Errorf("responses body should set stream=false, got %v", h.lastBody["stream"])
+	if h.lastBody["stream"] != true {
+		t.Errorf("responses body should set stream=true, got %v", h.lastBody["stream"])
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer sk-openai" {
 		t.Errorf("expected bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
@@ -328,6 +382,100 @@ func TestRunCheckForModel_OpenAIResponses_SkipsLeadingReasoningItem(t *testing.T
 	}
 	if h.lastPath != providerOpenAIResponsesPath {
 		t.Fatalf("expected responses path %q, got %q", providerOpenAIResponsesPath, h.lastPath)
+	}
+}
+
+func TestRunCheckForModel_OpenAIResponses_StreamResponse(t *testing.T) {
+	h := &openAICaptureHandler{streamSSE: true}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", &CheckOptions{
+		APIMode: MonitorAPIModeResponses,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("streaming responses request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastBody["stream"] != true {
+		t.Fatalf("streaming responses request should send stream=true, got %v", h.lastBody["stream"])
+	}
+	if h.lastHeaders.Get("Accept") != "text/event-stream" {
+		t.Fatalf("streaming responses request should negotiate SSE, got Accept=%q", h.lastHeaders.Get("Accept"))
+	}
+}
+
+func TestRunCheckForModel_ReplaceMode_RetriesExplicitStreamOnly400(t *testing.T) {
+	h := &openAICaptureHandler{
+		statuses: []int{http.StatusBadRequest, http.StatusOK},
+		rawResponses: []string{
+			`{"error":{"message":"stream=true is required"}}`,
+			`{"choices":[{"message":{"content":"ready"}}]}`,
+		},
+	}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", &CheckOptions{
+		BodyOverrideMode: MonitorBodyOverrideModeReplace,
+		BodyOverride: map[string]any{
+			"model":    "gpt-test",
+			"messages": []any{map[string]any{"role": "user", "content": "hello"}},
+			"stream":   false,
+		},
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("stream-only retry should recover replace-mode probe, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.requests != 2 {
+		t.Fatalf("stream-only retry should send exactly two requests, got %d", h.requests)
+	}
+	if h.lastBody["stream"] != true {
+		t.Fatalf("retry body should set stream=true, got %v", h.lastBody["stream"])
+	}
+}
+
+func TestRunCheckForModel_ReplaceMode_DoesNotRetryOrdinary400(t *testing.T) {
+	h := &openAICaptureHandler{
+		status:      http.StatusBadRequest,
+		rawResponse: `{"error":{"message":"invalid request"}}`,
+	}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderOpenAI, endpoint, "sk-openai", "gpt-test", &CheckOptions{
+		BodyOverrideMode: MonitorBodyOverrideModeReplace,
+		BodyOverride: map[string]any{
+			"model":    "gpt-test",
+			"messages": []any{map[string]any{"role": "user", "content": "hello"}},
+			"stream":   false,
+		},
+	})
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("ordinary 400 should remain an error, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.requests != 1 {
+		t.Fatalf("ordinary 400 should not be retried, got %d requests", h.requests)
+	}
+}
+
+func TestRunCheckForModel_ReplaceMode_DoesNotRetryNonOpenAIProvider(t *testing.T) {
+	h := &captureHandler{status: http.StatusBadRequest, respondText: "stream=true is required"}
+	endpoint := setupFakeAnthropic(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, endpoint, "sk-anthropic", "claude-test", &CheckOptions{
+		BodyOverrideMode: MonitorBodyOverrideModeReplace,
+		BodyOverride: map[string]any{
+			"model":    "claude-test",
+			"messages": []any{map[string]any{"role": "user", "content": "hello"}},
+			"stream":   false,
+		},
+	})
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("non-OpenAI provider 400 should remain an error, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastBody["stream"] != false {
+		t.Fatalf("non-OpenAI provider should not be retried with stream=true, got %v", h.lastBody["stream"])
 	}
 }
 
@@ -544,7 +692,8 @@ func TestExtractMonitorResponseText_Fallbacks(t *testing.T) {
 		{
 			name: "sse openai chat completion",
 			body: strings.Join([]string{
-				`data: {"choices":[{"delta":{"content":"OK"}}]}`,
+				`data: {"choices":[{"delta":{"content":"O"}}]}`,
+				`data: {"choices":[{"delta":{"content":"K"}}]}`,
 				`data: [DONE]`,
 				``,
 			}, "\n"),
@@ -560,6 +709,20 @@ func TestExtractMonitorResponseText_Fallbacks(t *testing.T) {
 				t.Fatalf("extractMonitorResponseText()=%q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestExtractOpenAIResponsesText_SSEDeltaDoesNotDuplicateCompletedSnapshot(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"type":"response.output_text.delta","delta":"4"}`,
+		`data: {"type":"response.output_text.delta","delta":"2"}`,
+		`data: {"type":"response.completed","response":{"output_text":"42"}}`,
+		`data: [DONE]`,
+		``,
+	}, "\n")
+
+	if got := extractOpenAIResponsesText([]byte(body)); got != "42" {
+		t.Fatalf("extractOpenAIResponsesText()=%q, want %q", got, "42")
 	}
 }
 
