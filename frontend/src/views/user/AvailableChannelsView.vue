@@ -155,6 +155,7 @@ const selectedPlatform = ref('all')
 const selectedAccess = ref<'all' | 'public' | 'exclusive'>('all')
 
 const columnLabels = computed(() => ({
+  category: t('availableChannels.columns.category'),
   name: t('availableChannels.columns.name'),
   description: t('availableChannels.columns.description'),
   platform: t('availableChannels.columns.platform'),

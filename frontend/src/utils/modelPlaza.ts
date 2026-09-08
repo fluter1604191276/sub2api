@@ -152,3 +152,20 @@ export function countModelPlazaGroups(model: ModelPlazaModel): number {
 export function hasMultipleModelPlazaPrices(model: ModelPlazaModel): boolean {
   return new Set(model.sources.map((source) => pricingKey(source.pricing))).size > 1
 }
+
+export interface ModelPlazaGroupModel extends ModelPlazaModel {}
+export interface ModelPlazaGroup {
+  key: string; id: number | null; name: string; platform: string; models: ModelPlazaGroupModel[]; channelNames: string[]; rateMultiplier: number | null; subscriptionType: string; peakRateEnabled: boolean; peakStart?: string; peakEnd?: string; peakRateMultiplier?: number
+  isExclusive: boolean
+}
+export function buildModelPlazaGroups(models: ModelPlazaModel[], _rates: unknown[]): ModelPlazaGroup[] {
+  const map = new Map<string, ModelPlazaGroup>()
+  for (const model of models) for (const source of model.sources) for (const group of source.groups) {
+    const key = `${model.platform}::${group.id}`; const existing = map.get(key) || { key, id: group.id, name: group.name, platform: model.platform, models: [], channelNames: [], rateMultiplier: null, subscriptionType: '', peakRateEnabled: false, isExclusive: false }
+    if (!existing.models.some((m) => m.key === model.key)) existing.models.push(model); if (!existing.channelNames.includes(source.channelName)) existing.channelNames.push(source.channelName); map.set(key, existing)
+  }
+  return Array.from(map.values())
+}
+export function filterModelPlazaGroups(groups: ModelPlazaGroup[], filters: { query?: string; platform?: string; category?: string; groupKey?: string; rateMultiplier?: string }): ModelPlazaGroup[] {
+  const q = (filters.query || '').toLowerCase(); return groups.filter((g) => (!filters.platform || filters.platform === 'all' || g.platform === filters.platform) && (!filters.groupKey || filters.groupKey === 'all' || g.key === filters.groupKey) && (!filters.category || filters.category === 'all' || g.models.some((m) => m.category === filters.category)) && (!q || `${g.name} ${g.platform} ${g.channelNames.join(' ')}`.toLowerCase().includes(q)))
+}

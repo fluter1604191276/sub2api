@@ -613,6 +613,7 @@ export interface AccountModelSyncPreviewEntry {
 }
 export interface AccountModelSyncPreview { total: number; changed: number; results: AccountModelSyncPreviewEntry[] }
 export interface AccountModelSyncApplyResult { account_id: number; status: string; error?: string }
+export interface AccountModelSyncApplyItem { account_id: number; version: string }
 export async function previewAllModelMappings(): Promise<AccountModelSyncPreview> {
   const { data } = await apiClient.post<AccountModelSyncPreview>('/admin/accounts/sync/models/preview', undefined, { timeout: 10 * 60 * 1000 })
   return data
