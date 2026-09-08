@@ -25,6 +25,10 @@ export interface ModelPlazaModel {
   platform: string
   category: AvailableChannelCategory
   sources: ModelPlazaSource[]
+  /** Channel names represented by this model (kept for compact card rendering). */
+  channels: string[]
+  /** Primary display price; source prices remain available in `sources`. */
+  pricing: UserSupportedModelPricing | null
 }
 
 export type ModelPlazaCategory = AvailableChannelCategory | 'all'
@@ -88,6 +92,8 @@ export function buildModelPlazaModels(channels: UserAvailableChannel[]): ModelPl
           platform,
           category,
           sources: [],
+          channels: [],
+          pricing: null,
         }
         models.set(key, plazaModel)
 
@@ -107,6 +113,8 @@ export function buildModelPlazaModels(channels: UserAvailableChannel[]): ModelPl
 
         source.groups = mergeGroups(source.groups, section.groups)
         if (!source.pricing && model.pricing) source.pricing = model.pricing
+        if (!plazaModel.channels.includes(channel.name)) plazaModel.channels.push(channel.name)
+        if (!plazaModel.pricing && model.pricing) plazaModel.pricing = model.pricing
       }
     }
   }
@@ -158,14 +166,55 @@ export interface ModelPlazaGroup {
   key: string; id: number | null; name: string; platform: string; models: ModelPlazaGroupModel[]; channelNames: string[]; rateMultiplier: number | null; subscriptionType: string; peakRateEnabled: boolean; peakStart?: string; peakEnd?: string; peakRateMultiplier?: number
   isExclusive: boolean
 }
-export function buildModelPlazaGroups(models: ModelPlazaModel[], _rates: unknown[]): ModelPlazaGroup[] {
+export function buildModelPlazaGroups(models: ModelPlazaModel[], rates: Record<number, number> = {}): ModelPlazaGroup[] {
   const map = new Map<string, ModelPlazaGroup>()
-  for (const model of models) for (const source of model.sources) for (const group of source.groups) {
-    const key = `${model.platform}::${group.id}`; const existing = map.get(key) || { key, id: group.id, name: group.name, platform: model.platform, models: [], channelNames: [], rateMultiplier: null, subscriptionType: '', peakRateEnabled: false, isExclusive: false }
-    if (!existing.models.some((m) => m.key === model.key)) existing.models.push(model); if (!existing.channelNames.includes(source.channelName)) existing.channelNames.push(source.channelName); map.set(key, existing)
+  const ungrouped = new Map<string, ModelPlazaModel[]>()
+  for (const model of models) {
+    for (const source of model.sources) for (const group of source.groups) {
+      const groupPlatform = (group.platform || model.platform).trim()
+      const key = `${groupPlatform}::${group.id}`
+      const existing = map.get(key) || {
+        key, id: group.id, name: group.name, platform: groupPlatform, models: [], channelNames: [],
+        rateMultiplier: rates[group.id] ?? group.rate_multiplier ?? null,
+        subscriptionType: group.subscription_type || '', peakRateEnabled: Boolean(group.peak_rate_enabled),
+        peakStart: group.peak_start, peakEnd: group.peak_end, peakRateMultiplier: group.peak_rate_multiplier,
+        isExclusive: Boolean(group.is_exclusive),
+      }
+      const relevantSources = model.sources.filter((candidate) => candidate.groups.some((candidateGroup) => candidateGroup.id === group.id && (candidateGroup.platform || model.platform).trim() === groupPlatform))
+      const groupModel: ModelPlazaGroupModel = {
+        ...model,
+        sources: relevantSources,
+        channels: Array.from(new Set(relevantSources.map((candidate) => candidate.channelName))),
+        pricing: relevantSources.find((candidate) => candidate.pricing)?.pricing ?? null,
+      }
+      const existingModel = existing.models.findIndex((candidate) => candidate.key === model.key)
+      if (existingModel >= 0) existing.models[existingModel] = groupModel
+      else existing.models.push(groupModel)
+      if (!existing.channelNames.includes(source.channelName)) existing.channelNames.push(source.channelName)
+      map.set(key, existing)
+    }
+    const ungroupedSources = model.sources.filter((source) => source.groups.length === 0)
+    if (ungroupedSources.length) {
+      const list = ungrouped.get(model.platform) || []
+      list.push({ ...model, sources: ungroupedSources, channels: ungroupedSources.map((source) => source.channelName), pricing: ungroupedSources.find((source) => source.pricing)?.pricing ?? null })
+      ungrouped.set(model.platform, list)
+    }
   }
-  return Array.from(map.values())
+  for (const [platform, platformModels] of ungrouped) {
+    const key = `${platform}::__ungrouped`
+    map.set(key, { key, id: null, name: 'Ungrouped', platform, models: platformModels, channelNames: Array.from(new Set(platformModels.flatMap((model) => model.channels))), rateMultiplier: null, subscriptionType: '', peakRateEnabled: false, isExclusive: false })
+  }
+  return Array.from(map.values()).sort((a, b) => a.platform.localeCompare(b.platform) || a.name.localeCompare(b.name))
 }
 export function filterModelPlazaGroups(groups: ModelPlazaGroup[], filters: { query?: string; platform?: string; category?: string; groupKey?: string; rateMultiplier?: string }): ModelPlazaGroup[] {
-  const q = (filters.query || '').toLowerCase(); return groups.filter((g) => (!filters.platform || filters.platform === 'all' || g.platform === filters.platform) && (!filters.groupKey || filters.groupKey === 'all' || g.key === filters.groupKey) && (!filters.category || filters.category === 'all' || g.models.some((m) => m.category === filters.category)) && (!q || `${g.name} ${g.platform} ${g.channelNames.join(' ')}`.toLowerCase().includes(q)))
+  const q = filters.query?.trim().toLowerCase() || ''
+  const requestedRate = filters.rateMultiplier && filters.rateMultiplier !== 'all' ? Number(filters.rateMultiplier) : null
+  return groups.filter((g) => {
+    if (filters.platform && filters.platform !== 'all' && g.platform !== filters.platform) return false
+    if (filters.groupKey && filters.groupKey !== 'all' && g.key !== filters.groupKey) return false
+    if (requestedRate !== null && (g.rateMultiplier === null || g.rateMultiplier !== requestedRate)) return false
+    if (filters.category && filters.category !== 'all' && !g.models.some((m) => m.category === filters.category)) return false
+    if (!q) return true
+    return `${g.name} ${g.platform} ${g.channelNames.join(' ')} ${g.models.map((m) => `${m.name} ${m.category} ${m.channels.join(' ')}`).join(' ')}`.toLowerCase().includes(q)
+  })
 }

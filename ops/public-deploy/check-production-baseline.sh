@@ -19,8 +19,15 @@ if [[ "${ALLOW_NON_PRODUCTION_BASELINE:-0}" == "1" ]]; then
   exit 0
 fi
 
-live_baseline="$(ssh "${PRODUCTION_ALIAS}" 'role=$(cat /etc/fluterapi-node-role)
+if [[ "${ON_PRODUCTION_HOST:-0}" == "1" ]]; then
+  # Remote builds run from a clean checkout on the production VPS. The VPS
+  # does not need (and must not need) the operator's local SSH alias.
+  live_baseline="$(role=$(cat /etc/fluterapi-node-role)
+docker inspect sub2api --format "${role}|{{.Config.Image}}|{{.Image}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}|{{index .Config.Labels \"org.opencontainers.image.source-snapshot\"}}")"
+else
+  live_baseline="$(ssh "${PRODUCTION_ALIAS}" 'role=$(cat /etc/fluterapi-node-role)
 docker inspect sub2api --format "${role}|{{.Config.Image}}|{{.Image}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}|{{index .Config.Labels \"org.opencontainers.image.source-snapshot\"}}"')"
+fi
 IFS='|' read -r live_role live_image live_digest live_revision live_snapshot <<< "${live_baseline}"
 
 if [[ "${live_role}" != "production" ]]; then

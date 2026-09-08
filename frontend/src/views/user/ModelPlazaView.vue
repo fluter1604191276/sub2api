@@ -31,7 +31,7 @@
         </div>
       </header>
 
-      <section class="catalogue-filters" :aria-label="t('modelPlaza.filters')">
+      <section class="catalogue-filters" :aria-label="t('modelPlaza.filterLabel')">
         <div class="relative w-full lg:max-w-md">
           <Icon
             name="search"

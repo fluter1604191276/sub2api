@@ -12,66 +12,27 @@ export const AVAILABLE_CHANNEL_CATEGORY_ORDER = [
 
 export type AvailableChannelCategory = (typeof AVAILABLE_CHANNEL_CATEGORY_ORDER)[number]
 
-const DOMESTIC_PREFIXES = [
-  'deepseek',
-  'kimi',
-  'glm',
-  'minimax',
-  'qwen',
-  'wen',
-  'doubao',
-  'seed',
-  'hunyuan',
-  'ernie',
-  'yi-',
-  'moonshot',
-  'baichuan',
-  'mimo',
-  'step',
-  'internlm',
-  'ling',
-]
-
-const IMAGE_MARKERS = [
-  'image',
-  'video',
-  'seedance',
-  'veo',
-  'sora',
-]
-
-function startsWithAny(value: string, prefixes: string[]): boolean {
-  return prefixes.some((prefix) => value === prefix || value.startsWith(`${prefix}-`))
-}
-
-function containsAny(value: string, markers: string[]): boolean {
-  return markers.some((marker) => value.includes(marker))
-}
+const DOMESTIC_PLATFORMS = new Set([
+  'deepseek', 'kimi', 'zhipu', 'glm', 'minimax', 'qwen', 'doubao', 'volcengine',
+  'hunyuan', 'ernie', 'baichuan', 'moonshot', 'yi', 'stepfun', 'internlm'
+])
 
 /**
- * Maps a model to the public catalogue section used by Available Channels.
- * Model identity wins over protocol platform because some domestic upstreams
- * expose OpenAI- or Anthropic-compatible endpoints.
+ * Maps a model to the catalogue section using the channel protocol platform.
+ * Model names are intentionally ignored: compatible upstreams may expose
+ * domestic models through OpenAI/Anthropic protocols.
  */
 export function getAvailableChannelCategory(
   model: UserSupportedModel,
   platformHint = '',
 ): AvailableChannelCategory {
-  const name = model.name.trim().toLowerCase()
   const platform = (model.platform || platformHint).trim().toLowerCase()
-
-  if (containsAny(name, IMAGE_MARKERS)) return 'image'
-  if (name.startsWith('claude-')) return 'claude'
-  if (name.startsWith('gpt-') || name.startsWith('codex') || (platform === 'openai' && name.startsWith('o'))) {
-    return 'codex'
-  }
-  if (name.startsWith('gemini-')) return 'gemini'
-  if (name.startsWith('grok-')) return 'grok'
-  if (startsWithAny(name, DOMESTIC_PREFIXES)) return 'domestic'
   if (platform === 'anthropic') return 'claude'
   if (platform === 'gemini') return 'gemini'
   if (platform === 'grok') return 'grok'
   if (platform === 'openai') return 'codex'
+  if (DOMESTIC_PLATFORMS.has(platform)) return 'domestic'
+  if (platform === 'image' || platform === 'video') return 'image'
   return 'other'
 }
 
