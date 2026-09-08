@@ -124,6 +124,15 @@ export interface ListResponse {
   pages: number
 }
 
+export interface BulkUpdateIntervalParams {
+  monitor_ids: number[]
+  interval_seconds: number
+}
+
+export interface BulkUpdateIntervalResponse {
+  affected: number
+}
+
 export interface CreateParams {
   name: string
   provider: Provider
@@ -313,6 +322,16 @@ export async function update(id: number, params: UpdateParams): Promise<ChannelM
   return data
 }
 
+export async function bulkUpdateInterval(
+  params: BulkUpdateIntervalParams
+): Promise<BulkUpdateIntervalResponse> {
+  const { data } = await apiClient.post<BulkUpdateIntervalResponse>(
+    '/admin/channel-monitors/batch-interval',
+    params
+  )
+  return data
+}
+
 /**
  * Delete a channel monitor
  */
@@ -349,6 +368,7 @@ export const channelMonitorAPI = {
   create,
   duplicate,
   update,
+  bulkUpdateInterval,
   del,
   runNow,
   listHistory,

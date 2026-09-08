@@ -150,6 +150,62 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 	return nil
 }
 
+// BulkUpdateInterval changes only scheduling fields. Existing jitter is
+// clamped to keep interval - jitter >= 15 seconds, so setting 15 seconds
+// automatically becomes a fixed 15-second schedule.
+func (r *channelMonitorRepository) BulkUpdateInterval(ctx context.Context, ids []int64, intervalSeconds int) ([]*service.ChannelMonitor, error) {
+	if len(ids) == 0 {
+		return []*service.ChannelMonitor{}, nil
+	}
+	if r.db == nil {
+		return nil, fmt.Errorf("channel monitor database is unavailable")
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin bulk monitor interval update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE channel_monitors
+		SET interval_seconds = $1,
+		    jitter_seconds = LEAST(jitter_seconds, GREATEST($1 - 15, 0)),
+		    updated_at = NOW()
+		WHERE id = ANY($2::bigint[])`, intervalSeconds, pq.Array(ids))
+	if err != nil {
+		return nil, fmt.Errorf("bulk update monitor interval: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("read bulk monitor interval result: %w", err)
+	}
+	if affected != int64(len(ids)) {
+		return nil, fmt.Errorf("bulk update monitor interval: affected %d rows, expected %d", affected, len(ids))
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit bulk monitor interval update: %w", err)
+	}
+
+	rows, err := r.client.ChannelMonitor.Query().
+		Where(channelmonitor.IDIn(ids...)).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reload bulk-updated monitors: %w", err)
+	}
+	byID := make(map[int64]*service.ChannelMonitor, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = entToServiceMonitor(row)
+	}
+	updated := make([]*service.ChannelMonitor, 0, len(ids))
+	for _, id := range ids {
+		if monitor, ok := byID[id]; ok {
+			updated = append(updated, monitor)
+		}
+	}
+	return updated, nil
+}
+
 func (r *channelMonitorRepository) Delete(ctx context.Context, id int64) error {
 	client := clientFromContext(ctx, r.client)
 	if err := client.ChannelMonitor.DeleteOneID(id).Exec(ctx); err != nil {

@@ -52,6 +52,16 @@
         <Icon name="cog" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.template.manageButton') }}
       </button>
+      <button
+        v-if="selectedCount > 0"
+        data-testid="bulk-interval"
+        @click="$emit('bulk-interval')"
+        class="btn btn-secondary"
+        :title="t('admin.channelMonitor.bulkInterval.open')"
+      >
+        <Icon name="clock" size="md" class="mr-2" />
+        {{ t('admin.channelMonitor.bulkInterval.open') }} ({{ selectedCount }})
+      </button>
       <button @click="$emit('create')" class="btn btn-primary">
         <Icon name="plus" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.createButton') }}
@@ -79,12 +89,14 @@ import {
 
 defineProps<{
   loading: boolean
+  selectedCount: number
 }>()
 
 defineEmits<{
   (e: 'reload'): void
   (e: 'create'): void
   (e: 'manage-templates'): void
+  (e: 'bulk-interval'): void
   (e: 'search-input'): void
 }>()
 

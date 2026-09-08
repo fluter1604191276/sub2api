@@ -59,12 +59,22 @@
           @reload="reload"
           @create="openCreateDialog"
           @manage-templates="showTemplateManager = true"
+          @bulk-interval="showBulkIntervalDialog = true"
           @search-input="handleSearch"
+          :selected-count="selectedMonitorIds.length"
         />
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="monitors" :loading="loading">
+        <DataTable
+          v-model:selected-keys="selectedMonitorIds"
+          :columns="columns"
+          :data="monitors"
+          :loading="loading"
+          :selectable="true"
+          row-key="id"
+          :selection-label="t('admin.channelMonitor.selectMonitor')"
+        >
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -155,6 +165,13 @@
       @close="showRunResult = false"
     />
 
+    <MonitorBulkIntervalDialog
+      :show="showBulkIntervalDialog"
+      :selected-ids="selectedMonitorIds"
+      @close="showBulkIntervalDialog = false"
+      @success="handleBulkIntervalSuccess"
+    />
+
     <ConfirmDialog
       :show="showDeleteDialog"
       :title="t('common.delete')"
@@ -196,6 +213,7 @@ import MonitorTemplateManagerDialog from '@/components/admin/monitor/MonitorTemp
 import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import MonitorBulkIntervalDialog from '@/components/admin/monitor/MonitorBulkIntervalDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
@@ -230,6 +248,8 @@ const deleting = ref<ChannelMonitor | null>(null)
 const showRunResult = ref(false)
 const runResults = ref<CheckResult[]>([])
 const duplicatingIds = reactive(new Set<number>())
+const selectedMonitorIds = ref<number[]>([])
+const showBulkIntervalDialog = ref(false)
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -268,6 +288,8 @@ async function reload() {
     if (ctrl.signal.aborted || abortController !== ctrl) return
     monitors.value = res.items || []
     pagination.total = res.total
+    const visibleIDs = new Set(monitors.value.map((monitor) => monitor.id))
+    selectedMonitorIds.value = selectedMonitorIds.value.filter((id) => visibleIDs.has(id))
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
@@ -278,6 +300,11 @@ async function reload() {
       abortController = null
     }
   }
+}
+
+function handleBulkIntervalSuccess() {
+  selectedMonitorIds.value = []
+  void reload()
 }
 
 function handleSearch() {

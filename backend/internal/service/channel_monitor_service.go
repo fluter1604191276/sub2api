@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -23,6 +24,7 @@ type ChannelMonitorRepository interface {
 	Create(ctx context.Context, m *ChannelMonitor) error
 	GetByID(ctx context.Context, id int64) (*ChannelMonitor, error)
 	Update(ctx context.Context, m *ChannelMonitor) error
+	BulkUpdateInterval(ctx context.Context, ids []int64, intervalSeconds int) ([]*ChannelMonitor, error)
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, params ChannelMonitorListParams) ([]*ChannelMonitor, int64, error)
 	FindByDuplicateOperationID(ctx context.Context, operationID string) (*ChannelMonitor, error)
@@ -61,6 +63,8 @@ type ChannelMonitorRepository interface {
 	// UpdateAggregationWatermark 写 watermark（UPSERT 到 id=1）。
 	UpdateAggregationWatermark(ctx context.Context, date time.Time) error
 }
+
+const maxChannelMonitorBulkUpdateIDs = 100
 
 // channelMonitorRuntimeReader is the optional settings view used to gate V1
 // active probes by channel_monitor_enabled + channel_monitor_mode.
@@ -465,6 +469,46 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 		s.scheduler.Schedule(existing)
 	}
 	return existing, nil
+}
+
+// BulkUpdateInterval updates only the scheduling interval for a bounded set of
+// monitors. The repository also clamps existing jitter so the new interval
+// cannot violate the minimum effective interval constraint.
+func (s *ChannelMonitorService) BulkUpdateInterval(ctx context.Context, ids []int64, intervalSeconds int) (int, error) {
+	if err := validateInterval(intervalSeconds); err != nil {
+		return 0, err
+	}
+
+	unique := make([]int64, 0, len(ids))
+	seen := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return 0, infraerrors.BadRequest("CHANNEL_MONITOR_BATCH_EMPTY", "at least one monitor id is required")
+	}
+	if len(unique) > maxChannelMonitorBulkUpdateIDs {
+		return 0, infraerrors.BadRequest("CHANNEL_MONITOR_BATCH_TOO_LARGE", fmt.Sprintf("at most %d monitor ids can be updated at once", maxChannelMonitorBulkUpdateIDs))
+	}
+
+	updated, err := s.repo.BulkUpdateInterval(ctx, unique, intervalSeconds)
+	if err != nil {
+		return 0, fmt.Errorf("bulk update channel monitor interval: %w", err)
+	}
+	for _, monitor := range updated {
+		s.decryptInPlace(monitor)
+		if s.scheduler != nil {
+			s.scheduler.Schedule(monitor)
+		}
+	}
+	return len(updated), nil
 }
 
 // validateMonitorModeFields 校验 check_mode 与其它字段的组合约束

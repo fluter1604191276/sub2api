@@ -85,6 +85,11 @@ type channelMonitorUpdateRequest struct {
 	AccountID *int64  `json:"account_id"`
 }
 
+type channelMonitorBulkIntervalRequest struct {
+	MonitorIDs      []int64 `json:"monitor_ids" binding:"required,min=1,max=100"`
+	IntervalSeconds int64   `json:"interval_seconds" binding:"required,min=15,max=3600"`
+}
+
 type channelMonitorResponse struct {
 	ID                  int64                                `json:"id"`
 	Name                string                               `json:"name"`
@@ -456,6 +461,22 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 		return
 	}
 	response.Success(c, channelMonitorToResponse(m))
+}
+
+// BulkUpdateInterval POST /api/v1/admin/channel-monitors/batch-interval
+func (h *ChannelMonitorHandler) BulkUpdateInterval(c *gin.Context) {
+	var req channelMonitorBulkIntervalRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+
+	affected, err := h.monitorService.BulkUpdateInterval(c.Request.Context(), req.MonitorIDs, int(req.IntervalSeconds))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"affected": affected})
 }
 
 // Delete DELETE /api/v1/admin/channel-monitors/:id
