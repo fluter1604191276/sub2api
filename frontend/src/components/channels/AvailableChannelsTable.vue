@@ -1,165 +1,127 @@
 <template>
-  <!-- .table-wrapper 是 TablePageLayout 滚动链的挂载点：外层 .table-scroll-container
-       负责卡片外观并 overflow-hidden，本层接收 overflow-y-auto 才能在内容超高时滚动。 -->
-  <div class="table-wrapper">
-    <table
-      data-testid="desktop-channels"
-      class="!hidden w-full table-fixed border-collapse text-sm lg:!table"
-    >
-      <thead>
-        <tr class="border-b border-gray-100 bg-gray-50/50 text-xs font-medium uppercase tracking-wide text-gray-500 dark:border-dark-700 dark:bg-dark-800/50 dark:text-gray-400">
-          <th class="w-[150px] px-4 py-3 text-left">{{ columns.category }}</th>
-          <th class="w-[170px] px-4 py-3 text-left">{{ columns.platform }}</th>
-          <th class="w-[390px] px-4 py-3 text-left">{{ columns.groups }}</th>
-          <th class="px-4 py-3 text-left">{{ columns.supportedModels }}</th>
-        </tr>
-      </thead>
-      <tbody v-if="loading">
-        <tr>
-          <td colspan="4" class="py-10 text-center">
-            <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
-          </td>
-        </tr>
-      </tbody>
-      <tbody v-else-if="rows.length === 0">
-        <tr>
-          <td colspan="4" class="py-12 text-center">
-            <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
-            <p class="text-sm text-gray-500 dark:text-gray-400">{{ emptyLabel }}</p>
-          </td>
-        </tr>
-      </tbody>
-      <!-- Each category is a visually grouped block, matching the reference
-           catalogue while keeping channel context in the group column. -->
-      <tbody
-        v-else
+  <div class="available-channels-table-wrapper">
+    <div v-if="loading" class="catalogue-empty">
+      <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
+    </div>
+
+    <div v-else-if="displayRows.length === 0" class="catalogue-empty">
+      <Icon name="inbox" size="xl" class="mb-3 h-12 w-12 text-gray-400" />
+      <p class="text-sm text-gray-500 dark:text-gray-400">{{ emptyLabel }}</p>
+    </div>
+
+    <div v-else class="available-catalogue">
+      <section
         v-for="category in categoryBlocks"
         :key="category.category"
-        class="border-b-2 border-gray-200 last:border-b-0 dark:border-dark-600"
+        class="available-category"
       >
-        <tr
-          v-for="(row, rowIdx) in category.rows"
-          :key="`${row.channelName}-${row.section.platform}-${row.category}`"
-          class="transition-colors hover:bg-gray-50/40 dark:hover:bg-dark-800/40"
-          :class="{ 'border-t border-gray-100/70 dark:border-dark-700/50': rowIdx > 0 }"
-        >
-          <!-- Category is the primary grouping, like the reference page. -->
-          <td
-            v-if="rowIdx === 0"
-            :rowspan="category.rows.length"
-            class="px-4 py-3 align-middle font-semibold text-gray-700 dark:text-gray-200"
-          >
-            <span class="inline-flex items-center gap-2">
-              <Icon :name="categoryIcon(category.category)" size="sm" :class="categoryAccentClass(category.category)" />
-              {{ categoryLabel(category.category) }}
+        <header class="available-category-header">
+          <div class="flex items-center gap-2">
+            <span class="category-icon" :class="categoryAccentClass(category.category)">
+              <Icon :name="categoryIcon(category.category)" size="sm" />
             </span>
-          </td>
+            <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ categoryLabel(category.category) }}</h2>
+          </div>
+          <span class="text-xs text-gray-400 dark:text-gray-500">
+            {{ category.rows.length }} {{ columns.platform.toLowerCase() }}
+          </span>
+        </header>
 
-          <!-- 平台徽章 -->
-          <td class="align-top px-4 py-3">
+        <div class="available-category-columns" aria-hidden="true">
+          <span>{{ columns.platform }}</span>
+          <span>{{ columns.groups }}</span>
+          <span>{{ columns.supportedModels }}</span>
+        </div>
+
+        <article
+          v-for="row in category.rows"
+          :key="`${row.channelName}-${row.section.platform}-${row.category}`"
+          class="available-channel-row"
+        >
+          <div class="channel-identity">
             <span
               :class="[
-                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
+                'platform-label',
                 platformBadgeClass(row.section.platform),
               ]"
             >
-              <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ platformLabel(section.platform) }}
+              <PlatformIcon :platform="row.section.platform as GroupPlatform" size="xs" />
+              {{ platformDisplayName(row.section.platform) }}
             </span>
-          </td>
+            <div class="min-w-0">
+              <h3 class="channel-name" :title="row.channelName">{{ row.channelName }}</h3>
+              <p v-if="row.description" class="channel-description" :title="row.description">{{ row.description }}</p>
+            </div>
+          </div>
 
-          <!-- Group badges retain the existing public/exclusive and rate semantics. -->
-          <td class="align-top px-4 py-3">
-            <div class="flex flex-col gap-2">
-              <div class="min-w-0">
-                <div class="truncate text-xs font-medium text-gray-800 dark:text-gray-200" :title="row.channelName">
-                  {{ row.channelName }}
-                </div>
-                <div v-if="row.description" class="truncate text-[11px] text-gray-400 dark:text-gray-500" :title="row.description">
-                  {{ row.description }}
-                </div>
-              </div>
-              <div class="flex flex-col gap-1.5">
-              <div
-                v-if="exclusiveGroups(row.section).length > 0"
-                class="flex flex-wrap items-center gap-1.5"
+          <div class="channel-groups">
+            <div v-if="exclusiveGroups(row.section).length > 0" class="group-line">
+              <span
+                class="group-kind group-kind-exclusive"
+                :title="t('availableChannels.exclusiveTooltip')"
               >
-                <span
-                  class="inline-flex items-center gap-0.5 text-[10px] font-medium uppercase text-purple-600 dark:text-purple-400"
-                  :title="t('availableChannels.exclusiveTooltip')"
-                >
-                  <Icon name="shield" size="xs" class="h-3 w-3" />
-                  {{ t('availableChannels.exclusive') }}
-                </span>
-                <div
-                  v-for="g in exclusiveGroups(row.section)"
-                  :key="`ex-${g.id}`"
-                  class="inline-flex flex-wrap items-center gap-1"
-                >
+                <Icon name="shield" size="xs" />
+                {{ t('availableChannels.exclusive') }}
+              </span>
+              <div class="group-badges">
+                <div v-for="group in exclusiveGroups(row.section)" :key="`ex-${group.id}`" class="group-badge-item">
                   <GroupBadge
-                    :name="g.name"
-                    :platform="g.platform as GroupPlatform"
-                    :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
-                    :rate-multiplier="g.rate_multiplier"
-                    :user-rate-multiplier="userGroupRates[g.id] ?? null"
+                    :name="group.name"
+                    :platform="group.platform as GroupPlatform"
+                    :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
+                    :rate-multiplier="group.rate_multiplier"
+                    :user-rate-multiplier="userGroupRates[group.id] ?? null"
                     always-show-rate
                   />
                   <span
-                    v-if="hasPeakRate(g)"
-                    class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-                    :title="peakRateTitle(g)"
+                    v-if="hasPeakRate(group)"
+                    class="peak-label"
+                    :title="peakRateTitle(group)"
                   >
-                    <Icon name="clock" size="xs" class="h-3 w-3" />
-                    {{ peakRateLabel(g) }}
+                    <Icon name="clock" size="xs" />
+                    {{ peakRateLabel(group) }}
                   </span>
                 </div>
-              </div>
-              <div
-                v-if="publicGroups(row.section).length > 0"
-                class="flex flex-wrap items-center gap-1.5"
-              >
-                <span
-                  class="inline-flex items-center gap-0.5 text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400"
-                  :title="t('availableChannels.publicTooltip')"
-                >
-                  <Icon name="globe" size="xs" class="h-3 w-3" />
-                  {{ t('availableChannels.public') }}
-                </span>
-                <div
-                  v-for="g in publicGroups(row.section)"
-                  :key="`pub-${g.id}`"
-                  class="inline-flex flex-wrap items-center gap-1"
-                >
-                  <GroupBadge
-                    :name="g.name"
-                    :platform="g.platform as GroupPlatform"
-                    :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
-                    :rate-multiplier="g.rate_multiplier"
-                    :user-rate-multiplier="userGroupRates[g.id] ?? null"
-                    always-show-rate
-                  />
-                  <span
-                    v-if="hasPeakRate(g)"
-                    class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-                    :title="peakRateTitle(g)"
-                  >
-                    <Icon name="clock" size="xs" class="h-3 w-3" />
-                    {{ peakRateLabel(g) }}
-                  </span>
-                </div>
-              </div>
-              <span v-if="row.section.groups.length === 0" class="text-xs text-gray-400">-</span>
               </div>
             </div>
-          </td>
+            <div v-if="publicGroups(row.section).length > 0" class="group-line">
+              <span
+                class="group-kind group-kind-public"
+                :title="t('availableChannels.publicTooltip')"
+              >
+                <Icon name="globe" size="xs" />
+                {{ t('availableChannels.public') }}
+              </span>
+              <div class="group-badges">
+                <div v-for="group in publicGroups(row.section)" :key="`pub-${group.id}`" class="group-badge-item">
+                  <GroupBadge
+                    :name="group.name"
+                    :platform="group.platform as GroupPlatform"
+                    :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
+                    :rate-multiplier="group.rate_multiplier"
+                    :user-rate-multiplier="userGroupRates[group.id] ?? null"
+                    always-show-rate
+                  />
+                  <span
+                    v-if="hasPeakRate(group)"
+                    class="peak-label"
+                    :title="peakRateTitle(group)"
+                  >
+                    <Icon name="clock" size="xs" />
+                    {{ peakRateLabel(group) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <span v-if="row.section.groups.length === 0" class="text-xs text-gray-400">-</span>
+          </div>
 
-          <!-- 支持模型 -->
-          <td class="align-top px-4 py-3">
-            <div class="flex flex-wrap gap-1">
+          <div class="channel-models">
+            <div class="model-chip-list">
               <SupportedModelChip
-                v-for="m in row.models"
-                :key="`${row.section.platform}-${m.name}`"
-                :model="m"
+                v-for="model in row.models"
+                :key="`${row.section.platform}-${model.name}`"
+                :model="model"
                 :pricing-key-prefix="pricingKeyPrefix"
                 :no-pricing-label="noPricingLabel"
                 :show-platform="false"
@@ -169,153 +131,8 @@
                 {{ noModelsLabel }}
               </span>
             </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div data-testid="mobile-channels" class="w-full min-w-0 overflow-x-hidden lg:hidden">
-      <div v-if="loading" data-testid="mobile-loading" class="py-10 text-center">
-        <Icon name="refresh" size="lg" class="inline-block animate-spin text-gray-400" />
-      </div>
-      <div v-else-if="rows.length === 0" data-testid="mobile-empty" class="py-12 text-center">
-        <Icon name="inbox" size="xl" class="mx-auto mb-3 h-12 w-12 text-gray-400" />
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ emptyLabel }}</p>
-      </div>
-      <section
-        v-else
-        v-for="(channel, chIdx) in rows"
-        :key="`mobile-${channel.name}-${chIdx}`"
-        class="border-b-2 border-gray-200 px-4 py-4 last:border-b-0 dark:border-dark-600"
-      >
-        <header class="mb-3 min-w-0">
-          <h3 class="break-words text-sm font-semibold text-gray-900 dark:text-white">
-            {{ channel.name }}
-          </h3>
-          <p class="mt-1 break-words text-xs leading-5 text-gray-500 dark:text-gray-400">
-            {{ channel.description || '-' }}
-          </p>
-        </header>
-
-        <div class="divide-y divide-gray-100 dark:divide-dark-700/60">
-          <div
-            v-for="section in channel.platforms"
-            :key="`mobile-${channel.name}-${section.platform}`"
-            class="min-w-0 py-3 first:pt-0 last:pb-0"
-          >
-            <span
-              :class="[
-                'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-medium uppercase',
-                platformBadgeClass(section.platform),
-              ]"
-            >
-              <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ platformLabel(section.platform) }}
-            </span>
-
-            <dl class="mt-3 space-y-3">
-              <div class="min-w-0">
-                <dt class="mb-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                  {{ columns.groups }}
-                </dt>
-                <dd class="flex min-w-0 flex-col gap-2">
-                  <div
-                    v-if="exclusiveGroups(section).length > 0"
-                    class="flex min-w-0 flex-wrap items-center gap-1.5"
-                  >
-                    <span
-                      class="inline-flex items-center gap-0.5 text-[10px] font-medium uppercase text-purple-600 dark:text-purple-400"
-                      :title="t('availableChannels.exclusiveTooltip')"
-                    >
-                      <Icon name="shield" size="xs" class="h-3 w-3" />
-                      {{ t('availableChannels.exclusive') }}
-                    </span>
-                    <div
-                      v-for="g in exclusiveGroups(section)"
-                      :key="`mobile-ex-${g.id}`"
-                      class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-1"
-                    >
-                      <GroupBadge
-                        class="max-w-full"
-                        :name="g.name"
-                        :platform="g.platform as GroupPlatform"
-                        :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
-                        :rate-multiplier="g.rate_multiplier"
-                        :user-rate-multiplier="userGroupRates[g.id] ?? null"
-                        always-show-rate
-                      />
-                      <span
-                        v-if="hasPeakRate(g)"
-                        class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-                        :title="peakRateTitle(g)"
-                      >
-                        <Icon name="clock" size="xs" class="h-3 w-3" />
-                        {{ peakRateLabel(g) }}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    v-if="publicGroups(section).length > 0"
-                    class="flex min-w-0 flex-wrap items-center gap-1.5"
-                  >
-                    <span
-                      class="inline-flex items-center gap-0.5 text-[10px] font-medium uppercase text-gray-500 dark:text-gray-400"
-                      :title="t('availableChannels.publicTooltip')"
-                    >
-                      <Icon name="globe" size="xs" class="h-3 w-3" />
-                      {{ t('availableChannels.public') }}
-                    </span>
-                    <div
-                      v-for="g in publicGroups(section)"
-                      :key="`mobile-pub-${g.id}`"
-                      class="inline-flex max-w-full min-w-0 flex-wrap items-center gap-1"
-                    >
-                      <GroupBadge
-                        class="max-w-full"
-                        :name="g.name"
-                        :platform="g.platform as GroupPlatform"
-                        :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
-                        :rate-multiplier="g.rate_multiplier"
-                        :user-rate-multiplier="userGroupRates[g.id] ?? null"
-                        always-show-rate
-                      />
-                      <span
-                        v-if="hasPeakRate(g)"
-                        class="inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
-                        :title="peakRateTitle(g)"
-                      >
-                        <Icon name="clock" size="xs" class="h-3 w-3" />
-                        {{ peakRateLabel(g) }}
-                      </span>
-                    </div>
-                  </div>
-                  <span v-if="section.groups.length === 0" class="text-xs text-gray-400">-</span>
-                </dd>
-              </div>
-
-              <div class="min-w-0">
-                <dt class="mb-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                  {{ columns.supportedModels }}
-                </dt>
-                <dd class="flex min-w-0 flex-wrap gap-1">
-                  <SupportedModelChip
-                    v-for="m in section.supported_models"
-                    :key="`mobile-${section.platform}-${m.name}`"
-                    class="max-w-full [&>span]:max-w-full [&>span]:truncate"
-                    :model="m"
-                    :pricing-key-prefix="pricingKeyPrefix"
-                    :no-pricing-label="noPricingLabel"
-                    :show-platform="false"
-                    :platform-hint="section.platform"
-                  />
-                  <span v-if="section.supported_models.length === 0" class="text-xs text-gray-400">
-                    {{ noModelsLabel }}
-                  </span>
-                </dd>
-              </div>
-            </dl>
           </div>
-        </div>
+        </article>
       </section>
     </div>
   </div>
@@ -348,16 +165,12 @@ const props = defineProps<{
   noPricingLabel: string
   noModelsLabel: string
   emptyLabel: string
-  /** 用户专属倍率（group_id → multiplier）；无专属时由 GroupBadge 仅显示默认倍率。 */
+  /** 用户专属倍率（group_id -> multiplier）；无专属时由 GroupBadge 仅显示默认倍率。 */
   userGroupRates: Record<number, number>
 }>()
 
-// Suppress unused warning — props is accessed via template automatically but
-// the explicit reference here keeps the linter from flagging userGroupRates.
-void props.userGroupRates
-
 const { t } = useI18n()
-
+const appStore = useAppStore()
 const displayRows = computed(() => buildAvailableChannelDisplayRows(props.rows))
 const categoryBlocks = computed(() => {
   const blocks = new Map<AvailableChannelCategory, AvailableChannelDisplayRow[]>()
@@ -402,14 +215,12 @@ function platformDisplayName(platform: string): string {
 }
 
 function exclusiveGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
-  return section.groups.filter((g) => g.is_exclusive)
+  return section.groups.filter((group) => group.is_exclusive)
 }
 
 function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
-  return section.groups.filter((g) => !g.is_exclusive)
+  return section.groups.filter((group) => !group.is_exclusive)
 }
-
-const appStore = useAppStore()
 
 function hasPeakRate(group: UserAvailableGroup): boolean {
   return groupHasPeakRate(group)
@@ -430,18 +241,131 @@ function peakRateTitle(group: UserAvailableGroup): string {
   scrollbar-gutter: stable;
 }
 
-.available-channels-table {
-  @apply w-full;
-  min-width: 1120px !important;
+.available-catalogue {
+  @apply divide-y divide-gray-200 dark:divide-dark-700;
 }
 
-@media (max-width: 1023px) {
-  .available-channels-table-wrapper {
-    @apply overflow-x-auto overflow-y-auto;
+.available-category {
+  @apply bg-white dark:bg-dark-800;
+}
+
+.available-category-header {
+  @apply flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-4 py-3 dark:border-dark-700 dark:bg-dark-900/30;
+}
+
+.category-icon {
+  @apply flex h-7 w-7 items-center justify-center rounded-lg bg-white shadow-sm dark:bg-dark-800;
+}
+
+.available-category-columns {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.95fr) minmax(250px, 1.15fr) minmax(300px, 1.7fr);
+  @apply gap-4 border-b border-gray-100 px-4 py-2 text-[10px] font-semibold uppercase text-gray-400 dark:border-dark-700 dark:text-gray-500;
+}
+
+.available-channel-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.95fr) minmax(250px, 1.15fr) minmax(300px, 1.7fr);
+  @apply items-start gap-4 border-b border-gray-100 px-4 py-4 last:border-b-0 hover:bg-gray-50/50 dark:border-dark-700 dark:hover:bg-dark-900/20;
+}
+
+.channel-identity,
+.channel-groups,
+.channel-models {
+  @apply min-w-0;
+}
+
+.channel-identity {
+  @apply flex min-w-0 items-start gap-2.5;
+}
+
+.platform-label {
+  @apply inline-flex flex-shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase;
+}
+
+.channel-name {
+  @apply truncate text-sm font-semibold text-gray-800 dark:text-gray-100;
+}
+
+.channel-description {
+  @apply mt-1 truncate text-[11px] text-gray-400 dark:text-gray-500;
+}
+
+.channel-groups {
+  @apply space-y-2;
+}
+
+.group-line {
+  @apply flex min-w-0 items-start gap-2;
+}
+
+.group-kind {
+  @apply inline-flex flex-shrink-0 items-center gap-1 pt-1 text-[10px] font-medium;
+}
+
+.group-kind-exclusive {
+  @apply text-purple-600 dark:text-purple-400;
+}
+
+.group-kind-public {
+  @apply text-gray-500 dark:text-gray-400;
+}
+
+.group-badges,
+.group-badge-item,
+.model-chip-list {
+  @apply flex min-w-0 flex-wrap items-center gap-1.5;
+}
+
+.group-badge-item {
+  @apply items-center;
+}
+
+.peak-label {
+  @apply inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300;
+}
+
+.model-chip-list :deep(.relative) {
+  max-width: 100%;
+}
+
+.catalogue-empty {
+  @apply flex min-h-64 flex-col items-center justify-center p-8 text-center;
+}
+
+@media (max-width: 1100px) {
+  .available-category-columns,
+  .available-channel-row {
+    grid-template-columns: minmax(150px, 0.85fr) minmax(230px, 1.15fr);
   }
 
-  .available-channels-table {
-    min-width: 960px !important;
+  .available-category-columns span:last-child,
+  .channel-models {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 767px) {
+  .available-category-columns {
+    display: none;
+  }
+
+  .available-channel-row {
+    display: block;
+    @apply space-y-3 px-3 py-3;
+  }
+
+  .channel-groups,
+  .channel-models {
+    @apply border-t border-gray-100 pt-3 dark:border-dark-700;
+  }
+
+  .group-line {
+    @apply flex-col gap-1;
+  }
+
+  .group-kind {
+    @apply pt-0;
   }
 }
 </style>
