@@ -255,6 +255,33 @@ func TestIsModelRateLimited_OpenAIImageGenerationIntentBlocksTextModelImageTool(
 	require.True(t, account.isModelRateLimitedWithContext(WithOpenAIImageGenerationIntent(context.Background()), "gpt-5.4"))
 }
 
+func TestDynamicModelCapabilityRateLimitIsEndpointScopedAndExpires(t *testing.T) {
+	future := time.Now().Add(2 * time.Hour).Format(time.RFC3339)
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"gpt-5.6-luna": "luna-upstream"},
+		},
+		Extra: map[string]any{
+			modelRateLimitsKey: map[string]any{
+				dynamicModelCapabilityRateLimitKey("responses", "luna-upstream"): map[string]any{
+					"rate_limit_reset_at": future,
+				},
+			},
+		},
+	}
+
+	require.True(t, account.isModelRateLimitedWithContext(WithSmartSchedulerEndpoint(context.Background(), "responses"), "gpt-5.6-luna"))
+	require.False(t, account.isModelRateLimitedWithContext(WithSmartSchedulerEndpoint(context.Background(), "chat_completions"), "gpt-5.6-luna"))
+
+	account.Extra[modelRateLimitsKey] = map[string]any{
+		dynamicModelCapabilityRateLimitKey("responses", "luna-upstream"): map[string]any{
+			"rate_limit_reset_at": time.Now().Add(-time.Minute).Format(time.RFC3339),
+		},
+	}
+	require.False(t, account.isModelRateLimitedWithContext(WithSmartSchedulerEndpoint(context.Background(), "responses"), "gpt-5.6-luna"))
+}
+
 func TestIsModelRateLimited_Antigravity_ThinkingAffectsModelKey(t *testing.T) {
 	now := time.Now()
 	future := now.Add(10 * time.Minute).Format(time.RFC3339)

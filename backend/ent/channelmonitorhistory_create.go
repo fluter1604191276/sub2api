@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // ChannelMonitorHistoryCreate is the builder for creating a ChannelMonitorHistory entity.
@@ -83,6 +84,26 @@ func (_c *ChannelMonitorHistoryCreate) SetNillableMessage(v *string) *ChannelMon
 	return _c
 }
 
+// SetQuota sets the "quota" field.
+func (_c *ChannelMonitorHistoryCreate) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetQuota(v)
+	return _c
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (_c *ChannelMonitorHistoryCreate) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryCreate {
+	_c.mutation.SetEstimatedCostUsd(v)
+	return _c
+}
+
+// SetNillableEstimatedCostUsd sets the "estimated_cost_usd" field if the given value is not nil.
+func (_c *ChannelMonitorHistoryCreate) SetNillableEstimatedCostUsd(v *float64) *ChannelMonitorHistoryCreate {
+	if v != nil {
+		_c.SetEstimatedCostUsd(*v)
+	}
+	return _c
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_c *ChannelMonitorHistoryCreate) SetCheckedAt(v time.Time) *ChannelMonitorHistoryCreate {
 	_c.mutation.SetCheckedAt(v)
@@ -141,6 +162,10 @@ func (_c *ChannelMonitorHistoryCreate) defaults() {
 		v := channelmonitorhistory.DefaultMessage
 		_c.mutation.SetMessage(v)
 	}
+	if _, ok := _c.mutation.EstimatedCostUsd(); !ok {
+		v := channelmonitorhistory.DefaultEstimatedCostUsd
+		_c.mutation.SetEstimatedCostUsd(v)
+	}
 	if _, ok := _c.mutation.CheckedAt(); !ok {
 		v := channelmonitorhistory.DefaultCheckedAt()
 		_c.mutation.SetCheckedAt(v)
@@ -172,6 +197,9 @@ func (_c *ChannelMonitorHistoryCreate) check() error {
 		if err := channelmonitorhistory.MessageValidator(v); err != nil {
 			return &ValidationError{Name: "message", err: fmt.Errorf(`ent: validator failed for field "ChannelMonitorHistory.message": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.EstimatedCostUsd(); !ok {
+		return &ValidationError{Name: "estimated_cost_usd", err: errors.New(`ent: missing required field "ChannelMonitorHistory.estimated_cost_usd"`)}
 	}
 	if _, ok := _c.mutation.CheckedAt(); !ok {
 		return &ValidationError{Name: "checked_at", err: errors.New(`ent: missing required field "ChannelMonitorHistory.checked_at"`)}
@@ -225,6 +253,14 @@ func (_c *ChannelMonitorHistoryCreate) createSpec() (*ChannelMonitorHistory, *sq
 	if value, ok := _c.mutation.Message(); ok {
 		_spec.SetField(channelmonitorhistory.FieldMessage, field.TypeString, value)
 		_node.Message = value
+	}
+	if value, ok := _c.mutation.Quota(); ok {
+		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
+		_node.Quota = value
+	}
+	if value, ok := _c.mutation.EstimatedCostUsd(); ok {
+		_spec.SetField(channelmonitorhistory.FieldEstimatedCostUsd, field.TypeFloat64, value)
+		_node.EstimatedCostUsd = value
 	}
 	if value, ok := _c.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)
@@ -401,6 +437,42 @@ func (u *ChannelMonitorHistoryUpsert) ClearMessage() *ChannelMonitorHistoryUpser
 	return u
 }
 
+// SetQuota sets the "quota" field.
+func (u *ChannelMonitorHistoryUpsert) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldQuota, v)
+	return u
+}
+
+// UpdateQuota sets the "quota" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateQuota() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldQuota)
+	return u
+}
+
+// ClearQuota clears the value of the "quota" field.
+func (u *ChannelMonitorHistoryUpsert) ClearQuota() *ChannelMonitorHistoryUpsert {
+	u.SetNull(channelmonitorhistory.FieldQuota)
+	return u
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsert) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsert {
+	u.Set(channelmonitorhistory.FieldEstimatedCostUsd, v)
+	return u
+}
+
+// UpdateEstimatedCostUsd sets the "estimated_cost_usd" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsert) UpdateEstimatedCostUsd() *ChannelMonitorHistoryUpsert {
+	u.SetExcluded(channelmonitorhistory.FieldEstimatedCostUsd)
+	return u
+}
+
+// AddEstimatedCostUsd adds v to the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsert) AddEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsert {
+	u.Add(channelmonitorhistory.FieldEstimatedCostUsd, v)
+	return u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (u *ChannelMonitorHistoryUpsert) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpsert {
 	u.Set(channelmonitorhistory.FieldCheckedAt, v)
@@ -569,6 +641,48 @@ func (u *ChannelMonitorHistoryUpsertOne) UpdateMessage() *ChannelMonitorHistoryU
 func (u *ChannelMonitorHistoryUpsertOne) ClearMessage() *ChannelMonitorHistoryUpsertOne {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearMessage()
+	})
+}
+
+// SetQuota sets the "quota" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetQuota(v)
+	})
+}
+
+// UpdateQuota sets the "quota" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateQuota() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateQuota()
+	})
+}
+
+// ClearQuota clears the value of the "quota" field.
+func (u *ChannelMonitorHistoryUpsertOne) ClearQuota() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearQuota()
+	})
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsertOne) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetEstimatedCostUsd(v)
+	})
+}
+
+// AddEstimatedCostUsd adds v to the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsertOne) AddEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddEstimatedCostUsd(v)
+	})
+}
+
+// UpdateEstimatedCostUsd sets the "estimated_cost_usd" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertOne) UpdateEstimatedCostUsd() *ChannelMonitorHistoryUpsertOne {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateEstimatedCostUsd()
 	})
 }
 
@@ -906,6 +1020,48 @@ func (u *ChannelMonitorHistoryUpsertBulk) UpdateMessage() *ChannelMonitorHistory
 func (u *ChannelMonitorHistoryUpsertBulk) ClearMessage() *ChannelMonitorHistoryUpsertBulk {
 	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
 		s.ClearMessage()
+	})
+}
+
+// SetQuota sets the "quota" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetQuota(v)
+	})
+}
+
+// UpdateQuota sets the "quota" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateQuota() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateQuota()
+	})
+}
+
+// ClearQuota clears the value of the "quota" field.
+func (u *ChannelMonitorHistoryUpsertBulk) ClearQuota() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.ClearQuota()
+	})
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsertBulk) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.SetEstimatedCostUsd(v)
+	})
+}
+
+// AddEstimatedCostUsd adds v to the "estimated_cost_usd" field.
+func (u *ChannelMonitorHistoryUpsertBulk) AddEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.AddEstimatedCostUsd(v)
+	})
+}
+
+// UpdateEstimatedCostUsd sets the "estimated_cost_usd" field to the value that was provided on create.
+func (u *ChannelMonitorHistoryUpsertBulk) UpdateEstimatedCostUsd() *ChannelMonitorHistoryUpsertBulk {
+	return u.Update(func(s *ChannelMonitorHistoryUpsert) {
+		s.UpdateEstimatedCostUsd()
 	})
 }
 

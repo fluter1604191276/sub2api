@@ -1,7 +1,6 @@
 <template>
-  <div v-if="groups && groups.length > 0" class="relative max-w-56">
-    <!-- 分组容器：固定最大宽度，最多显示2行 -->
-    <div class="flex flex-wrap gap-1 max-h-14 overflow-hidden">
+  <div v-if="groups && groups.length > 0" class="relative w-72 max-w-full whitespace-normal">
+    <div class="flex flex-wrap items-start gap-1">
       <GroupBadge
         v-for="group in displayGroups"
         :key="group.id"
@@ -10,7 +9,8 @@
         :subscription-type="group.subscription_type"
         :rate-multiplier="group.rate_multiplier"
         :show-rate="false"
-        class="max-w-24"
+        full-name
+        class="min-w-0 max-w-full whitespace-normal"
       />
       <!-- 更多数量徽章 -->
       <button
@@ -52,7 +52,7 @@
               </svg>
             </button>
           </div>
-          <div class="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto">
+          <div class="flex max-h-64 flex-col items-stretch gap-1.5 overflow-y-auto">
             <GroupBadge
               v-for="group in groups"
               :key="group.id"
@@ -61,6 +61,8 @@
               :subscription-type="group.subscription_type"
               :rate-multiplier="group.rate_multiplier"
               :show-rate="false"
+              full-name
+              class="w-full min-w-0 max-w-full justify-start whitespace-normal"
             />
           </div>
         </div>

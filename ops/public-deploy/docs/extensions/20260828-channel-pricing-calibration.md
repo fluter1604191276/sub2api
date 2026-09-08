@@ -10,10 +10,14 @@ Environment-variable/config dependency: none
 Billing impact: internal cost; user charge remains separate from account stats pricing.
 Scheduling impact: none
 Client protocol impact: OpenAI image/Responses request context。
-Upstream version/base commit: v0.1.149 lineage, current custom release branch
+First release upstream version/base commit: v0.1.171
+First release official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
+First release custom source branch: release/v0.1.171-fluter-full-custom-20260829
+Current candidate upstream version/base commit: v0.1.183 / e8cb019fabf8b55199436229044cbf9aa7a82564
+Current candidate custom source branch: release/v0.1.183-fluter-full-custom-20260830
 Tests/fixtures: channel calibration, image pricing, gateway usage and frontend pricing tests。
-Image smoke evidence: 发布后需验证预览不写库、应用只改模型列表、图片成本按上下文解析。
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest；覆盖校准预览、模型应用和图片成本上下文解析。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 数据写入前备份；回退镜像并按记录恢复 pricing migration/data。
 Owner/status: fluter / ready for candidate build
 ```

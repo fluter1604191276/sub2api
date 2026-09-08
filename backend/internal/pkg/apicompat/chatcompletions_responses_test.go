@@ -32,6 +32,47 @@ func TestChatCompletionsToResponses_BasicText(t *testing.T) {
 	assert.Equal(t, "user", items[0].Role)
 }
 
+func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
+	var responsesUsage ResponsesUsage
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"input_tokens":1000,
+		"output_tokens":50,
+		"input_tokens_details":{"cached_tokens":100,"cache_write_tokens":200}
+	}`), &responsesUsage))
+	require.NotNil(t, responsesUsage.InputTokensDetails)
+	require.Equal(t, 200, responsesUsage.InputTokensDetails.CacheWriteTokens)
+
+	chatUsage := chatUsageFromResponsesUsage(&responsesUsage)
+	require.NotNil(t, chatUsage.PromptTokensDetails)
+	require.Equal(t, 100, chatUsage.PromptTokensDetails.CachedTokens)
+	require.Equal(t, 200, chatUsage.PromptTokensDetails.CacheWriteTokens)
+
+	roundTrip := ChatUsageToResponsesUsage(chatUsage)
+	require.NotNil(t, roundTrip.InputTokensDetails)
+	require.Equal(t, 200, roundTrip.CacheCreationInputTokens)
+	require.Equal(t, 200, roundTrip.InputTokensDetails.CacheWriteTokens)
+}
+
+func TestResponsesUsageNestedCacheWritePresenceOverridesTopLevelAlias(t *testing.T) {
+	tests := []struct {
+		name       string
+		nestedJSON string
+		want       int
+	}{
+		{name: "explicit zero", nestedJSON: `{"cache_write_tokens":0}`, want: 0},
+		{name: "nonzero", nestedJSON: `{"cache_write_tokens":7}`, want: 7},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var usage ResponsesUsage
+			payload := []byte(`{"input_tokens":20,"output_tokens":2,"cache_creation_input_tokens":19,"input_tokens_details":` + tt.nestedJSON + `}`)
+			require.NoError(t, json.Unmarshal(payload, &usage))
+			require.Equal(t, tt.want, usage.CacheCreationInputTokens)
+		})
+	}
+}
+
 func TestChatCompletionsToResponses_SystemMessage(t *testing.T) {
 	req := &ChatCompletionsRequest{
 		Model: "gpt-4o",
@@ -366,6 +407,79 @@ func TestChatCompletionsToResponses_WhitespaceOnlyBase64ImageURLSkipped(t *testi
 	assert.Equal(t, "Describe this", parts[0].Text)
 }
 
+func TestChatCompletionsToResponses_FilePartFileData(t *testing.T) {
+	content := `[{"type":"text","text":"Summarize the attached document"},{"type":"file","file":{"filename":"document.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQ="}}]`
+	req := &ChatCompletionsRequest{
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(content)},
+		},
+	}
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 2)
+	assert.Equal(t, "input_text", parts[0].Type)
+	assert.Equal(t, "Summarize the attached document", parts[0].Text)
+	assert.Equal(t, "input_file", parts[1].Type)
+	assert.Equal(t, "document.pdf", parts[1].Filename)
+	assert.Equal(t, "data:application/pdf;base64,JVBERi0xLjQ=", parts[1].FileData)
+	assert.Empty(t, parts[1].FileID)
+}
+
+func TestChatCompletionsToResponses_FilePartFileID(t *testing.T) {
+	content := `[{"type":"file","file":{"file_id":"file-abc123"}}]`
+	req := &ChatCompletionsRequest{
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(content)},
+		},
+	}
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "input_file", parts[0].Type)
+	assert.Equal(t, "file-abc123", parts[0].FileID)
+	assert.Empty(t, parts[0].FileData)
+}
+
+func TestChatCompletionsToResponses_EmptyFilePartSkipped(t *testing.T) {
+	// A file part with neither file_data nor file_id carries nothing the
+	// Responses API can use; dropping it (like empty image URLs) avoids an
+	// upstream 400 on an empty input_file part.
+	content := `[{"type":"text","text":"Describe this"},{"type":"file","file":{"filename":"empty.pdf"}}]`
+	req := &ChatCompletionsRequest{
+		Model: "gpt-4o",
+		Messages: []ChatMessage{
+			{Role: "user", Content: json.RawMessage(content)},
+		},
+	}
+	resp, err := ChatCompletionsToResponses(req)
+	require.NoError(t, err)
+
+	var items []ResponsesInputItem
+	require.NoError(t, json.Unmarshal(resp.Input, &items))
+	require.Len(t, items, 1)
+
+	var parts []ResponsesContentPart
+	require.NoError(t, json.Unmarshal(items[0].Content, &parts))
+	require.Len(t, parts, 1)
+	assert.Equal(t, "input_text", parts[0].Type)
+}
+
 func TestChatCompletionsToResponses_EmptyContentNeverNull(t *testing.T) {
 	// Regression for #2515: the upstream Responses API rejects an input item
 	// whose content field is JSON null. Any chat-completions message that
@@ -418,7 +532,7 @@ func TestChatCompletionsResponseToResponses_DeepSeekReasoningOnlyFallsBackToMess
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner")
+	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner", nil, nil, false, nil)
 
 	require.Len(t, out.Output, 2)
 	require.Equal(t, "reasoning", out.Output[0].Type)
@@ -452,7 +566,7 @@ func TestChatCompletionsResponseToResponses_DeepSeekReasoningToolCallDoesNotFall
 		}},
 	}
 
-	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner")
+	out := ChatCompletionsResponseToResponses(resp, "deepseek-reasoner", nil, nil, false, nil)
 
 	require.Len(t, out.Output, 2)
 	require.Equal(t, "reasoning", out.Output[0].Type)
@@ -529,6 +643,25 @@ func TestChatCompletionsToResponses_ServiceTier(t *testing.T) {
 	resp, err := ChatCompletionsToResponses(req)
 	require.NoError(t, err)
 	assert.Equal(t, "flex", resp.ServiceTier)
+}
+
+func TestChatCompletionsToResponses_ParallelToolCalls(t *testing.T) {
+	for _, value := range []bool{false, true} {
+		req := &ChatCompletionsRequest{
+			Model:             "gpt-4o",
+			ParallelToolCalls: &value,
+			Messages:          []ChatMessage{{Role: "user", Content: json.RawMessage(`"Hi"`)}},
+		}
+
+		resp, err := ChatCompletionsToResponses(req)
+		require.NoError(t, err)
+		require.NotNil(t, resp.ParallelToolCalls)
+		assert.Equal(t, value, *resp.ParallelToolCalls)
+
+		payload, err := json.Marshal(resp)
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), `"parallel_tool_calls":`+string(mustMarshalJSON(t, value)))
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -52,6 +52,16 @@
         <Icon name="cog" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.template.manageButton') }}
       </button>
+      <button
+        v-if="selectedCount > 0"
+        data-testid="bulk-interval"
+        @click="$emit('bulk-interval')"
+        class="btn btn-secondary"
+        :title="t('admin.channelMonitor.bulkInterval.open')"
+      >
+        <Icon name="clock" size="md" class="mr-2" />
+        {{ t('admin.channelMonitor.bulkInterval.open') }} ({{ selectedCount }})
+      </button>
       <button @click="$emit('create')" class="btn btn-primary">
         <Icon name="plus" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.createButton') }}
@@ -70,16 +80,23 @@ import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_GROK,
+  PROVIDER_ANTIGRAVITY,
+  PROVIDER_KIMI,
+  PROVIDER_ZHIPU,
+  PROVIDER_DEEPSEEK,
 } from '@/constants/channelMonitor'
 
 defineProps<{
   loading: boolean
+  selectedCount: number
 }>()
 
 defineEmits<{
   (e: 'reload'): void
   (e: 'create'): void
   (e: 'manage-templates'): void
+  (e: 'bulk-interval'): void
   (e: 'search-input'): void
 }>()
 
@@ -94,6 +111,11 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
+  { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
+  { value: PROVIDER_ANTIGRAVITY, label: t('monitorCommon.providers.antigravity') },
+  { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
+  { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
+  { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
 ])
 
 const enabledFilterOptions = computed(() => [

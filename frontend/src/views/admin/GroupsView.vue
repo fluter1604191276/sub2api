@@ -128,6 +128,12 @@
             }}</span>
           </template>
 
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400"
+              >#{{ value }}</span
+            >
+          </template>
+
           <template #cell-platform="{ value }">
             <span
               :class="[
@@ -140,7 +146,13 @@
                       ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
                       : value === 'grok'
                         ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                        : value === 'kimi'
+                          ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
+                          : value === 'zhipu'
+                            ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                            : value === 'deepseek'
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
               ]"
             >
               <PlatformIcon :platform="value" size="xs" />
@@ -329,6 +341,16 @@
               </div>
               <div class="text-gray-500 dark:text-gray-400">
                 <span class="text-gray-400 dark:text-gray-500">{{
+                  t("admin.groups.usageYesterday")
+                }}</span>
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
+                  >${{
+                    formatCost(usageMap.get(row.id)?.yesterday_cost ?? 0)
+                  }}</span
+                >
+              </div>
+              <div class="text-gray-500 dark:text-gray-400">
+                <span class="text-gray-400 dark:text-gray-500">{{
                   t("admin.groups.usageTotal")
                 }}</span>
                 <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
@@ -338,6 +360,46 @@
                 >
               </div>
             </div>
+          </template>
+
+          <template #header-quality_stats_1h="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip
+                :content="t('admin.groups.quality.realtimeHint')"
+                width-class="w-80"
+              />
+            </div>
+          </template>
+
+          <template #cell-quality_stats_1h="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByGroupId[String(row.id)]?.recent_1h ?? null"
+              :activity="qualityStatsByGroupId[String(row.id)]?.activity ?? null"
+              :activity-state-override="row.status !== 'active' ? 'paused' : null"
+              show-activity
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
+          </template>
+
+          <template #header-quality_stats="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip
+                :content="t('admin.groups.quality.hint')"
+                width-class="w-80"
+              />
+            </div>
+          </template>
+
+          <template #cell-quality_stats="{ row }">
+            <AccountQualityCell
+              :stats="qualityStatsByGroupId[String(row.id)] ?? null"
+              :muted="isGroupQualityBaselineMuted(row)"
+              :loading="qualityStatsLoading"
+              :error="qualityStatsError"
+            />
           </template>
 
           <template #cell-status="{ value }">
@@ -361,6 +423,36 @@
                 <span class="text-xs">{{ t("common.edit") }}</span>
               </button>
               <button
+                data-testid="group-duplicate"
+                :title="
+                  duplicatingGroupIds.has(row.id)
+                    ? t('admin.groups.duplicating')
+                    : t('admin.groups.duplicate')
+                "
+                :disabled="duplicatingGroupIds.has(row.id)"
+                @click="handleDuplicate(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+              >
+                <Icon name="copy" size="sm" />
+                <span class="text-xs">
+                  {{
+                    duplicatingGroupIds.has(row.id)
+                      ? t("admin.groups.duplicating")
+                      : t("admin.groups.duplicate")
+                  }}
+                </span>
+              </button>
+              <button
+                v-if="row.platform === 'composite'"
+                @click="handleCompositeRoutes(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-cyan-600 dark:hover:bg-dark-700 dark:hover:text-cyan-400"
+              >
+                <Icon name="swap" size="sm" />
+                <span class="text-xs">{{
+                  t("admin.groups.compositeRoutes.action")
+                }}</span>
+              </button>
+              <button
                 @click="handleRateMultipliers(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
               >
@@ -376,6 +468,16 @@
                 <Icon name="bolt" size="sm" />
                 <span class="text-xs">{{
                   t("admin.groups.rpmOverrides")
+                }}</span>
+              </button>
+              <button
+                @click="handleSmartScheduler(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 dark:hover:bg-dark-700 dark:hover:text-blue-400"
+                :title="t('admin.groups.smartScheduler.action')"
+              >
+                <Icon name="brain" size="sm" />
+                <span class="text-xs">{{
+                  t("admin.groups.smartScheduler.action")
                 }}</span>
               </button>
               <button
@@ -573,6 +675,56 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
+        <div class="border-t pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.form.smartScheduler") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.formHint") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="create-smart-scheduler-toggle"
+              @click="
+                createForm.smart_scheduler_enabled =
+                  !createForm.smart_scheduler_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
+                createForm.smart_scheduler_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.smart_scheduler_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {{
+              createForm.smart_scheduler_enabled
+                ? t("admin.groups.smartScheduler.formEnabled")
+                : t("admin.groups.smartScheduler.formDisabled")
+            }}
+          </p>
+        </div>
+        <ReasoningEffortPolicyFields
+          v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
+          ref="createReasoningEffortPolicyRef"
+          id-prefix="create-group-reasoning"
+          :platform="createForm.platform"
+          v-model:max-effort="createForm.max_reasoning_effort"
+          v-model:mappings="createForm.reasoning_effort_mappings"
+        />
         <div
           v-if="createForm.subscription_type !== 'subscription'"
           data-tour="group-form-exclusive"
@@ -1043,6 +1195,45 @@
               />
             </div>
           </div>
+          <div
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+            data-testid="create-grok-video-model-prices"
+          >
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.videoPricing.modelOverridesTitle") }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.videoPricing.modelOverridesDescription") }}
+            </p>
+            <div class="mt-3 space-y-3">
+              <div
+                v-for="family in videoModelPriceFamilyRows(createForm.video_model_prices)"
+                :key="family.key"
+                class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,7rem))] sm:items-end"
+              >
+                <div class="min-w-0 pb-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {{ family.label }}
+                </div>
+                <label
+                  v-for="resolution in grokVideoPriceResolutions"
+                  :key="resolution.key"
+                  class="block"
+                >
+                  <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+                    {{ resolution.label }} ($/s)
+                  </span>
+                  <input
+                    v-model.number="createForm.video_model_prices[family.key][resolution.key]"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    class="input"
+                    :data-testid="`create-grok-video-price-${family.key}-${resolution.key}`"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
           <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t(videoPricingI18nKey("modeHint")) }}
           </p>
@@ -1075,7 +1266,7 @@
           </div>
           <div
             v-if="createForm.peak_rate_enabled"
-            class="mb-4 grid grid-cols-3 gap-3"
+            class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
           >
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
@@ -1103,6 +1294,56 @@
                 class="input"
                 placeholder="1"
                 :title="t('admin.groups.peakRate.multiplierHint')"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 分组利润控制（五个平台 token 请求） -->
+        <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="createForm.profit_control_enabled"
+              type="checkbox"
+              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.profitControl.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            {{
+              createForm.profit_control_enabled
+                ? t("admin.groups.profitControl.enabledHint")
+                : t("admin.groups.profitControl.disabledHint")
+            }}
+          </p>
+          <div
+            v-if="createForm.profit_control_enabled"
+            class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
+              <input
+                v-model.number="createForm.profit_min_margin_percent"
+                type="number"
+                step="0.1"
+                min="0"
+                max="99.99"
+                class="input"
+                placeholder="0"
+                :title="t('admin.groups.profitControl.minMarginHint')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
+              <input
+                v-model.number="createForm.profit_safety_buffer_percent"
+                type="number"
+                step="0.1"
+                min="0"
+                max="99.99"
+                class="input"
+                placeholder="0"
+                :title="t('admin.groups.profitControl.safetyBufferHint')"
               />
             </div>
           </div>
@@ -1315,9 +1556,159 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.webSearchPricing.title") }}
+          </h4>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.webSearchPricing.pricePerCall")
+            }}</label>
+            <input
+              v-model.number="createForm.web_search_price_per_call"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="0.01"
+              class="input"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
+            </p>
+            <div
+              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              {{
+                t("admin.groups.webSearchPricing.finalPricePreview", {
+                  price: createWebSearchFinalPricePreview,
+                })
+              }}
+            </div>
+          </div>
+        </div>
+
+
+        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary" @click="addGroupPricing(createForm.model_pricing)">
+              <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
+            </button>
+          </div>
+          <label class="mt-3 flex items-start gap-2">
+            <input v-model="createForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
+            <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
+          </label>
+          <div class="mt-3 space-y-2">
+            <PricingEntryCard v-for="(entry, index) in createForm.model_pricing" :key="index" :entry="entry" :platform="createForm.platform" hide-token-intervals @update="createForm.model_pricing[index] = $event" @remove="createForm.model_pricing.splice(index, 1)" />
+          </div>
+        </div>
+
+        <!-- Grok Voice 显式定价（仅 grok 平台） -->
+        <div
+          v-if="createForm.platform === 'grok'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ t("admin.groups.explicitPricing.title") }}
+          </h4>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t("admin.groups.explicitPricing.description") }}
+          </p>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.explicitPricing.searchPricePer1k") }}</label>
+              <input
+                v-model.number="createForm.search_price_per_1k"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.explicitPricing.pricePlaceholder')"
+                data-testid="create-search-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioRealtimePerMin") }}</label>
+              <input
+                v-model.number="createForm.audio_realtime_price_per_min"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="create-audio-realtime-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioTtsPerMillionChars") }}</label>
+              <input
+                v-model.number="createForm.audio_tts_price_per_million_chars"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="create-audio-tts-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioSttPerHour") }}</label>
+              <input
+                v-model.number="createForm.audio_stt_price_per_hour"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="create-audio-stt-price"
+              />
+            </div>
+          </div>
+        </div>
+        <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
+        <div
+          v-if="supportsLivePlatform(createForm.platform)"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.openaiLive.title") }}
+          </h4>
+          <div class="flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.openaiLive.allow")
+            }}</label>
+            <button
+              type="button"
+              @click="toggleLive('create')"
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                createForm.allow_live
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="createForm.allow_live ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {{ t("admin.groups.openaiLive.hint") }}
+          </p>
+        </div>
+
+        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
+        <div
+          v-if="supportsMessagesDispatchPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1356,7 +1747,13 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div v-if="createForm.allow_messages_dispatch" class="mt-3">
+          <div
+            v-if="
+              createForm.platform === 'openai' &&
+              createForm.allow_messages_dispatch
+            "
+            class="mt-3"
+          >
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
             >
@@ -2050,6 +2447,56 @@
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
+        <div class="border-t pt-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.form.smartScheduler") }}
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.formHint") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="edit-smart-scheduler-toggle"
+              @click="
+                editForm.smart_scheduler_enabled =
+                  !editForm.smart_scheduler_enabled
+              "
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors',
+                editForm.smart_scheduler_enabled
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.smart_scheduler_enabled
+                    ? 'translate-x-6'
+                    : 'translate-x-1',
+                ]"
+              />
+            </button>
+          </div>
+          <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {{
+              editForm.smart_scheduler_enabled
+                ? t("admin.groups.smartScheduler.formEnabled")
+                : t("admin.groups.smartScheduler.formDisabled")
+            }}
+          </p>
+        </div>
+        <ReasoningEffortPolicyFields
+          v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
+          ref="editReasoningEffortPolicyRef"
+          id-prefix="edit-group-reasoning"
+          :platform="editForm.platform"
+          v-model:max-effort="editForm.max_reasoning_effort"
+          v-model:mappings="editForm.reasoning_effort_mappings"
+        />
         <div v-if="editForm.subscription_type !== 'subscription'">
           <div class="mb-1.5 flex items-center gap-1">
             <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -2522,6 +2969,45 @@
               />
             </div>
           </div>
+          <div
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700"
+            data-testid="edit-grok-video-model-prices"
+          >
+            <p class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t("admin.groups.videoPricing.modelOverridesTitle") }}
+            </p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.videoPricing.modelOverridesDescription") }}
+            </p>
+            <div class="mt-3 space-y-3">
+              <div
+                v-for="family in videoModelPriceFamilyRows(editForm.video_model_prices)"
+                :key="family.key"
+                class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,7rem))] sm:items-end"
+              >
+                <div class="min-w-0 pb-1 font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {{ family.label }}
+                </div>
+                <label
+                  v-for="resolution in grokVideoPriceResolutions"
+                  :key="resolution.key"
+                  class="block"
+                >
+                  <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
+                    {{ resolution.label }} ($/s)
+                  </span>
+                  <input
+                    v-model.number="editForm.video_model_prices[family.key][resolution.key]"
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    class="input"
+                    :data-testid="`edit-grok-video-price-${family.key}-${resolution.key}`"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
           <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t(videoPricingI18nKey("modeHint")) }}
           </p>
@@ -2554,7 +3040,7 @@
           </div>
           <div
             v-if="editForm.peak_rate_enabled"
-            class="mb-4 grid grid-cols-3 gap-3"
+            class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
           >
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
@@ -2582,6 +3068,56 @@
                 class="input"
                 placeholder="1"
                 :title="t('admin.groups.peakRate.multiplierHint')"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 分组利润控制（五个平台 token 请求） -->
+        <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
+          <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="editForm.profit_control_enabled"
+              type="checkbox"
+              class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>{{ t("admin.groups.profitControl.enable") }}</span>
+          </label>
+          <p class="mb-3 mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            {{
+              editForm.profit_control_enabled
+                ? t("admin.groups.profitControl.enabledHint")
+                : t("admin.groups.profitControl.disabledHint")
+            }}
+          </p>
+          <div
+            v-if="editForm.profit_control_enabled"
+            class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"
+          >
+            <div>
+              <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
+              <input
+                v-model.number="editForm.profit_min_margin_percent"
+                type="number"
+                step="0.1"
+                min="0"
+                max="99.99"
+                class="input"
+                placeholder="0"
+                :title="t('admin.groups.profitControl.minMarginHint')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
+              <input
+                v-model.number="editForm.profit_safety_buffer_percent"
+                type="number"
+                step="0.1"
+                min="0"
+                max="99.99"
+                class="input"
+                placeholder="0"
+                :title="t('admin.groups.profitControl.safetyBufferHint')"
               />
             </div>
           </div>
@@ -2790,9 +3326,159 @@
           </div>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
           v-if="editForm.platform === 'openai'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.webSearchPricing.title") }}
+          </h4>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.webSearchPricing.pricePerCall")
+            }}</label>
+            <input
+              v-model.number="editForm.web_search_price_per_call"
+              type="number"
+              step="0.001"
+              min="0"
+              placeholder="0.01"
+              class="input"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
+            </p>
+            <div
+              class="mt-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+            >
+              {{
+                t("admin.groups.webSearchPricing.finalPricePreview", {
+                  price: editWebSearchFinalPricePreview,
+                })
+              }}
+            </div>
+          </div>
+        </div>
+
+
+        <div class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
+            </div>
+            <button type="button" class="btn btn-secondary" @click="addGroupPricing(editForm.model_pricing)">
+              <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
+            </button>
+          </div>
+          <label class="mt-3 flex items-start gap-2">
+            <input v-model="editForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
+            <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
+          </label>
+          <div class="mt-3 space-y-2">
+            <PricingEntryCard v-for="(entry, index) in editForm.model_pricing" :key="index" :entry="entry" :platform="editForm.platform" hide-token-intervals @update="editForm.model_pricing[index] = $event" @remove="editForm.model_pricing.splice(index, 1)" />
+          </div>
+        </div>
+
+        <!-- Grok Voice 显式定价（仅 grok 平台） -->
+        <div
+          v-if="editForm.platform === 'grok'"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {{ t("admin.groups.explicitPricing.title") }}
+          </h4>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+            {{ t("admin.groups.explicitPricing.description") }}
+          </p>
+          <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.explicitPricing.searchPricePer1k") }}</label>
+              <input
+                v-model.number="editForm.search_price_per_1k"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.explicitPricing.pricePlaceholder')"
+                data-testid="edit-search-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioRealtimePerMin") }}</label>
+              <input
+                v-model.number="editForm.audio_realtime_price_per_min"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="edit-audio-realtime-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioTtsPerMillionChars") }}</label>
+              <input
+                v-model.number="editForm.audio_tts_price_per_million_chars"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="edit-audio-tts-price"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.voicePricing.audioSttPerHour") }}</label>
+              <input
+                v-model.number="editForm.audio_stt_price_per_hour"
+                type="number"
+                step="0.000001"
+                min="0"
+                class="input"
+                :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
+                data-testid="edit-audio-stt-price"
+              />
+            </div>
+          </div>
+        </div>
+        <!-- Codex Live 开关（OpenAI 与 Composite 平台） -->
+        <div
+          v-if="supportsLivePlatform(editForm.platform)"
+          class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
+        >
+          <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            {{ t("admin.groups.openaiLive.title") }}
+          </h4>
+          <div class="flex items-center justify-between">
+            <label class="text-sm text-gray-600 dark:text-gray-400">{{
+              t("admin.groups.openaiLive.allow")
+            }}</label>
+            <button
+              type="button"
+              @click="toggleLive('edit')"
+              class="relative inline-flex h-6 w-12 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none"
+              :class="
+                editForm.allow_live
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600'
+              "
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                :class="editForm.allow_live ? 'translate-x-6' : 'translate-x-1'"
+              />
+            </button>
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {{ t("admin.groups.openaiLive.hint") }}
+          </p>
+        </div>
+
+        <!-- OpenAI Messages 调度配置（OpenAI 与 Composite 平台） -->
+        <div
+          v-if="supportsMessagesDispatchPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2831,7 +3517,12 @@
             {{ t("admin.groups.openaiMessages.allowDispatchHint") }}
           </p>
 
-          <div v-if="editForm.allow_messages_dispatch" class="mt-3">
+          <div
+            v-if="
+              editForm.platform === 'openai' && editForm.allow_messages_dispatch
+            "
+            class="mt-3"
+          >
             <div
               class="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-600 dark:bg-dark-800"
             >
@@ -3374,6 +4065,17 @@
       @cancel="showDeleteDialog = false"
     />
 
+    <ConfirmDialog
+      :show="showUnsupportedLiveConfirm"
+      :title="t('admin.groups.openaiLive.unsupportedTitle')"
+      :message="t('admin.groups.openaiLive.unsupportedMessage')"
+      :confirm-text="t('admin.groups.openaiLive.enableAnyway')"
+      :cancel-text="t('common.cancel')"
+      :danger="true"
+      @confirm="confirmUnsupportedLive"
+      @cancel="cancelUnsupportedLive"
+    />
+
     <!-- Sort Order Modal -->
     <BaseDialog
       :show="showSortModal"
@@ -3414,7 +4116,13 @@
                           ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
                           : group.platform === 'grok'
                             ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                            : group.platform === 'kimi'
+                              ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
+                              : group.platform === 'zhipu'
+                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                                : group.platform === 'deepseek'
+                                  ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
+                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
                   ]"
                 >
                   {{ t("admin.groups.platforms." + group.platform) }}
@@ -3466,6 +4174,1024 @@
       </template>
     </BaseDialog>
 
+    <!-- Composite Routes Modal -->
+    <BaseDialog
+      :show="showCompositeRoutesModal"
+      :title="
+        compositeRoutesGroup
+          ? t('admin.groups.compositeRoutes.titleWithGroup', {
+              name: compositeRoutesGroup.name,
+            })
+          : t('admin.groups.compositeRoutes.title')
+      "
+      width="wide"
+      @close="closeCompositeRoutesModal"
+    >
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <section class="min-w-0">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t("admin.groups.compositeRoutes.routes") }}
+            </h3>
+            <button
+              type="button"
+              class="btn btn-secondary btn-sm"
+              :disabled="compositeRoutesLoading"
+              @click="loadCompositeRoutes"
+            >
+              <Icon
+                name="refresh"
+                size="sm"
+                :class="compositeRoutesLoading ? 'animate-spin' : ''"
+              />
+            </button>
+          </div>
+
+          <div
+            class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+          >
+            <div
+              v-if="compositeRoutesLoading"
+              class="flex h-36 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+            >
+              {{ t("common.loading") }}
+            </div>
+            <div
+              v-else-if="compositeRoutes.length === 0"
+              class="flex h-36 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+            >
+              {{ t("admin.groups.compositeRoutes.empty") }}
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
+                <thead class="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-gray-400">
+                  <tr>
+                    <th class="px-3 py-2">
+                      {{ t("admin.groups.compositeRoutes.publicModel") }}
+                    </th>
+                    <th class="px-3 py-2">
+                      {{ t("admin.groups.compositeRoutes.target") }}
+                    </th>
+                    <th class="px-3 py-2">
+                      {{ t("admin.groups.compositeRoutes.scope") }}
+                    </th>
+                    <th class="px-3 py-2 text-right">
+                      {{ t("admin.groups.columns.actions") }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-dark-900">
+                  <tr
+                    v-for="route in compositeRoutes"
+                    :key="route.id"
+                    :class="!route.enabled && 'opacity-60'"
+                  >
+                    <td class="max-w-[15rem] px-3 py-2">
+                      <div class="break-all font-medium text-gray-900 dark:text-white">
+                        {{ route.public_model }}
+                      </div>
+                      <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                        <span class="badge badge-gray">{{
+                          compositeRouteMatchLabel(route.match_type)
+                        }}</span>
+                        <span
+                          v-if="!route.enabled"
+                          class="badge badge-danger"
+                        >
+                          {{ t("admin.accounts.status.inactive") }}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="px-3 py-2">
+                      <div class="flex items-center gap-1.5 text-gray-900 dark:text-white">
+                        <PlatformIcon :platform="route.target_platform" size="xs" />
+                        <span>{{ formatCompositePlatform(route.target_platform) }}</span>
+                      </div>
+                      <div class="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
+                        {{ route.upstream_model || route.public_model }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-2">
+                      <div class="text-gray-700 dark:text-gray-300">
+                        {{ formatCompositeEndpoint(route.endpoint) }}
+                      </div>
+                      <div class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ t("admin.groups.compositeRoutes.priority") }}:
+                        {{ route.priority }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-2">
+                      <div class="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          class="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                          :title="t('common.edit')"
+                          @click="editCompositeRoute(route)"
+                        >
+                          <Icon name="edit" size="sm" />
+                        </button>
+                        <button
+                          type="button"
+                          class="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                          :title="t('common.delete')"
+                          @click="deleteCompositeRoute(route)"
+                        >
+                          <Icon name="trash" size="sm" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="space-y-5">
+          <form class="space-y-3" @submit.prevent="saveCompositeRoute">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{
+                  compositeRouteEditingId
+                    ? t("admin.groups.compositeRoutes.editRoute")
+                    : t("admin.groups.compositeRoutes.addRoute")
+                }}
+              </h3>
+              <button
+                v-if="compositeRouteEditingId"
+                type="button"
+                class="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                @click="resetCompositeRouteForm"
+              >
+                {{ t("common.cancel") }}
+              </button>
+            </div>
+
+            <div>
+              <label class="input-label">{{
+                t("admin.groups.compositeRoutes.publicModel")
+              }}</label>
+              <input
+                v-model.trim="compositeRouteForm.public_model"
+                type="text"
+                class="input"
+                required
+                placeholder="openrouter/gpt-5"
+              />
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.compositeRoutes.matchType")
+                }}</label>
+                <Select
+                  v-model="compositeRouteForm.match_type"
+                  :options="compositeRouteMatchOptions"
+                />
+              </div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.compositeRoutes.endpoint")
+                }}</label>
+                <Select
+                  v-model="compositeRouteForm.endpoint"
+                  :options="compositeRouteEndpointOptions"
+                />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.compositeRoutes.targetPlatform")
+                }}</label>
+                <Select
+                  v-model="compositeRouteForm.target_platform"
+                  :options="compositeRoutePlatformOptions"
+                />
+              </div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.compositeRoutes.priority")
+                }}</label>
+                <input
+                  v-model.number="compositeRouteForm.priority"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="input"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label class="input-label">{{
+                t("admin.groups.compositeRoutes.upstreamModel")
+              }}</label>
+              <input
+                v-model.trim="compositeRouteForm.upstream_model"
+                type="text"
+                class="input"
+                placeholder="gpt-5"
+              />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.compositeRoutes.upstreamModelHint") }}
+              </p>
+            </div>
+
+            <div>
+              <label class="input-label">{{
+                t("admin.groups.compositeRoutes.notes")
+              }}</label>
+              <textarea
+                v-model.trim="compositeRouteForm.notes"
+                rows="2"
+                class="input"
+              ></textarea>
+            </div>
+
+            <div class="flex items-center justify-between gap-3">
+              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input
+                  v-model="compositeRouteForm.enabled"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                />
+                {{ t("admin.groups.compositeRoutes.enabled") }}
+              </label>
+              <button
+                type="submit"
+                class="btn btn-primary"
+                :disabled="compositeRouteSaving"
+              >
+                <Icon
+                  v-if="!compositeRouteSaving"
+                  name="check"
+                  size="sm"
+                  class="mr-2"
+                />
+                {{ compositeRouteEditingId ? t("common.update") : t("common.create") }}
+              </button>
+            </div>
+          </form>
+
+          <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+            <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t("admin.groups.compositeRoutes.preview") }}
+            </h3>
+            <div class="space-y-3">
+              <input
+                v-model.trim="compositePreviewModel"
+                type="text"
+                class="input"
+                placeholder="openrouter/gpt-5"
+                @keyup.enter="previewCompositeRoute"
+              />
+              <div class="flex gap-2">
+                <Select
+                  v-model="compositePreviewEndpoint"
+                  :options="compositeRouteEndpointOptions"
+                  class="min-w-0 flex-1"
+                />
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  :disabled="compositePreviewLoading || !compositePreviewModel"
+                  @click="previewCompositeRoute"
+                >
+                  <Icon name="play" size="sm" />
+                </button>
+              </div>
+
+              <div
+                v-if="compositePreviewDecision"
+                class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-dark-600 dark:bg-dark-800"
+              >
+                <div class="mb-2 flex items-center gap-2">
+                  <span
+                    :class="[
+                      'badge',
+                      compositePreviewDecision.matched
+                        ? 'badge-success'
+                        : 'badge-danger',
+                    ]"
+                  >
+                    {{
+                      compositePreviewDecision.matched
+                        ? t("admin.groups.compositeRoutes.matched")
+                        : t("admin.groups.compositeRoutes.notMatched")
+                    }}
+                  </span>
+                  <span class="badge badge-gray">
+                    {{
+                      compositeRouteSourceLabel(
+                        compositePreviewDecision.source,
+                      )
+                    }}
+                  </span>
+                </div>
+                <div
+                  v-if="compositePreviewDecision.matched"
+                  class="space-y-1 text-gray-700 dark:text-gray-300"
+                >
+                  <div>
+                    {{ t("admin.groups.compositeRoutes.targetPlatform") }}:
+                    {{
+                      formatCompositePlatform(
+                        compositePreviewDecision.target_platform,
+                      )
+                    }}
+                  </div>
+                  <div class="break-all">
+                    {{ t("admin.groups.compositeRoutes.upstreamModel") }}:
+                    {{ compositePreviewDecision.upstream_model }}
+                  </div>
+                </div>
+                <div
+                  v-else
+                  class="text-gray-500 dark:text-gray-400"
+                >
+                  {{ compositePreviewDecision.reason }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end pt-4">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeCompositeRoutesModal"
+          >
+            {{ t("common.close") }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
+    <!-- Smart Scheduler Preview Modal -->
+    <BaseDialog
+      :show="showSmartSchedulerModal"
+      :title="
+        smartSchedulerGroup
+          ? t('admin.groups.smartScheduler.title', {
+              name: smartSchedulerGroup.name,
+            })
+          : t('admin.groups.smartScheduler.action')
+      "
+      width="full"
+      @close="closeSmartSchedulerModal"
+    >
+      <div class="space-y-4">
+        <div
+          class="rounded-lg border border-blue-200 bg-blue-50/70 p-3 text-sm text-blue-900 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-100"
+        >
+          {{ t("admin.groups.smartScheduler.description") }}
+        </div>
+
+        <div
+          v-if="smartSchedulerGroup"
+          class="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-dark-600 dark:bg-dark-800 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <div>
+            <div class="font-medium text-gray-800 dark:text-gray-100">
+              {{
+                smartSchedulerControlActive
+                  ? t("admin.groups.smartScheduler.enabledStatus")
+                  : t("admin.groups.smartScheduler.disabledStatus")
+              }}
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.toggleHint") }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="smart-scheduler-preview-toggle"
+            class="btn btn-secondary flex-shrink-0"
+            :disabled="smartSchedulerToggleLoading"
+            @click="toggleSmartSchedulerFromPreview"
+          >
+            {{
+              smartSchedulerControlActive
+                ? t("admin.groups.smartScheduler.disableAction")
+                : t("admin.groups.smartScheduler.enableAction")
+            }}
+          </button>
+        </div>
+
+        <section
+          v-if="smartSchedulerGroup"
+          class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-dark-600 dark:bg-dark-900"
+        >
+          <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-white">{{ t("admin.groups.smartScheduler.stickyPolicy.title") }}</div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.stickyPolicy.description") }}</p>
+              </div>
+              <div class="flex gap-2">
+                <button type="button" class="btn btn-secondary" :disabled="stickyPolicySaving" @click="applyStickyPolicyPreset('stability')">{{ t("admin.groups.smartScheduler.stickyPolicy.stabilityPreset") }}</button>
+                <button type="button" class="btn btn-secondary" :disabled="stickyPolicySaving" @click="applyStickyPolicyPreset('recommended')">{{ t("admin.groups.smartScheduler.stickyPolicy.recommended") }}</button>
+                <button type="button" class="btn btn-primary" :disabled="stickyPolicySaving" @click="saveStickyPolicy">{{ stickyPolicySaving ? t("common.saving") : t("common.save") }}</button>
+              </div>
+            </div>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.targetScore") }}<input v-model.number="stickyPolicy.target_score" class="input mt-1" type="number" min="0" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.reviewInterval") }}<input v-model.number="stickyPolicy.review_interval_seconds" class="input mt-1" type="number" min="15" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.qualityLead") }}<input v-model.number="stickyPolicy.quality_lead" class="input mt-1" type="number" min="0" max="50" step="0.5" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.maxEscapes") }}<input v-model.number="stickyPolicy.max_escapes" class="input mt-1" type="number" min="1" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.cooldown") }}<input v-model.number="stickyPolicy.switch_cooldown_seconds" class="input mt-1" type="number" min="0" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.window") }}<input v-model.number="stickyPolicy.escape_window_seconds" class="input mt-1" type="number" min="60" max="86400" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.confirmations") }}<input v-model.number="stickyPolicy.elite_confirmations" class="input mt-1" type="number" min="1" max="5" /></label>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div class="font-medium text-gray-900 dark:text-white">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.title") }}
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.description") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="recovery-probe-toggle"
+              class="btn btn-secondary flex-shrink-0"
+              :aria-pressed="recoveryProbeEnabled"
+              @click="recoveryProbeEnabled = !recoveryProbeEnabled"
+            >
+              {{
+                recoveryProbeEnabled
+                  ? t("admin.groups.smartScheduler.recoveryProbe.enabled")
+                  : t("admin.groups.smartScheduler.recoveryProbe.disabled")
+              }}
+            </button>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.mode") }}</label>
+              <Select
+                v-model="recoveryProbeMode"
+                :options="recoveryProbeModeOptions"
+                data-testid="recovery-probe-mode"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.testModel") }}</label>
+              <input
+                v-model.trim="recoveryProbeModel"
+                data-testid="recovery-probe-test-model"
+                type="text"
+                class="input"
+                :required="recoveryProbeEnabled"
+                :placeholder="t('admin.groups.smartScheduler.recoveryProbe.testModelPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.fixedInterval") }}</label>
+              <input
+                v-model.number="recoveryProbeIntervalSeconds"
+                data-testid="recovery-probe-fixed-interval"
+                type="number"
+                :min="recoveryProbeMode === 'high_frequency' ? 15 : 60"
+                max="86400"
+                :step="recoveryProbeMode === 'high_frequency' ? 15 : 60"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.probesPerRound") }}</label>
+              <input
+                v-model.number="recoveryProbeAttemptsPerRound"
+                data-testid="recovery-probe-probes-per-round"
+                type="number"
+                min="1"
+                max="5"
+                step="1"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.smartBackoffMax") }}</label>
+              <input
+                v-model.number="recoveryProbeBackoffCapSeconds"
+                data-testid="recovery-probe-smart-backoff-max"
+                type="number"
+                min="60"
+                max="86400"
+                step="60"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.idleThreshold") }}</label>
+              <div class="input flex items-center bg-gray-50 text-gray-600 dark:bg-dark-800 dark:text-gray-300">
+                {{ t("admin.groups.smartScheduler.recoveryProbe.idleThresholdFixed") }}
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ recoveryProbeSummary }}
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="recovery-probe-recommended"
+                class="btn btn-secondary flex-shrink-0"
+                :disabled="recoveryProbeSaving"
+                @click="applyRecommendedRecoveryProbeConfig"
+              >
+                {{ t("admin.groups.smartScheduler.recoveryProbe.recommended") }}
+              </button>
+              <button
+                type="button"
+                data-testid="recovery-probe-save"
+                class="btn btn-primary flex-shrink-0"
+                :disabled="recoveryProbeSaving || (recoveryProbeEnabled && !recoveryProbeModel.trim())"
+                @click="saveRecoveryProbeSettings"
+              >
+                {{ recoveryProbeSaving ? t("common.saving") : t("common.save") }}
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="space-y-3 border-t border-gray-200 pt-3 dark:border-dark-600"
+            data-testid="recovery-probe-billing"
+          >
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.title") }}
+                </div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.description") }}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="btn btn-secondary flex-shrink-0"
+                data-testid="recovery-probe-billing-toggle"
+                :aria-pressed="recoveryProbeBillingEnabled"
+                :disabled="recoveryProbeBillingLoading"
+                @click="recoveryProbeBillingEnabled = !recoveryProbeBillingEnabled"
+              >
+                {{
+                  recoveryProbeBillingEnabled
+                    ? t("admin.groups.smartScheduler.recoveryProbe.billing.enabled")
+                    : t("admin.groups.smartScheduler.recoveryProbe.billing.disabled")
+                }}
+              </button>
+            </div>
+
+            <div v-if="recoveryProbeBillingLoading" class="py-3 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("common.loading") }}
+            </div>
+            <template v-else>
+              <div class="grid gap-3 md:grid-cols-3">
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.apiKey") }}</label>
+                  <select
+                    v-model.number="recoveryProbeBillingAPIKeyID"
+                    class="input"
+                    data-testid="recovery-probe-billing-api-key"
+                  >
+                    <option :value="0">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.selectAPIKey") }}</option>
+                    <option
+                      v-if="recoveryProbeBillingSelectedKeyMissing"
+                      :value="recoveryProbeBillingAPIKeyID"
+                    >
+                      {{ recoveryProbeBillingStatus?.settings.api_key_name || `#${recoveryProbeBillingAPIKeyID}` }}
+                    </option>
+                    <option v-for="apiKey in recoveryProbeBillingAPIKeys" :key="apiKey.id" :value="apiKey.id">
+                      {{ apiKey.name }} ({{ apiKey.status }})
+                    </option>
+                  </select>
+                </div>
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.dailyBudget") }}</label>
+                  <input
+                    v-model.number="recoveryProbeBillingDailyBudgetUSD"
+                    type="number"
+                    min="0.000001"
+                    max="1000"
+                    step="0.01"
+                    class="input"
+                    data-testid="recovery-probe-billing-daily-budget"
+                  />
+                </div>
+                <div>
+                  <label class="input-label">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.perAttemptLimit") }}</label>
+                  <input
+                    v-model.number="recoveryProbeBillingPerAttemptLimitUSD"
+                    type="number"
+                    min="0.000001"
+                    :max="recoveryProbeBillingDailyBudgetUSD"
+                    step="0.001"
+                    class="input"
+                    data-testid="recovery-probe-billing-per-attempt-limit"
+                  />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 border-y border-gray-200 text-xs dark:border-dark-600 lg:grid-cols-5">
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.globalToday") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.global_today.today_settled_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.groupToday") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.group_today.today_settled_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.budgetUsed") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.global_today.today_budget_cost) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.remaining") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">{{ formatRecoveryProbeUSD(recoveryProbeBillingStatus?.remaining_usd) }}</div>
+                </div>
+                <div class="px-2 py-2">
+                  <div class="text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.recoveryProbe.billing.settlementSummary") }}</div>
+                  <div class="mt-1 font-semibold text-gray-900 dark:text-white">
+                    {{ recoveryProbeBillingSettlementSummary }}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.groups.smartScheduler.recoveryProbe.billing.hint") }}
+                </p>
+                <button
+                  type="button"
+                  class="btn btn-primary flex-shrink-0"
+                  :disabled="recoveryProbeBillingSaving || (recoveryProbeBillingEnabled && recoveryProbeBillingAPIKeyID <= 0)"
+                  data-testid="recovery-probe-billing-save"
+                  @click="saveRecoveryProbeBilling"
+                >
+                  {{ recoveryProbeBillingSaving ? t("common.saving") : t("common.save") }}
+                </button>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <section
+          v-if="smartSchedulerGroup"
+          class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-dark-600 dark:bg-dark-900"
+          data-testid="group-pool-error-policy"
+        >
+          <div>
+            <div class="font-medium text-gray-900 dark:text-white">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.title") }}
+            </div>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.description") }}
+            </p>
+            <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.precedence") }}
+            </p>
+          </div>
+
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.poolMode") }}</label>
+              <Select
+                v-model="poolModeEnabledPolicy"
+                :options="poolModeEnabledPolicyOptions"
+                data-testid="group-pool-mode-policy"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.retryCount") }}</label>
+              <input
+                v-model.number="poolModeRetryCount"
+                data-testid="group-pool-retry-count"
+                type="number"
+                min="0"
+                max="10"
+                step="1"
+                class="input"
+                :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.inheritPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodes") }}</label>
+              <div class="flex gap-2">
+                <Select
+                  v-model="poolModeRetryStatusCodesPolicy"
+                  class="w-32 flex-shrink-0"
+                  :options="policyListOptions"
+                  data-testid="group-pool-retry-status-policy"
+                />
+                <input
+                  v-model="poolModeRetryStatusCodes"
+                  data-testid="group-pool-retry-status-codes"
+                  type="text"
+                  class="input min-w-0"
+                  :disabled="poolModeRetryStatusCodesPolicy === 'inherit'"
+                  :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.retryStatusCodesPlaceholder')"
+                />
+              </div>
+            </div>
+            <div>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.customEnabled") }}</label>
+              <Select
+                v-model="customErrorCodesEnabledPolicy"
+                :options="customErrorEnabledPolicyOptions"
+                data-testid="group-custom-error-enabled-policy"
+              />
+            </div>
+            <div class="md:col-span-2">
+              <label class="input-label">{{ t("admin.groups.smartScheduler.poolErrorPolicy.customCodes") }}</label>
+              <div class="flex gap-2">
+                <Select
+                  v-model="customErrorCodesPolicy"
+                  class="w-32 flex-shrink-0"
+                  :options="policyListOptions"
+                  data-testid="group-custom-error-policy"
+                />
+                <input
+                  v-model="customErrorCodes"
+                  data-testid="group-custom-error-codes"
+                  type="text"
+                  class="input min-w-0"
+                  :disabled="customErrorCodesPolicy === 'inherit'"
+                  :placeholder="t('admin.groups.smartScheduler.poolErrorPolicy.customCodesPlaceholder')"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.poolErrorPolicy.hint") }}
+            </p>
+            <button
+              type="button"
+              data-testid="group-pool-error-policy-save"
+              class="btn btn-primary flex-shrink-0"
+              :disabled="poolErrorPolicySaving"
+              @click="savePoolErrorPolicy"
+            >
+              {{ poolErrorPolicySaving ? t("common.saving") : t("common.save") }}
+            </button>
+          </div>
+        </section>
+
+        <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_13rem_auto] md:items-end">
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.smartScheduler.requestedModel")
+            }}</label>
+            <input
+              v-model.trim="smartSchedulerModel"
+              type="text"
+              class="input"
+              :placeholder="t('admin.groups.smartScheduler.requestedModelPlaceholder')"
+              @keyup.enter="loadSmartSchedulerPreview"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{
+              t("admin.groups.smartScheduler.endpoint")
+            }}</label>
+            <Select
+              v-model="smartSchedulerEndpoint"
+              :options="smartSchedulerEndpointOptions"
+            />
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="smartSchedulerLoading || !smartSchedulerGroup"
+            :title="t('admin.groups.smartScheduler.refresh')"
+            @click="loadSmartSchedulerPreview"
+          >
+            <Icon
+              name="refresh"
+              size="sm"
+              :class="smartSchedulerLoading ? 'animate-spin' : ''"
+            />
+            <span class="ml-2">{{
+              t("admin.groups.smartScheduler.refresh")
+            }}</span>
+          </button>
+        </div>
+
+        <div v-if="smartSchedulerLoading" class="space-y-3">
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div
+              v-for="index in 5"
+              :key="index"
+              class="h-20 animate-pulse rounded-lg bg-gray-100 dark:bg-dark-700"
+            ></div>
+          </div>
+          <div class="h-48 animate-pulse rounded-lg bg-gray-100 dark:bg-dark-700"></div>
+        </div>
+
+        <div
+          v-else-if="smartSchedulerPreview"
+          class="space-y-4"
+        >
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+            <span>{{
+              t("admin.groups.smartScheduler.generatedAt", {
+                time: formatSmartSchedulerDate(smartSchedulerPreview.generated_at),
+              })
+            }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.algorithm", {
+                version: smartSchedulerPreview.algorithm_version,
+              })
+            }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.requestedModel")
+            }}: {{ smartSchedulerPreview.requested_model || t("admin.groups.smartScheduler.noModel") }}</span>
+            <span>{{
+              t("admin.groups.smartScheduler.endpoint")
+            }}: {{ formatSmartSchedulerEndpoint(smartSchedulerPreview.endpoint) }}</span>
+          </div>
+
+          <div
+            v-if="smartSchedulerPreview.warnings.length > 0"
+            class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-100"
+          >
+            <div v-if="!smartSchedulerPreview.load_snapshot_available" class="font-medium">{{ t("admin.groups.smartScheduler.loadSnapshotWarning") }}</div>
+            <div
+              v-for="warning in smartSchedulerPreview.warnings"
+              :key="warning"
+              class="text-xs text-amber-800 dark:text-amber-200"
+              :class="{ 'mt-1': !smartSchedulerPreview.load_snapshot_available }"
+            >
+              {{ warning }}
+            </div>
+          </div>
+
+          <div
+            v-if="smartSchedulerPreview.capacity_limited_count_1h > 0"
+            class="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-900/50 dark:bg-orange-900/20 dark:text-orange-100"
+          >
+            {{ t("admin.groups.smartScheduler.capacityLimitedSummary", { count: smartSchedulerPreview.capacity_limited_count_1h }) }}
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/50 dark:bg-emerald-900/20">
+              <div class="text-xs text-emerald-700 dark:text-emerald-300">{{ t("admin.groups.smartScheduler.primary") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-emerald-800 dark:text-emerald-100">{{ smartSchedulerPreview.primary_count }}</div>
+            </div>
+            <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
+              <div class="text-xs text-amber-700 dark:text-amber-300">{{ t("admin.groups.smartScheduler.warm") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-amber-800 dark:text-amber-100">{{ smartSchedulerPreview.warm_count }}</div>
+            </div>
+            <div class="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-900/50 dark:bg-red-900/20">
+              <div class="text-xs text-red-700 dark:text-red-300">{{ t("admin.groups.smartScheduler.isolated") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-red-800 dark:text-red-100">{{ smartSchedulerPreview.isolated_count }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.total") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-gray-800 dark:text-white">{{ smartSchedulerPreview.total_accounts }}</div>
+            </div>
+            <div class="rounded-lg border border-cyan-200 bg-cyan-50 p-3 dark:border-cyan-900/50 dark:bg-cyan-900/20">
+              <div class="text-xs text-cyan-700 dark:text-cyan-300">{{ t("admin.groups.smartScheduler.exploration") }}</div>
+              <div class="mt-1 text-2xl font-semibold text-cyan-800 dark:text-cyan-100">{{ t("admin.groups.smartScheduler.explorationRate", { rate: formatSmartSchedulerPercentage(smartSchedulerPreview.exploration_rate) }) }}</div>
+            </div>
+          </div>
+
+          <div
+            v-if="smartSchedulerPreview.items.length === 0"
+            class="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+          >
+            {{ t("admin.groups.smartScheduler.noAccounts") }}
+          </div>
+
+          <section
+            v-for="pool in smartSchedulerPools"
+            :key="pool.key"
+            class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
+          >
+            <div class="flex items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-800">
+              <div class="flex items-center gap-2">
+                <span :class="['h-2.5 w-2.5 rounded-full', pool.dotClass]"></span>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ pool.label }}</h3>
+              </div>
+              <span class="badge badge-gray">{{ pool.items.length }}</span>
+            </div>
+            <div v-if="pool.items.length === 0" class="px-3 py-4 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.smartScheduler.noEvidence") }}
+            </div>
+            <div v-else class="overflow-x-auto">
+              <table class="min-w-[1220px] w-full text-left text-xs">
+                <thead class="bg-white text-gray-500 dark:bg-dark-900 dark:text-gray-400">
+                  <tr>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.rank") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.account") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.recoveryProbe.accountStatus") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.score") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality1h") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.quality24h") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.errors") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.cost") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.load") }}</th>
+                    <th class="whitespace-nowrap px-3 py-2 font-medium">{{ t("admin.groups.smartScheduler.decision") }}</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+                  <tr
+                    v-for="item in pool.items"
+                    :key="item.account_id"
+                    class="bg-white align-top dark:bg-dark-900"
+                  >
+                    <td class="px-3 py-3 font-mono text-gray-500 dark:text-gray-400">#{{ item.rank }}</td>
+                    <td class="max-w-[18rem] px-3 py-3">
+                      <div class="font-medium text-gray-900 dark:text-white">{{ item.account_name }}</div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">#{{ item.account_id }} · {{ item.platform }}</div>
+                      <div v-if="item.model_mapping" class="mt-1 break-all text-blue-600 dark:text-blue-400">→ {{ item.model_mapping }}</div>
+                      <div class="mt-2 flex flex-wrap gap-1">
+                        <span class="badge badge-gray">{{ smartSchedulerEvidenceLabel(item.evidence_scope) }}</span>
+                        <span v-if="item.evidence_fallback" class="badge badge-warning">{{ t("admin.groups.smartScheduler.fallbackEvidence") }}</span>
+                        <span v-if="item.exploration_candidate" class="badge badge-primary">{{ t("admin.groups.smartScheduler.explorationCandidate") }}</span>
+                        <span v-if="item.probe_bootstrap" class="badge badge-success">{{ t("admin.groups.smartScheduler.probeBootstrap") }}</span>
+                      </div>
+                    </td>
+                    <td class="max-w-[14rem] px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <div class="font-medium text-gray-800 dark:text-gray-200">
+                        {{ recoveryProbeAccountStatusLabel(item) }}
+                      </div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">
+                        {{ recoveryProbeAccountSummary(item) }}
+                      </div>
+                    </td>
+                    <td class="px-3 py-3">
+                      <span :class="['inline-flex min-w-[3.5rem] justify-center rounded px-2 py-1 font-semibold', smartSchedulerScoreClass(item)]">
+                        {{ formatSmartSchedulerScore(item.score) }}
+                      </span>
+                      <div v-if="item.raw_score != null" class="mt-1 text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.rawScore", { score: formatSmartSchedulerScore(item.raw_score) }) }}</div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">{{ formatSmartSchedulerConfidence(item.confidence, item.confidence_label) }}</div>
+                    </td>
+                    <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
+                      <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_1h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_1h.last_100) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_1h.last_10.routing_first_token_ms ?? item.quality_1h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.generationSpeed") }} {{ formatSmartSchedulerGenerationSpeed(item.quality_1h.last_10.routing_generation_tokens_per_second) }}</div>
+                      <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_1h.last_10.sample_count }}/{{ item.quality_1h.last_100.sample_count }}</div>
+                    </td>
+                    <td class="px-3 py-3 text-gray-700 dark:text-gray-300">
+                      <div class="font-semibold">{{ formatSmartSchedulerQuality(item.quality_24h.last_10) }} / {{ formatSmartSchedulerQuality(item.quality_24h.last_100) }}</div>
+                      <div class="mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.firstToken") }} {{ formatSmartSchedulerLatency(item.quality_24h.last_10.routing_first_token_ms ?? item.quality_24h.last_10.average_first_token_ms) }} · {{ t("admin.groups.smartScheduler.generationSpeed") }} {{ formatSmartSchedulerGenerationSpeed(item.quality_24h.last_10.routing_generation_tokens_per_second) }}</div>
+                      <div class="mt-1 text-gray-400 dark:text-gray-500">n={{ item.quality_24h.last_10.sample_count }}/{{ item.quality_24h.last_100.sample_count }}</div>
+                    </td>
+                    <td class="max-w-[16rem] px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <div>{{ t("admin.groups.smartScheduler.failureSummary", { provider: item.provider_failure_count, transient: item.provider_transient_failure_count, rateLimit: item.rate_limit_count }) }}</div>
+                      <div v-if="smartSchedulerImmediateFailureCount(item) > 0" class="mt-1 text-amber-700 dark:text-amber-300">{{ t("admin.groups.smartScheduler.immediateFailureSummary", { provider: item.immediate_provider_failure_count, transient: item.immediate_provider_transient_count, rateLimit: item.immediate_rate_limit_count, uncertain: item.immediate_uncertain_failure_count }) }}</div>
+                      <div class="mt-1">{{ t("admin.groups.smartScheduler.clientSummary", { client: item.client_excluded_count, platform: item.platform_failure_count, uncertain: item.uncertain_failure_count }) }}</div>
+                    </td>
+                    <td class="whitespace-nowrap px-3 py-3 font-medium text-gray-700 dark:text-gray-300">{{ item.cost_multiplier.toFixed(4) }}x</td>
+                    <td class="whitespace-nowrap px-3 py-3 text-gray-600 dark:text-gray-300">
+                      <span v-if="item.load">{{ t("admin.groups.smartScheduler.loadSummary", { current: item.load.current_concurrency, max: item.load.max_concurrency, waiting: item.load.waiting_count, rate: item.load.load_rate }) }}</span>
+                      <span v-else>{{ t("admin.groups.smartScheduler.noLoad") }}</span>
+                    </td>
+                    <td class="max-w-[15rem] px-3 py-3">
+                      <div class="font-medium text-gray-800 dark:text-gray-200">{{ smartSchedulerDecisionLabel(item) }}</div>
+                      <div class="mt-1 text-gray-500 dark:text-gray-400">{{ item.reason }}</div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <div
+          v-else
+          class="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-dark-600 dark:text-gray-400"
+        >
+          {{ t("admin.groups.smartScheduler.noAccounts") }}
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end pt-4">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            @click="closeSmartSchedulerModal"
+          >
+            {{ t("common.close") }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <!-- Group Rate Multipliers Modal -->
     <GroupRateMultipliersModal
       :show="showRateMultipliersModal"
@@ -3490,7 +5216,28 @@ import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
 import { useOnboardingStore } from "@/stores/onboarding";
 import { adminAPI } from "@/api/admin";
-import type { AdminGroup, GroupPlatform, SubscriptionType } from "@/types";
+import { keysAPI } from "@/api/keys";
+import type {
+  AccountQualityWindow,
+  AccountQualityStats,
+  AdminGroup,
+  ApiKey,
+  CompositeModelRoute,
+  CompositeModelRouteInput,
+  CompositeRouteDecision,
+  CompositeRouteEndpoint,
+  CompositeRouteMatchType,
+  GroupPlatform,
+  GroupRecoveryProbeBillingStatus,
+  SmartSchedulerPreview,
+  SmartSchedulerPreviewItem,
+  SubscriptionType,
+  UpdateGroupRequest,
+} from "@/types";
+import {
+  CONCRETE_PLATFORM_OPTIONS,
+  GROUP_PLATFORM_OPTIONS,
+} from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
@@ -3505,8 +5252,23 @@ import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
+import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
+import HelpTooltip from "@/components/common/HelpTooltip.vue";
+import AccountQualityCell from "@/components/account/AccountQualityCell.vue";
+import PricingEntryCard from "@/components/admin/channel/PricingEntryCard.vue";
+import type { PricingFormEntry } from "@/components/admin/channel/types";
+import {
+  apiIntervalsToForm,
+  createDefaultTimePricingForm,
+  formIntervalsToAPI,
+  mTokToPerToken,
+  perTokenToMTok,
+  toNullableNumber,
+} from "@/components/admin/channel/types";
+import type { ChannelModelPricing } from "@/api/admin/channels";
 import { VueDraggable } from "vue-draggable-plus";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
+import { extractApiErrorMessage } from "@/utils/apiError";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import {
@@ -3514,6 +5276,7 @@ import {
   messagesDispatchConfigToFormState,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
+  supportsMessagesDispatchPlatform,
   type MessagesDispatchMappingRow,
 } from "./groupsMessagesDispatch";
 import {
@@ -3527,6 +5290,20 @@ import {
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";
 import {
+  isProfitControlPlatform,
+  profitPercentToDecimal,
+  profitDecimalToPercent,
+  validateProfitControlFormState,
+  type ProfitControlFormState,
+} from "./groupsProfitControl";
+import {
+  normalizeReasoningEffortForPlatform,
+  reasoningEffortMappingsToAPI,
+  reasoningEffortMappingsToRows,
+  supportsReasoningEffortPolicyPlatform,
+  type ReasoningEffortMappingRow,
+} from "./groupsReasoningEffort";
+import {
   getDefaultImagePreviewPrice,
   getDefaultVideoPreviewPrice,
   getImagePricePlaceholder,
@@ -3536,16 +5313,92 @@ import {
   supportsVideoPricingPlatform,
   videoPricingI18nKey,
 } from "./groupsImagePricing";
+import {
+  createVideoModelPricesForm,
+  grokVideoPriceResolutions,
+  serializeVideoModelPrices,
+  videoModelPriceFamilyRows,
+} from "./groupsVideoModelPricing";
+
+const supportsLivePlatform = (platform: string): boolean =>
+  platform === "openai" || platform === "composite";
+
+const emptyGroupPricing = (): PricingFormEntry => ({
+  models: [],
+  billing_mode: "token",
+  input_price: null,
+  output_price: null,
+  cache_write_price: null,
+  cache_read_price: null,
+  image_input_price: null,
+  image_output_price: null,
+  per_request_price: null,
+  intervals: [],
+  time_pricing: createDefaultTimePricingForm(),
+});
+
+const addGroupPricing = (entries: PricingFormEntry[]) =>
+  entries.push(emptyGroupPricing());
+
+const groupPricingFromAPI = (
+  pricing: ChannelModelPricing[] | undefined,
+): PricingFormEntry[] =>
+  (pricing || []).map((entry) => ({
+    models: entry.models || [],
+    billing_mode: entry.billing_mode || "token",
+    input_price: perTokenToMTok(entry.input_price),
+    output_price: perTokenToMTok(entry.output_price),
+    cache_write_price: perTokenToMTok(entry.cache_write_price),
+    cache_read_price: perTokenToMTok(entry.cache_read_price),
+    image_input_price: perTokenToMTok(entry.image_input_price),
+    image_output_price: perTokenToMTok(entry.image_output_price),
+    per_request_price: entry.per_request_price,
+    intervals: apiIntervalsToForm(entry.intervals || []),
+    time_pricing: createDefaultTimePricingForm(),
+  }));
+
+const groupPricingToAPI = (
+  pricing: PricingFormEntry[],
+  platform: string,
+): ChannelModelPricing[] =>
+  pricing
+    .filter((entry) => entry.models.length > 0)
+    .map((entry) => ({
+      platform,
+      models: entry.models,
+      billing_mode: entry.billing_mode,
+      input_price: mTokToPerToken(entry.input_price),
+      output_price: mTokToPerToken(entry.output_price),
+      cache_write_price: mTokToPerToken(entry.cache_write_price),
+      cache_read_price: mTokToPerToken(entry.cache_read_price),
+      image_input_price: mTokToPerToken(entry.image_input_price),
+      image_output_price: mTokToPerToken(entry.image_output_price),
+      per_request_price: toNullableNumber(entry.per_request_price),
+      intervals:
+        entry.billing_mode === "token"
+          ? []
+          : formIntervalsToAPI(entry.intervals || []),
+      time_pricing: null,
+    }));
 
 const { t } = useI18n();
 const appStore = useAppStore();
 const onboardingStore = useOnboardingStore();
 
 const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
+// Default hidden columns (hidden on first load / after schema bumps).
+const DEFAULT_HIDDEN_COLUMNS = ["id"];
 const HIDDEN_COLUMNS_KEY = "group-hidden-columns";
+// Bump when adding new default-hidden columns so existing admins pick them up once.
+const COLUMN_SETTINGS_VERSION_KEY = "group-column-settings-version";
+const COLUMN_SETTINGS_VERSION = 2;
+const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
+  2: ["id"],
+};
 
 const allColumns = computed<Column[]>(() => [
   { key: "name", label: t("admin.groups.columns.name"), sortable: true },
+  { key: "id", label: t("admin.groups.columns.id"), sortable: true },
   {
     key: "platform",
     label: t("admin.groups.columns.platform"),
@@ -3577,6 +5430,16 @@ const allColumns = computed<Column[]>(() => [
     sortable: false,
   },
   { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
+  {
+    key: "quality_stats_1h",
+    label: t("admin.groups.columns.realtimeQualityStats"),
+    sortable: false,
+  },
+  {
+    key: "quality_stats",
+    label: t("admin.groups.columns.qualityStats"),
+    sortable: false,
+  },
   { key: "status", label: t("admin.groups.columns.status"), sortable: true },
   { key: "actions", label: t("admin.groups.columns.actions"), sortable: false },
 ]);
@@ -3595,16 +5458,51 @@ const loadSavedColumns = () => {
   hiddenColumns.clear();
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY);
-    if (!saved) return;
-    const parsed = JSON.parse(saved);
-    if (!Array.isArray(parsed)) return;
-
     const validKeys = getValidHiddenColumnKeys();
-    parsed
-      .filter((key): key is string => typeof key === "string" && validKeys.has(key))
-      .forEach((key) => hiddenColumns.add(key));
+
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        parsed
+          .filter(
+            (key): key is string =>
+              typeof key === "string" && validKeys.has(key),
+          )
+          .forEach((key) => hiddenColumns.add(key));
+      }
+
+      // Existing admins: auto-hide columns newly added as default-hidden.
+      const storedVersion = Number(
+        localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? "1",
+      );
+      if (storedVersion < COLUMN_SETTINGS_VERSION) {
+        let mutated = false;
+        for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
+          for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
+            if (validKeys.has(key) && !hiddenColumns.has(key)) {
+              hiddenColumns.add(key);
+              mutated = true;
+            }
+          }
+        }
+        if (mutated) {
+          saveColumnsToStorage();
+        } else {
+          localStorage.setItem(
+            COLUMN_SETTINGS_VERSION_KEY,
+            String(COLUMN_SETTINGS_VERSION),
+          );
+        }
+      }
+    } else {
+      DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
+        if (validKeys.has(key)) hiddenColumns.add(key);
+      });
+      saveColumnsToStorage();
+    }
   } catch (error) {
     console.error("Failed to load group column settings:", error);
+    DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key));
   }
 };
 
@@ -3613,6 +5511,10 @@ const saveColumnsToStorage = () => {
     const validKeys = getValidHiddenColumnKeys();
     const keys = [...hiddenColumns].filter((key) => validKeys.has(key));
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(keys));
+    localStorage.setItem(
+      COLUMN_SETTINGS_VERSION_KEY,
+      String(COLUMN_SETTINGS_VERSION),
+    );
   } catch (error) {
     console.error("Failed to save group column settings:", error);
   }
@@ -3623,11 +5525,16 @@ const hasVisibleUsageSummaryConsumer = computed(
   () => isColumnVisible("usage") || isColumnVisible("billing_type"),
 );
 const hasVisibleCapacityColumn = computed(() => isColumnVisible("capacity"));
+const hasVisibleQualityColumn = computed(
+  () =>
+    isColumnVisible("quality_stats_1h") || isColumnVisible("quality_stats"),
+);
 
 const toggleColumn = (key: string) => {
   const validKeys = getValidHiddenColumnKeys();
   if (!validKeys.has(key)) return;
 
+  const hadVisibleQualityColumn = hasVisibleQualityColumn.value;
   const wasHidden = hiddenColumns.has(key);
   if (wasHidden) {
     hiddenColumns.delete(key);
@@ -3641,6 +5548,13 @@ const toggleColumn = (key: string) => {
   }
   if (wasHidden && key === "capacity") {
     loadCapacitySummary();
+  }
+  if (
+    wasHidden &&
+    (key === "quality_stats_1h" || key === "quality_stats") &&
+    !hadVisibleQualityColumn
+  ) {
+    loadGroupQualityBatch();
   }
 };
 
@@ -3667,21 +5581,46 @@ const exclusiveOptions = computed(() => [
   { value: "false", label: t("admin.groups.nonExclusive") },
 ]);
 
-const platformOptions = computed(() => [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-  { value: "grok", label: "Grok" },
-]);
+const platformOptions = computed(() => [...GROUP_PLATFORM_OPTIONS]);
 
 const platformFilterOptions = computed(() => [
   { value: "", label: t("admin.groups.allPlatforms") },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "gemini", label: "Gemini" },
-  { value: "antigravity", label: "Antigravity" },
-  { value: "grok", label: "Grok" },
+  ...GROUP_PLATFORM_OPTIONS,
+]);
+
+const compositeRoutePlatformOptions = computed(() => [
+  ...CONCRETE_PLATFORM_OPTIONS,
+]);
+
+const compositeRouteEndpointOptions = computed(() => [
+  { value: "any", label: t("admin.groups.compositeRoutes.endpoints.any") },
+  {
+    value: "messages",
+    label: t("admin.groups.compositeRoutes.endpoints.messages"),
+  },
+  {
+    value: "count_tokens",
+    label: t("admin.groups.compositeRoutes.endpoints.countTokens"),
+  },
+  {
+    value: "responses",
+    label: t("admin.groups.compositeRoutes.endpoints.responses"),
+  },
+  {
+    value: "chat_completions",
+    label: t("admin.groups.compositeRoutes.endpoints.chatCompletions"),
+  },
+  {
+    value: "embeddings",
+    label: t("admin.groups.compositeRoutes.endpoints.embeddings"),
+  },
+  { value: "images", label: t("admin.groups.compositeRoutes.endpoints.images") },
+  { value: "gemini", label: t("admin.groups.compositeRoutes.endpoints.gemini") },
+]);
+
+const compositeRouteMatchOptions = computed(() => [
+  { value: "exact", label: t("admin.groups.compositeRoutes.match.exact") },
+  { value: "prefix", label: t("admin.groups.compositeRoutes.match.prefix") },
 ]);
 
 const editStatusOptions = computed(() => [
@@ -3768,29 +5707,40 @@ const invalidRequestFallbackOptionsForEdit = computed(() => {
   return options;
 });
 
-// 复制账号的源分组选项（创建时）- 仅包含相同平台且有账号的分组
+const canCopyAccountsFromGroup = (targetPlatform: GroupPlatform, sourcePlatform: GroupPlatform) =>
+  targetPlatform === "composite" || sourcePlatform === targetPlatform;
+
+const copyAccountsGroupLabel = (g: AdminGroup) => {
+  const count = g.account_count || 0;
+  const platform = t("admin.groups.platforms." + g.platform);
+  return `${g.name} - ${platform} (${t("admin.groups.accountsCount", { count })})`;
+};
+
+// 复制账号的源分组选项（创建时）- 相同平台；composite 分组可汇总各平台账号
 const copyAccountsGroupOptions = computed(() => {
   const eligibleGroups = groups.value.filter(
-    (g) => g.platform === createForm.platform && (g.account_count || 0) > 0,
+    (g) =>
+      canCopyAccountsFromGroup(createForm.platform, g.platform) &&
+      (g.account_count || 0) > 0,
   );
   return eligibleGroups.map((g) => ({
     value: g.id,
-    label: `${g.name} (${t("admin.groups.accountsCount", { count: g.account_count || 0 })})`,
+    label: copyAccountsGroupLabel(g),
   }));
 });
 
-// 复制账号的源分组选项（编辑时）- 仅包含相同平台且有账号的分组，排除自身
+// 复制账号的源分组选项（编辑时）- 相同平台；composite 分组可汇总各平台账号，排除自身
 const copyAccountsGroupOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
     (g) =>
-      g.platform === editForm.platform &&
+      canCopyAccountsFromGroup(editForm.platform, g.platform) &&
       (g.account_count || 0) > 0 &&
       g.id !== currentId,
   );
   return eligibleGroups.map((g) => ({
     value: g.id,
-    label: `${g.name} (${t("admin.groups.accountsCount", { count: g.account_count || 0 })})`,
+    label: copyAccountsGroupLabel(g),
   }));
 });
 
@@ -3798,11 +5748,24 @@ const groups = ref<AdminGroup[]>([]);
 const loading = ref(false);
 type GroupUsageSummary = {
   today_cost: number;
+  yesterday_cost: number;
   total_cost: number;
 };
 
 const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
 const usageLoading = ref(false);
+const qualityStatsByGroupId = ref<Record<string, AccountQualityStats>>({});
+const qualityStatsLoading = ref(false);
+const qualityStatsError = ref<string | null>(null);
+const qualityStatsReqSeq = ref(0);
+
+const isGroupQualityBaselineMuted = (group: AdminGroup): boolean => {
+  if (group.status !== "active") return true;
+  return (
+    qualityStatsByGroupId.value[String(group.id)]?.activity
+      .successful_request_count ?? 0
+  ) === 0;
+};
 const capacityMap = ref<
   Map<
     number,
@@ -3838,22 +5801,204 @@ let abortController: AbortController | null = null;
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteDialog = ref(false);
+const pendingLiveForm = ref<"create" | "edit" | null>(null);
+const showUnsupportedLiveConfirm = computed(
+  () => pendingLiveForm.value !== null,
+);
+const liveCapability = ref<{ supported: boolean; reason?: string } | null>(null);
+let liveCapabilityRequest: Promise<{
+  supported: boolean;
+  reason?: string;
+}> | null = null;
 const showSortModal = ref(false);
 const submitting = ref(false);
 const sortSubmitting = ref(false);
 const editingGroup = ref<AdminGroup | null>(null);
 const deletingGroup = ref<AdminGroup | null>(null);
+const duplicatingGroupIds = reactive(new Set<number>());
 const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
+type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
+type CompositeRouteFormState = {
+  public_model: string;
+  match_type: CompositeRouteMatchType;
+  target_platform: ConcreteGroupPlatform;
+  upstream_model: string;
+  endpoint: CompositeRouteEndpoint;
+  priority: number;
+  enabled: boolean;
+  notes: string;
+};
+
+const showCompositeRoutesModal = ref(false);
+const compositeRoutesGroup = ref<AdminGroup | null>(null);
+const compositeRoutes = ref<CompositeModelRoute[]>([]);
+const compositeRoutesLoading = ref(false);
+const compositeRouteSaving = ref(false);
+const compositeRouteEditingId = ref<number | null>(null);
+const compositePreviewModel = ref("");
+const compositePreviewEndpoint = ref<CompositeRouteEndpoint>("any");
+const compositePreviewLoading = ref(false);
+const compositePreviewDecision = ref<CompositeRouteDecision | null>(null);
+const compositeRouteForm = reactive<CompositeRouteFormState>({
+  public_model: "",
+  match_type: "exact",
+  target_platform: "openai",
+  upstream_model: "",
+  endpoint: "any",
+  priority: 100,
+  enabled: true,
+  notes: "",
+});
+
+const showSmartSchedulerModal = ref(false);
+const smartSchedulerGroup = ref<AdminGroup | null>(null);
+const smartSchedulerPreview = ref<SmartSchedulerPreview | null>(null);
+const smartSchedulerLoading = ref(false);
+const smartSchedulerToggleLoading = ref(false);
+const recoveryProbeSaving = ref(false);
+const recoveryProbeBillingLoading = ref(false);
+const recoveryProbeBillingSaving = ref(false);
+const recoveryProbeBillingStatus = ref<GroupRecoveryProbeBillingStatus | null>(null);
+const recoveryProbeBillingAPIKeys = ref<ApiKey[]>([]);
+const recoveryProbeBillingEnabled = ref(false);
+const recoveryProbeBillingAPIKeyID = ref(0);
+const recoveryProbeBillingDailyBudgetUSD = ref(1);
+const recoveryProbeBillingPerAttemptLimitUSD = ref(0.01);
+const poolErrorPolicySaving = ref(false);
+const smartSchedulerModel = ref("");
+const smartSchedulerEndpoint = ref("any");
+const smartSchedulerReqSeq = ref(0);
+const stickyPolicySaving = ref(false);
+const stickyPolicy = reactive({ target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+const recoveryProbeEnabled = ref(false);
+const recoveryProbeMode = ref<"manual" | "smart" | "high_frequency">("manual");
+const recoveryProbeModel = ref("");
+const recoveryProbeIntervalSeconds = ref(900);
+const recoveryProbeAttemptsPerRound = ref(1);
+const recoveryProbeBackoffCapSeconds = ref(1800);
+type GroupPolicyOverride = "inherit" | "enabled" | "disabled";
+type GroupPolicyListMode = "inherit" | "override";
+const poolModeEnabledPolicy = ref<GroupPolicyOverride>("inherit");
+const poolModeRetryCount = ref<number | null>(null);
+const poolModeRetryStatusCodesPolicy = ref<GroupPolicyListMode>("inherit");
+const poolModeRetryStatusCodes = ref("");
+const customErrorCodesEnabledPolicy = ref<GroupPolicyOverride>("inherit");
+const customErrorCodesPolicy = ref<GroupPolicyListMode>("inherit");
+const customErrorCodes = ref("");
+
+const smartSchedulerEndpointOptions = computed(() => [
+  { value: "any", label: t("admin.groups.smartScheduler.anyEndpoint") },
+  {
+    value: "chat_completions",
+    label: t("admin.groups.smartScheduler.chatCompletions"),
+  },
+  { value: "responses", label: t("admin.groups.smartScheduler.responses") },
+  { value: "messages", label: t("admin.groups.smartScheduler.messages") },
+  { value: "gemini_models", label: t("admin.groups.smartScheduler.geminiModels") },
+]);
+
+const recoveryProbeModeOptions = computed(() => [
+  { value: "manual", label: t("admin.groups.smartScheduler.recoveryProbe.modes.manual") },
+  { value: "smart", label: t("admin.groups.smartScheduler.recoveryProbe.modes.smart") },
+  { value: "high_frequency", label: t("admin.groups.smartScheduler.recoveryProbe.modes.highFrequency") },
+]);
+
+const poolModeEnabledPolicyOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "enabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.enabled") },
+  { value: "disabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.disabled") },
+]);
+
+const customErrorEnabledPolicyOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "enabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.enabled") },
+  { value: "disabled", label: t("admin.groups.smartScheduler.poolErrorPolicy.disabled") },
+]);
+
+const policyListOptions = computed(() => [
+  { value: "inherit", label: t("admin.groups.smartScheduler.poolErrorPolicy.inherit") },
+  { value: "override", label: t("admin.groups.smartScheduler.poolErrorPolicy.override") },
+]);
+
+const smartSchedulerControlActive = computed(() =>
+  smartSchedulerPreview.value?.production_control_active
+  ?? smartSchedulerGroup.value?.smart_scheduler_enabled
+  ?? false,
+);
+
+const recoveryProbeSummary = computed(() => {
+  const modeLabel = recoveryProbeModeOptions.value.find(
+    (option) => option.value === recoveryProbeMode.value,
+  )?.label ?? recoveryProbeMode.value;
+  const model = recoveryProbeModel.value.trim()
+    || t("admin.groups.smartScheduler.recoveryProbe.noTestModel");
+  return t("admin.groups.smartScheduler.recoveryProbe.summary", {
+    status: recoveryProbeEnabled.value
+      ? t("admin.groups.smartScheduler.recoveryProbe.enabled")
+      : t("admin.groups.smartScheduler.recoveryProbe.disabled"),
+    mode: modeLabel,
+    model,
+    interval: formatRecoveryProbeDuration(recoveryProbeIntervalSeconds.value),
+    count: normalizeRecoveryProbeInteger(recoveryProbeAttemptsPerRound.value, 1),
+    backoff: formatRecoveryProbeDuration(recoveryProbeBackoffCapSeconds.value),
+  });
+});
+
+const recoveryProbeBillingSelectedKeyMissing = computed(() =>
+  recoveryProbeBillingAPIKeyID.value > 0
+  && !recoveryProbeBillingAPIKeys.value.some(
+    (apiKey) => apiKey.id === recoveryProbeBillingAPIKeyID.value,
+  ),
+);
+
+const recoveryProbeBillingSettlementSummary = computed(() => {
+  const summary = recoveryProbeBillingStatus.value?.global_today;
+  return t("admin.groups.smartScheduler.recoveryProbe.billing.settlementCounts", {
+    settled: summary?.today_settled ?? 0,
+    unavailable: summary?.today_unavailable ?? 0,
+    failed: summary?.today_failed ?? 0,
+  });
+});
+
+const smartSchedulerPools = computed(() => {
+  const items = smartSchedulerPreview.value?.items ?? [];
+  return [
+    {
+      key: "primary",
+      label: t("admin.groups.smartScheduler.primary"),
+      dotClass: "bg-emerald-500",
+      items: items.filter((item) => item.pool === "primary"),
+    },
+    {
+      key: "warm",
+      label: t("admin.groups.smartScheduler.warm"),
+      dotClass: "bg-amber-500",
+      items: items.filter((item) => item.pool === "warm"),
+    },
+    {
+      key: "isolated",
+      label: t("admin.groups.smartScheduler.isolated"),
+      dotClass: "bg-red-500",
+      items: items.filter((item) => item.pool === "isolated"),
+    },
+  ];
+});
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const createModelsListState = reactive(createInitialModelsListState());
 const editModelsListState = reactive(createInitialModelsListState());
 const createModelsListLoading = ref(false);
 const editModelsListLoading = ref(false);
+type ReasoningEffortPolicyFieldsExpose = {
+  validate: () => boolean;
+  resetValidation: () => void;
+};
+const createReasoningEffortPolicyRef = ref<ReasoningEffortPolicyFieldsExpose | null>(null);
+const editReasoningEffortPolicyRef = ref<ReasoningEffortPolicyFieldsExpose | null>(null);
 const modelsListCandidatesTracker = createModelsListCandidatesTracker();
 const createModelsListSelectedCount = computed(
   () => createModelsListState.items.filter((item) => item.selected).length,
@@ -3872,6 +6017,8 @@ const createForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
+  long_context_pricing_enabled: true,
+  model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
   allow_batch_image_generation: false,
@@ -3888,17 +6035,29 @@ const createForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_model_prices: createVideoModelPricesForm(),
+  // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
+  web_search_price_per_call: null as number | null,
+  search_price_per_1k: null as number | null,
+  audio_realtime_price_per_min: null as number | null,
+  audio_tts_price_per_million_chars: null as number | null,
+  audio_stt_price_per_hour: null as number | null,
   // 高峰时段倍率配置
   peak_rate_enabled: false,
   peak_start: "",
   peak_end: "",
   peak_rate_multiplier: 1.0,
+  // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
+  profit_control_enabled: false,
+  profit_min_margin_percent: 0,
+  profit_safety_buffer_percent: 0,
   // Claude Code 客户端限制（仅 anthropic 平台使用）
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
+  allow_live: false,
   opus_mapped_model: createMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: createMessagesDispatchDefaults.sonnet_mapped_model,
   haiku_mapped_model: createMessagesDispatchDefaults.haiku_mapped_model,
@@ -3916,6 +6075,10 @@ const createForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
+  // 分组级智能调度开关；默认关闭，关闭时使用原调度
+  smart_scheduler_enabled: false,
+  max_reasoning_effort: "",
+  reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
 });
 
 // 简单账号类型（用于模型路由选择）
@@ -4217,6 +6380,8 @@ const editForm = reactive({
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
   monthly_limit_usd: null as number | null,
+  long_context_pricing_enabled: true,
+  model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
   allow_batch_image_generation: false,
@@ -4233,17 +6398,29 @@ const editForm = reactive({
   video_price_480p: null as number | null,
   video_price_720p: null as number | null,
   video_price_1080p: null as number | null,
+  video_model_prices: createVideoModelPricesForm(),
+  // Codex 网页搜索按次计费（仅 openai 平台使用）；null = 使用默认价 0.01
+  web_search_price_per_call: null as number | null,
+  search_price_per_1k: null as number | null,
+  audio_realtime_price_per_min: null as number | null,
+  audio_tts_price_per_million_chars: null as number | null,
+  audio_stt_price_per_hour: null as number | null,
   // 高峰时段倍率配置
   peak_rate_enabled: false,
   peak_start: "",
   peak_end: "",
   peak_rate_multiplier: 1.0,
+  // 分组利润控制（五个 token 平台）；界面按百分比输入，提交时转小数
+  profit_control_enabled: false,
+  profit_min_margin_percent: 0,
+  profit_safety_buffer_percent: 0,
   // Claude Code 客户端限制（仅 anthropic 平台使用）
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
+  allow_live: false,
   default_mapped_model: '',
   opus_mapped_model: editMessagesDispatchDefaults.opus_mapped_model,
   sonnet_mapped_model: editMessagesDispatchDefaults.sonnet_mapped_model,
@@ -4262,6 +6439,10 @@ const editForm = reactive({
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
   rpm_limit: 0 as number,
+  // 分组级智能调度开关；关闭时使用原调度
+  smart_scheduler_enabled: false,
+  max_reasoning_effort: "",
+  reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
 });
 
 type ImagePricingFormState = {
@@ -4390,6 +6571,27 @@ const editVideoFinalPricePreview = computed(() =>
   buildVideoFinalPricePreview(editForm),
 );
 
+// Codex 网页搜索单次默认价（与后端 defaultWebSearchPricePerCall 一致，官方 $10/1000 次）
+const DEFAULT_WEB_SEARCH_PRICE_PER_CALL = 0.01;
+
+const buildWebSearchFinalPricePreview = (form: {
+  web_search_price_per_call: number | string | null;
+  rate_multiplier: number | string | null;
+}) => {
+  const basePrice =
+    parsePreviewPrice(form.web_search_price_per_call) ??
+    DEFAULT_WEB_SEARCH_PRICE_PER_CALL;
+  const multiplier = normalizePreviewNumber(form.rate_multiplier, 1);
+  return formatImagePricePreview(basePrice * multiplier);
+};
+
+const createWebSearchFinalPricePreview = computed(() =>
+  buildWebSearchFinalPricePreview(createForm),
+);
+const editWebSearchFinalPricePreview = computed(() =>
+  buildWebSearchFinalPricePreview(editForm),
+);
+
 const resetDisabledBatchImagePricing = (
   form: Pick<
     ImagePricingFormState,
@@ -4417,6 +6619,44 @@ const deleteConfirmMessage = computed(() => {
   }
   return t("admin.groups.deleteConfirm", { name: deletingGroup.value.name });
 });
+
+const loadLiveCapability = async () => {
+  if (liveCapability.value) return liveCapability.value;
+  if (!liveCapabilityRequest) {
+    liveCapabilityRequest = adminAPI.groups
+      .getLiveCapability()
+      .catch(() => ({ supported: false }))
+      .finally(() => {
+        liveCapabilityRequest = null;
+      });
+  }
+  liveCapability.value = await liveCapabilityRequest;
+  return liveCapability.value ?? { supported: false };
+};
+
+const toggleLive = async (target: "create" | "edit") => {
+  const form = target === "create" ? createForm : editForm;
+  if (form.allow_live) {
+    form.allow_live = false;
+    return;
+  }
+  const capability = await loadLiveCapability();
+  if (capability.supported) {
+    form.allow_live = true;
+    return;
+  }
+  pendingLiveForm.value = target;
+};
+
+const confirmUnsupportedLive = () => {
+  if (pendingLiveForm.value === "create") createForm.allow_live = true;
+  if (pendingLiveForm.value === "edit") editForm.allow_live = true;
+  pendingLiveForm.value = null;
+};
+
+const cancelUnsupportedLive = () => {
+  pendingLiveForm.value = null;
+};
 
 const loadGroups = async () => {
   if (abortController) {
@@ -4453,6 +6693,12 @@ const loadGroups = async () => {
     }
     if (hasVisibleCapacityColumn.value) {
       loadCapacitySummary();
+    }
+    if (hasVisibleQualityColumn.value) {
+      loadGroupQualityBatch();
+    } else {
+      qualityStatsLoading.value = false;
+      qualityStatsError.value = null;
     }
   } catch (error: any) {
     if (
@@ -4504,12 +6750,12 @@ const loadUsageSummary = async () => {
   }
   usageLoading.value = true;
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const data = await adminAPI.groups.getUsageSummary(tz);
+    const data = await adminAPI.groups.getUsageSummary();
     const map = new Map<number, GroupUsageSummary>();
     for (const item of data) {
       map.set(item.group_id, {
         today_cost: item.today_cost,
+        yesterday_cost: item.yesterday_cost,
         total_cost: item.total_cost,
       });
     }
@@ -4551,6 +6797,39 @@ const loadCapacitySummary = async () => {
     capacityMap.value = map;
   } catch (error) {
     console.error("Error loading group capacity summary:", error);
+  }
+};
+
+const loadGroupQualityBatch = async () => {
+  if (!hasVisibleQualityColumn.value) {
+    qualityStatsLoading.value = false;
+    qualityStatsError.value = null;
+    return;
+  }
+
+  const groupIDs = groups.value.map((group) => group.id);
+  const reqSeq = ++qualityStatsReqSeq.value;
+  if (groupIDs.length === 0) {
+    qualityStatsByGroupId.value = {};
+    qualityStatsLoading.value = false;
+    qualityStatsError.value = null;
+    return;
+  }
+
+  qualityStatsLoading.value = true;
+  qualityStatsError.value = null;
+  try {
+    const result = await adminAPI.groups.getBatchQualityStats(groupIDs);
+    if (reqSeq !== qualityStatsReqSeq.value) return;
+    qualityStatsByGroupId.value = result.stats ?? {};
+  } catch (error) {
+    if (reqSeq !== qualityStatsReqSeq.value) return;
+    qualityStatsError.value = t("admin.groups.quality.loadFailed");
+    console.error("Error loading group quality stats:", error);
+  } finally {
+    if (reqSeq === qualityStatsReqSeq.value) {
+      qualityStatsLoading.value = false;
+    }
   }
 };
 
@@ -4615,20 +6894,36 @@ const closeCreateModal = () => {
   createForm.video_price_480p = null;
   createForm.video_price_720p = null;
   createForm.video_price_1080p = null;
+  createForm.video_model_prices = createVideoModelPricesForm();
+  createForm.long_context_pricing_enabled = true;
+  createForm.model_pricing = [];
+  createForm.web_search_price_per_call = null;
+  createForm.search_price_per_1k = null;
+  createForm.audio_realtime_price_per_min = null;
+  createForm.audio_tts_price_per_million_chars = null;
+  createForm.audio_stt_price_per_hour = null;
   createForm.peak_rate_enabled = false;
   createForm.peak_start = "";
   createForm.peak_end = "";
   createForm.peak_rate_multiplier = 1.0;
+  createForm.profit_control_enabled = false;
+  createForm.profit_min_margin_percent = 0;
+  createForm.profit_safety_buffer_percent = 0;
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
   resetMessagesDispatchFormState(createForm);
+  createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
   createForm.rpm_limit = 0;
+  createForm.smart_scheduler_enabled = false;
+  createForm.max_reasoning_effort = "";
+  createForm.reasoning_effort_mappings = [];
+  createReasoningEffortPolicyRef.value?.resetValidation();
   resetModelsListState(createModelsListState);
   createModelRoutingRules.value = [];
 };
@@ -4662,16 +6957,50 @@ const normalizeRateMultiplier = (
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
+// 利润控制表单辅助（换算与校验逻辑见 groupsProfitControl.ts，便于单测）。
+const percentToDecimal = profitPercentToDecimal;
+const decimalToPercent = profitDecimalToPercent;
+
+const validateProfitControlForm = (form: ProfitControlFormState): boolean => {
+  const errorKey = validateProfitControlFormState(form);
+  if (errorKey) {
+    appStore.showError(t(`admin.groups.profitControl.${errorKey}`));
+    return false;
+  }
+  return true;
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
     return;
   }
+  if (
+    supportsReasoningEffortPolicyPlatform(createForm.platform) &&
+    createReasoningEffortPolicyRef.value &&
+    !createReasoningEffortPolicyRef.value.validate()
+  ) {
+    return;
+  }
+  if (!validateProfitControlForm(createForm)) {
+    return;
+  }
   submitting.value = true;
   try {
+    const {
+      video_model_prices: _createFormVideoModelPrices,
+      ...createGroupForm
+    } = createForm;
+    const videoModelPrices = serializeVideoModelPrices(
+      createForm.video_model_prices,
+    );
     // 构建请求数据，包含模型路由配置
     const requestData = {
-      ...createForm,
+      ...createGroupForm,
+      model_pricing: groupPricingToAPI(
+        createForm.model_pricing,
+        createForm.platform,
+      ),
       daily_limit_usd: normalizeOptionalLimit(
         createForm.daily_limit_usd as number | string | null,
       ),
@@ -4681,6 +7010,9 @@ const handleCreateGroup = async () => {
       monthly_limit_usd: normalizeOptionalLimit(
         createForm.monthly_limit_usd as number | string | null,
       ),
+      ...(Object.keys(videoModelPrices).length > 0
+        ? { video_model_prices: videoModelPrices }
+        : {}),
       model_routing: convertRoutingRulesToApiFormat(
         createModelRoutingRules.value,
       ),
@@ -4699,7 +7031,20 @@ const handleCreateGroup = async () => {
               exact_model_mappings: createForm.exact_model_mappings,
             })
           : undefined,
+      reasoning_effort_mappings: reasoningEffortMappingsToAPI(
+        createForm.reasoning_effort_mappings,
+      ),
+      // 利润控制：界面百分比转小数提交；仅五个 token 平台可启用
+      profit_control_enabled:
+        isProfitControlPlatform(createForm.platform) &&
+        createForm.profit_control_enabled,
+      profit_min_margin: percentToDecimal(createForm.profit_min_margin_percent),
+      profit_safety_buffer: percentToDecimal(
+        createForm.profit_safety_buffer_percent,
+      ),
     };
+    delete (requestData as Record<string, unknown>).profit_min_margin_percent;
+    delete (requestData as Record<string, unknown>).profit_safety_buffer_percent;
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
     requestData.daily_limit_usd = emptyToNull(requestData.daily_limit_usd);
@@ -4726,6 +7071,21 @@ const handleCreateGroup = async () => {
     requestData.video_price_480p = emptyToNull(requestData.video_price_480p);
     requestData.video_price_720p = emptyToNull(requestData.video_price_720p);
     requestData.video_price_1080p = emptyToNull(requestData.video_price_1080p);
+    requestData.search_price_per_1k = emptyToNull(
+      requestData.search_price_per_1k,
+    );
+    requestData.audio_realtime_price_per_min = emptyToNull(
+      requestData.audio_realtime_price_per_min,
+    );
+    requestData.audio_tts_price_per_million_chars = emptyToNull(
+      requestData.audio_tts_price_per_million_chars,
+    );
+    requestData.audio_stt_price_per_hour = emptyToNull(
+      requestData.audio_stt_price_per_hour,
+    );
+    requestData.web_search_price_per_call = emptyToNull(
+      requestData.web_search_price_per_call,
+    );
     requestData.peak_rate_enabled = createForm.peak_rate_enabled;
     requestData.peak_start = createForm.peak_start;
     requestData.peak_end = createForm.peak_end;
@@ -4763,6 +7123,9 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.daily_limit_usd = group.daily_limit_usd;
   editForm.weekly_limit_usd = group.weekly_limit_usd;
   editForm.monthly_limit_usd = group.monthly_limit_usd;
+  editForm.long_context_pricing_enabled =
+    group.long_context_pricing_enabled ?? true;
+  editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
   editForm.allow_batch_image_generation =
     group.allow_batch_image_generation ?? false;
@@ -4779,10 +7142,25 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.video_price_480p = group.video_price_480p;
   editForm.video_price_720p = group.video_price_720p;
   editForm.video_price_1080p = group.video_price_1080p;
+  editForm.video_model_prices = createVideoModelPricesForm(
+    group.video_model_prices,
+  );
+  editForm.web_search_price_per_call = group.web_search_price_per_call ?? null;
+  editForm.search_price_per_1k = group.search_price_per_1k ?? null;
+  editForm.audio_realtime_price_per_min = group.audio_realtime_price_per_min ?? null;
+  editForm.audio_tts_price_per_million_chars = group.audio_tts_price_per_million_chars ?? null;
+  editForm.audio_stt_price_per_hour = group.audio_stt_price_per_hour ?? null;
   editForm.peak_rate_enabled = group.peak_rate_enabled ?? false;
   editForm.peak_start = group.peak_start ?? "";
   editForm.peak_end = group.peak_end ?? "";
   editForm.peak_rate_multiplier = group.peak_rate_multiplier ?? 1.0;
+  editForm.profit_control_enabled = group.profit_control_enabled ?? false;
+  editForm.profit_min_margin_percent = decimalToPercent(
+    group.profit_min_margin ?? 0,
+  );
+  editForm.profit_safety_buffer_percent = decimalToPercent(
+    group.profit_safety_buffer ?? 0,
+  );
   editForm.claude_code_only = group.claude_code_only || false;
   editForm.fallback_group_id = group.fallback_group_id;
   editForm.fallback_group_id_on_invalid_request =
@@ -4793,6 +7171,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.allow_messages_dispatch =
     group.allow_messages_dispatch ||
     messagesDispatchFormState.allow_messages_dispatch;
+  editForm.allow_live = group.allow_live ?? false;
   editForm.opus_mapped_model = messagesDispatchFormState.opus_mapped_model;
   editForm.sonnet_mapped_model = messagesDispatchFormState.sonnet_mapped_model;
   editForm.haiku_mapped_model = messagesDispatchFormState.haiku_mapped_model;
@@ -4809,6 +7188,15 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
+  editForm.smart_scheduler_enabled = group.smart_scheduler_enabled ?? false;
+  editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
+    group.platform,
+    group.max_reasoning_effort,
+  );
+  editForm.reasoning_effort_mappings = reasoningEffortMappingsToRows(
+    group.reasoning_effort_mappings,
+    group.platform,
+  );
   resetModelsListState(editModelsListState, group.models_list_config);
   // 加载模型路由规则（异步加载账号名称）
   editModelRoutingRules.value = await convertApiFormatToRoutingRules(
@@ -4825,18 +7213,34 @@ const closeEditModal = () => {
   clearAllAccountSearchState();
   showEditModal.value = false;
   editingGroup.value = null;
+  editForm.max_reasoning_effort = "";
+  editForm.reasoning_effort_mappings = [];
+  editReasoningEffortPolicyRef.value?.resetValidation();
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];
+  editForm.smart_scheduler_enabled = false;
   editForm.peak_rate_enabled = false;
   editForm.peak_start = "";
   editForm.peak_end = "";
   editForm.peak_rate_multiplier = 1.0;
+  editForm.profit_control_enabled = false;
+  editForm.profit_min_margin_percent = 0;
+  editForm.profit_safety_buffer_percent = 0;
   editForm.video_rate_independent = false;
   editForm.video_rate_multiplier = 1;
   editForm.video_price_480p = null;
   editForm.video_price_720p = null;
   editForm.video_price_1080p = null;
+  editForm.video_model_prices = createVideoModelPricesForm();
+  editForm.long_context_pricing_enabled = true;
+  editForm.model_pricing = [];
+  editForm.web_search_price_per_call = null;
+  editForm.search_price_per_1k = null;
+  editForm.audio_realtime_price_per_min = null;
+  editForm.audio_tts_price_per_million_chars = null;
+  editForm.audio_stt_price_per_hour = null;
   resetMessagesDispatchFormState(editForm);
+  editForm.allow_live = false;
   resetModelsListState(editModelsListState);
 };
 
@@ -4846,12 +7250,26 @@ const handleUpdateGroup = async () => {
     appStore.showError(t("admin.groups.nameRequired"));
     return;
   }
+  if (
+    supportsReasoningEffortPolicyPlatform(editForm.platform) &&
+    editReasoningEffortPolicyRef.value &&
+    !editReasoningEffortPolicyRef.value.validate()
+  ) {
+    return;
+  }
+  if (!validateProfitControlForm(editForm)) {
+    return;
+  }
 
   submitting.value = true;
   try {
     // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
     const payload = {
       ...editForm,
+      model_pricing: groupPricingToAPI(
+        editForm.model_pricing,
+        editForm.platform,
+      ),
       daily_limit_usd: normalizeOptionalLimit(
         editForm.daily_limit_usd as number | string | null,
       ),
@@ -4860,6 +7278,9 @@ const handleUpdateGroup = async () => {
       ),
       monthly_limit_usd: normalizeOptionalLimit(
         editForm.monthly_limit_usd as number | string | null,
+      ),
+      video_model_prices: serializeVideoModelPrices(
+        editForm.video_model_prices,
       ),
       fallback_group_id:
         editForm.fallback_group_id === null ? 0 : editForm.fallback_group_id,
@@ -4885,7 +7306,20 @@ const handleUpdateGroup = async () => {
               exact_model_mappings: editForm.exact_model_mappings,
             })
           : undefined,
+      reasoning_effort_mappings: reasoningEffortMappingsToAPI(
+        editForm.reasoning_effort_mappings,
+      ),
+      // 利润控制：界面百分比转小数提交；仅五个 token 平台可启用
+      profit_control_enabled:
+        isProfitControlPlatform(editForm.platform) &&
+        editForm.profit_control_enabled,
+      profit_min_margin: percentToDecimal(editForm.profit_min_margin_percent),
+      profit_safety_buffer: percentToDecimal(
+        editForm.profit_safety_buffer_percent,
+      ),
     };
+    delete (payload as Record<string, unknown>).profit_min_margin_percent;
+    delete (payload as Record<string, unknown>).profit_safety_buffer_percent;
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
     payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd);
@@ -4914,6 +7348,21 @@ const handleUpdateGroup = async () => {
     payload.video_price_480p = emptyPriceToClear(payload.video_price_480p);
     payload.video_price_720p = emptyPriceToClear(payload.video_price_720p);
     payload.video_price_1080p = emptyPriceToClear(payload.video_price_1080p);
+    payload.search_price_per_1k = emptyPriceToClear(
+      payload.search_price_per_1k,
+    );
+    payload.audio_realtime_price_per_min = emptyPriceToClear(
+      payload.audio_realtime_price_per_min,
+    );
+    payload.audio_tts_price_per_million_chars = emptyPriceToClear(
+      payload.audio_tts_price_per_million_chars,
+    );
+    payload.audio_stt_price_per_hour = emptyPriceToClear(
+      payload.audio_stt_price_per_hour,
+    );
+    payload.web_search_price_per_call = emptyPriceToClear(
+      payload.web_search_price_per_call,
+    );
     payload.peak_rate_enabled = editForm.peak_rate_enabled;
     payload.peak_start = editForm.peak_start;
     payload.peak_end = editForm.peak_end;
@@ -4966,6 +7415,741 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const normalizeRecoveryProbeInteger = (
+  value: number | string | null | undefined,
+  fallback: number,
+): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.max(1, Math.round(numeric));
+};
+
+const formatRecoveryProbeDuration = (
+  value: number | string | null | undefined,
+): string => {
+  const seconds = normalizeRecoveryProbeInteger(value, 0);
+  if (seconds <= 0) return "0s";
+  if (seconds % 3600 === 0) {
+    return `${seconds / 3600}h`;
+  }
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}m`;
+  }
+  return `${seconds}s`;
+};
+
+const formatRecoveryProbeUSD = (value: number | null | undefined): string => {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric)) return "$0.000000";
+  return `$${numeric.toFixed(6)}`;
+};
+
+const applyRecoveryProbeBillingStatus = (
+  status: GroupRecoveryProbeBillingStatus,
+) => {
+  recoveryProbeBillingStatus.value = status;
+  recoveryProbeBillingEnabled.value = status.settings.enabled;
+  recoveryProbeBillingAPIKeyID.value = status.settings.api_key_id || 0;
+  recoveryProbeBillingDailyBudgetUSD.value =
+    status.settings.daily_budget_usd || 1;
+  recoveryProbeBillingPerAttemptLimitUSD.value =
+    status.settings.per_attempt_limit_usd || 0.01;
+};
+
+const loadRecoveryProbeBilling = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeBillingLoading.value) return;
+
+  recoveryProbeBillingLoading.value = true;
+  try {
+    const [status, apiKeys] = await Promise.all([
+      adminAPI.groups.getRecoveryProbeBilling(group.id),
+      keysAPI.list(1, 100),
+    ]);
+    applyRecoveryProbeBillingStatus(status);
+    recoveryProbeBillingAPIKeys.value = apiKeys.items ?? [];
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.smartScheduler.recoveryProbe.billing.loadFailed"),
+      ),
+    );
+  } finally {
+    recoveryProbeBillingLoading.value = false;
+  }
+};
+
+const saveRecoveryProbeBilling = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeBillingSaving.value) return;
+
+  recoveryProbeBillingSaving.value = true;
+  try {
+    await adminAPI.groups.updateRecoveryProbeBilling({
+      enabled: recoveryProbeBillingEnabled.value,
+      api_key_id: recoveryProbeBillingAPIKeyID.value,
+      daily_budget_usd: Number(recoveryProbeBillingDailyBudgetUSD.value),
+      per_attempt_limit_usd: Number(
+        recoveryProbeBillingPerAttemptLimitUSD.value,
+      ),
+    });
+    const status = await adminAPI.groups.getRecoveryProbeBilling(group.id);
+    applyRecoveryProbeBillingStatus(status);
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.recoveryProbe.billing.saveSuccess"),
+    );
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.smartScheduler.recoveryProbe.billing.saveFailed"),
+      ),
+    );
+  } finally {
+    recoveryProbeBillingSaving.value = false;
+  }
+};
+
+const setRecoveryProbeFormFromGroup = (group: AdminGroup) => {
+  recoveryProbeEnabled.value = group.recovery_probe_enabled ?? false;
+  recoveryProbeMode.value =
+    group.recovery_probe_mode === "smart" || group.recovery_probe_mode === "high_frequency"
+      ? group.recovery_probe_mode
+      : "manual";
+  recoveryProbeModel.value = group.recovery_probe_model ?? "";
+  recoveryProbeIntervalSeconds.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_interval_seconds,
+    900,
+  );
+  recoveryProbeAttemptsPerRound.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_attempts_per_round,
+    1,
+  );
+  recoveryProbeBackoffCapSeconds.value = normalizeRecoveryProbeInteger(
+    group.recovery_probe_backoff_cap_seconds,
+    1800,
+  );
+};
+
+const applyRecommendedRecoveryProbeConfig = () => {
+  recoveryProbeEnabled.value = false;
+  recoveryProbeMode.value = "smart";
+  recoveryProbeIntervalSeconds.value = 900;
+  recoveryProbeAttemptsPerRound.value = 1;
+  recoveryProbeBackoffCapSeconds.value = 1800;
+};
+
+const formatPolicyCodes = (codes: number[] | null | undefined): string =>
+  Array.isArray(codes) ? codes.join(", ") : "";
+
+const parsePolicyCodes = (raw: string): number[] => {
+  const values = raw
+    .split(/[\s,;]+/)
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isInteger(value) && value >= 100 && value <= 599);
+  return [...new Set(values)].sort((a, b) => a - b);
+};
+
+const setPoolErrorPolicyFormFromGroup = (group: AdminGroup) => {
+  poolModeEnabledPolicy.value =
+    group.pool_mode_enabled == null
+      ? "inherit"
+      : group.pool_mode_enabled
+        ? "enabled"
+        : "disabled";
+  poolModeRetryCount.value = group.pool_mode_retry_count ?? null;
+  poolModeRetryStatusCodesPolicy.value =
+    group.pool_mode_retry_status_codes == null ? "inherit" : "override";
+  poolModeRetryStatusCodes.value = formatPolicyCodes(group.pool_mode_retry_status_codes);
+  customErrorCodesEnabledPolicy.value =
+    group.custom_error_codes_enabled == null
+      ? "inherit"
+      : group.custom_error_codes_enabled
+        ? "enabled"
+        : "disabled";
+  customErrorCodesPolicy.value =
+    group.custom_error_codes == null ? "inherit" : "override";
+  customErrorCodes.value = formatPolicyCodes(group.custom_error_codes);
+};
+
+const poolErrorPolicyPayload = (): UpdateGroupRequest => ({
+  pool_mode_enabled:
+    poolModeEnabledPolicy.value === "inherit"
+      ? null
+      : poolModeEnabledPolicy.value === "enabled",
+  pool_mode_retry_count:
+    poolModeRetryCount.value == null
+      ? null
+      : normalizeRecoveryProbeInteger(poolModeRetryCount.value, 0),
+  pool_mode_retry_status_codes:
+    poolModeRetryStatusCodesPolicy.value === "inherit"
+      ? null
+      : parsePolicyCodes(poolModeRetryStatusCodes.value),
+  custom_error_codes_enabled:
+    customErrorCodesEnabledPolicy.value === "inherit"
+      ? null
+      : customErrorCodesEnabledPolicy.value === "enabled",
+  custom_error_codes:
+    customErrorCodesPolicy.value === "inherit"
+      ? null
+      : parsePolicyCodes(customErrorCodes.value),
+});
+
+const recoveryProbePayload = (): UpdateGroupRequest => ({
+  recovery_probe_enabled: recoveryProbeEnabled.value,
+  recovery_probe_mode: recoveryProbeMode.value,
+  recovery_probe_model: recoveryProbeModel.value.trim(),
+  recovery_probe_interval_seconds: normalizeRecoveryProbeInteger(
+    recoveryProbeIntervalSeconds.value,
+    900,
+  ),
+  recovery_probe_attempts_per_round: normalizeRecoveryProbeInteger(
+    recoveryProbeAttemptsPerRound.value,
+    1,
+  ),
+  recovery_probe_idle_threshold_seconds: 3600,
+  recovery_probe_backoff_cap_seconds: normalizeRecoveryProbeInteger(
+    recoveryProbeBackoffCapSeconds.value,
+    1800,
+  ),
+});
+
+const applyRecoveryProbeSettings = (
+  groupID: number,
+  payload: UpdateGroupRequest,
+) => {
+  const group = groups.value.find((item) => item.id === groupID);
+  if (group) {
+    Object.assign(group, payload);
+  }
+  if (smartSchedulerGroup.value?.id === groupID) {
+    smartSchedulerGroup.value = {
+      ...smartSchedulerGroup.value,
+      ...payload,
+    };
+  }
+};
+
+const saveRecoveryProbeSettings = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || recoveryProbeSaving.value) return;
+
+  const payload = recoveryProbePayload();
+  recoveryProbeSaving.value = true;
+  try {
+    await adminAPI.groups.update(group.id, payload);
+    applyRecoveryProbeSettings(group.id, payload);
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.recoveryProbe.saveSuccess"),
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating recovery probe setting:", error);
+  } finally {
+    recoveryProbeSaving.value = false;
+  }
+};
+
+const savePoolErrorPolicy = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || poolErrorPolicySaving.value) return;
+
+  const payload = poolErrorPolicyPayload();
+  poolErrorPolicySaving.value = true;
+  try {
+    await adminAPI.groups.update(group.id, payload);
+    const updated = groups.value.find((item) => item.id === group.id);
+    if (updated) Object.assign(updated, payload);
+    smartSchedulerGroup.value = { ...group, ...payload };
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.poolErrorPolicy.saveSuccess"),
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating group pool error policy:", error);
+  } finally {
+    poolErrorPolicySaving.value = false;
+  }
+};
+
+const handleSmartScheduler = async (group: AdminGroup) => {
+  smartSchedulerGroup.value = group;
+  smartSchedulerPreview.value = null;
+  smartSchedulerModel.value = "";
+  smartSchedulerEndpoint.value = "any";
+  setRecoveryProbeFormFromGroup(group);
+  setPoolErrorPolicyFormFromGroup(group);
+  showSmartSchedulerModal.value = true;
+  try { Object.assign(stickyPolicy, await adminAPI.groups.getSmartStickyPolicy(group.id)); } catch { /* legacy defaults remain */ }
+  await Promise.all([
+    loadSmartSchedulerPreview(),
+    loadRecoveryProbeBilling(),
+  ]);
+};
+
+const applyStickyPolicyPreset = (preset: string) => {
+  Object.assign(stickyPolicy, preset === "stability"
+    ? { target_score: 80, review_interval_seconds: 15, switch_cooldown_seconds: 15, quality_lead: 2, max_escapes: 12, escape_window_seconds: 3600, elite_confirmations: 1 }
+    : { target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+};
+
+const saveStickyPolicy = async () => {
+  if (!smartSchedulerGroup.value || stickyPolicySaving.value) return;
+  stickyPolicySaving.value = true;
+  try { Object.assign(stickyPolicy, await adminAPI.groups.updateSmartStickyPolicy(smartSchedulerGroup.value.id, stickyPolicy)); appStore.showSuccess(t("admin.groups.smartScheduler.stickyPolicy.saved")); }
+  catch (error: any) { appStore.showError(error.response?.data?.detail || t("admin.groups.failedToUpdate")); }
+  finally { stickyPolicySaving.value = false; }
+};
+
+const closeSmartSchedulerModal = () => {
+  smartSchedulerReqSeq.value += 1;
+  showSmartSchedulerModal.value = false;
+  smartSchedulerGroup.value = null;
+  smartSchedulerPreview.value = null;
+  smartSchedulerModel.value = "";
+  smartSchedulerEndpoint.value = "any";
+  smartSchedulerLoading.value = false;
+  smartSchedulerToggleLoading.value = false;
+  recoveryProbeSaving.value = false;
+  recoveryProbeBillingLoading.value = false;
+  recoveryProbeBillingSaving.value = false;
+  recoveryProbeBillingStatus.value = null;
+  recoveryProbeBillingAPIKeys.value = [];
+  recoveryProbeBillingEnabled.value = false;
+  recoveryProbeBillingAPIKeyID.value = 0;
+  recoveryProbeBillingDailyBudgetUSD.value = 1;
+  recoveryProbeBillingPerAttemptLimitUSD.value = 0.01;
+  poolErrorPolicySaving.value = false;
+};
+
+const loadSmartSchedulerPreview = async () => {
+  if (!smartSchedulerGroup.value) return;
+
+  const requestSequence = ++smartSchedulerReqSeq.value;
+  smartSchedulerLoading.value = true;
+  try {
+    const model = smartSchedulerModel.value.trim();
+    const endpoint = smartSchedulerEndpoint.value;
+    const preview = await adminAPI.groups.getSmartSchedulerPreview(
+      smartSchedulerGroup.value.id,
+      {
+        ...(model ? { model } : {}),
+        ...(endpoint !== "any" ? { endpoint } : {}),
+      },
+    );
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      smartSchedulerPreview.value = preview;
+    }
+  } catch (error: unknown) {
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      appStore.showError(
+        extractApiErrorMessage(
+          error,
+          t("admin.groups.smartScheduler.error"),
+        ),
+      );
+    }
+    console.error("Error loading smart scheduler preview:", error);
+  } finally {
+    if (requestSequence === smartSchedulerReqSeq.value) {
+      smartSchedulerLoading.value = false;
+    }
+  }
+};
+
+const applySmartSchedulerEnabled = (groupID: number, enabled: boolean) => {
+  const group = groups.value.find((item) => item.id === groupID);
+  if (group) {
+    group.smart_scheduler_enabled = enabled;
+  }
+  if (smartSchedulerGroup.value?.id === groupID) {
+    smartSchedulerGroup.value = {
+      ...smartSchedulerGroup.value,
+      smart_scheduler_enabled: enabled,
+    };
+  }
+  if (smartSchedulerPreview.value?.group.id === groupID) {
+    smartSchedulerPreview.value = {
+      ...smartSchedulerPreview.value,
+      production_control_active: enabled,
+    };
+  }
+};
+
+const toggleSmartSchedulerFromPreview = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || smartSchedulerToggleLoading.value) return;
+
+  const nextEnabled = !smartSchedulerControlActive.value;
+  smartSchedulerToggleLoading.value = true;
+  try {
+    await adminAPI.groups.update(group.id, {
+      smart_scheduler_enabled: nextEnabled,
+    });
+    applySmartSchedulerEnabled(group.id, nextEnabled);
+    appStore.showSuccess(t("admin.groups.smartScheduler.toggleSuccess"));
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating smart scheduler setting:", error);
+  } finally {
+    smartSchedulerToggleLoading.value = false;
+  }
+};
+
+const formatSmartSchedulerDate = (value: string): string => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value || "—";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+};
+
+const formatSmartSchedulerEndpoint = (endpoint: string): string =>
+  smartSchedulerEndpointOptions.value.find((option) => option.value === endpoint)
+    ?.label || endpoint || t("admin.groups.smartScheduler.anyEndpoint");
+
+const formatSmartSchedulerLatency = (value: number | null): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  const seconds = value / 1000;
+  return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s`;
+};
+
+const formatSmartSchedulerGenerationSpeed = (
+  value: number | null | undefined,
+): string => {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(1)} tok/s`;
+};
+
+const formatSmartSchedulerPercentage = (value: number): string =>
+  `${(Math.max(0, value) * 100).toFixed(1)}%`;
+
+const smartSchedulerEvidenceLabel = (scope: string): string =>
+  t(`admin.groups.smartScheduler.evidenceScopes.${scope}`);
+
+const formatSmartSchedulerQuality = (window: AccountQualityWindow): string => {
+  if (window.quality_score == null) {
+    return t("admin.groups.smartScheduler.noScore");
+  }
+  return `${window.quality_grade || ""} ${window.quality_score}`.trim();
+};
+
+const formatSmartSchedulerScore = (score: number | null | undefined): string =>
+  score == null ? t("admin.groups.smartScheduler.noScore") : score.toFixed(0);
+
+const formatSmartSchedulerConfidence = (
+  confidence: number,
+  label: string,
+): string => {
+  const confidenceLabel = t(
+    `admin.groups.smartScheduler.confidenceLabels.${label}`,
+  );
+  return `${confidenceLabel} ${Math.round(confidence * 100)}%`;
+};
+
+const smartSchedulerImmediateFailureCount = (
+  item: SmartSchedulerPreviewItem,
+): number =>
+  item.immediate_provider_failure_count
+  + item.immediate_provider_transient_count
+  + item.immediate_rate_limit_count
+  + item.immediate_uncertain_failure_count;
+
+const smartSchedulerScoreClass = (
+  item: SmartSchedulerPreviewItem,
+): string => {
+  if (item.score == null) {
+    return "bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-gray-300";
+  }
+  if (item.score >= 90) {
+    return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300";
+  }
+  if (item.score >= 70) {
+    return "bg-blue-100 text-blue-700 dark:bg-blue-900/35 dark:text-blue-300";
+  }
+  if (item.score >= 50) {
+    return "bg-amber-100 text-amber-700 dark:bg-amber-900/35 dark:text-amber-300";
+  }
+  return "bg-red-100 text-red-700 dark:bg-red-900/35 dark:text-red-300";
+};
+
+const smartSchedulerDecisionLabel = (item: SmartSchedulerPreviewItem): string => {
+  const pool = item.pool === "primary" || item.pool === "warm" || item.pool === "isolated"
+    ? item.pool
+    : "isolated";
+  return t(`admin.groups.smartScheduler.poolLabels.${pool}`);
+};
+
+const recoveryProbeAccountStatusLabel = (
+  item: SmartSchedulerPreviewItem,
+): string => {
+  const probe = item.recovery_probe;
+  if (!probe) {
+    return t("admin.groups.smartScheduler.recoveryProbe.accountStatuses.none");
+  }
+  const translated = t(
+    `admin.groups.smartScheduler.recoveryProbe.accountStates.${probe.status}`,
+  );
+  return translated === `admin.groups.smartScheduler.recoveryProbe.accountStates.${probe.status}`
+    ? probe.status
+    : translated;
+};
+
+const recoveryProbeAccountSummary = (item: SmartSchedulerPreviewItem): string => {
+  const probe = item.recovery_probe;
+  if (!probe) {
+    return t("admin.groups.smartScheduler.recoveryProbe.noAccountStatus");
+  }
+
+  const parts: string[] = [];
+  parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountModel", {
+    model: probe.model,
+  }));
+  parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountAttempts", {
+    successes: probe.consecutive_successes,
+    failures: probe.consecutive_failures,
+    total: probe.probe_count,
+  }));
+  if (probe.latency_ms > 0) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountLatency", {
+      latency: formatSmartSchedulerLatency(probe.latency_ms),
+    }));
+  }
+  if (probe.last_probe_at) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountLastProbe", {
+      time: formatSmartSchedulerDate(probe.last_probe_at),
+    }));
+  }
+  if (probe.next_probe_at) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountNextProbe", {
+      time: formatSmartSchedulerDate(probe.next_probe_at),
+    }));
+  }
+  if (probe.last_error) {
+    parts.push(t("admin.groups.smartScheduler.recoveryProbe.accountError", {
+      class: probe.last_error_class || t("admin.groups.smartScheduler.recoveryProbe.unknownErrorClass"),
+      error: probe.last_error,
+    }));
+  }
+  return parts.length > 0
+    ? parts.join(" · ")
+    : t("admin.groups.smartScheduler.recoveryProbe.noAccountStatus");
+};
+
+const handleDuplicate = async (group: AdminGroup) => {
+  if (duplicatingGroupIds.has(group.id)) return;
+
+  duplicatingGroupIds.add(group.id);
+  try {
+    const duplicate = await adminAPI.groups.duplicate(group.id);
+    appStore.showSuccess(
+      t("admin.groups.duplicateSuccess", { name: duplicate.name }),
+    );
+    await loadGroups();
+  } catch (error: unknown) {
+    appStore.showError(
+      extractApiErrorMessage(error, t("admin.groups.duplicateFailed")),
+    );
+  } finally {
+    duplicatingGroupIds.delete(group.id);
+  }
+};
+
+const compositeRouteMatchLabel = (matchType: CompositeRouteMatchType) =>
+  compositeRouteMatchOptions.value.find((option) => option.value === matchType)
+    ?.label || matchType;
+
+const formatCompositeEndpoint = (endpoint: CompositeRouteEndpoint) =>
+  compositeRouteEndpointOptions.value.find((option) => option.value === endpoint)
+    ?.label || endpoint;
+
+const formatCompositePlatform = (platform: string) => {
+  if (!platform) return "—";
+  return t(`admin.groups.platforms.${platform}`);
+};
+
+const compositeRouteSourceLabel = (source: string) => {
+  if (source === "route") return t("admin.groups.compositeRoutes.sources.route");
+  if (source === "detector") {
+    return t("admin.groups.compositeRoutes.sources.detector");
+  }
+  return source || "—";
+};
+
+const resetCompositeRouteForm = () => {
+  compositeRouteEditingId.value = null;
+  compositeRouteForm.public_model = "";
+  compositeRouteForm.match_type = "exact";
+  compositeRouteForm.target_platform = "openai";
+  compositeRouteForm.upstream_model = "";
+  compositeRouteForm.endpoint = "any";
+  compositeRouteForm.priority = 100;
+  compositeRouteForm.enabled = true;
+  compositeRouteForm.notes = "";
+};
+
+const toCompositeRouteInput = (): CompositeModelRouteInput => ({
+  public_model: compositeRouteForm.public_model.trim(),
+  match_type: compositeRouteForm.match_type,
+  target_platform: compositeRouteForm.target_platform,
+  upstream_model: compositeRouteForm.upstream_model.trim(),
+  endpoint: compositeRouteForm.endpoint,
+  priority: Number(compositeRouteForm.priority) || 100,
+  enabled: compositeRouteForm.enabled,
+  notes: compositeRouteForm.notes.trim(),
+});
+
+const loadCompositeRoutes = async () => {
+  if (!compositeRoutesGroup.value) return;
+  compositeRoutesLoading.value = true;
+  try {
+    const routes = await adminAPI.groups.listCompositeRoutes(
+      compositeRoutesGroup.value.id,
+    );
+    compositeRoutes.value = routes.sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return a.id - b.id;
+    });
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail ||
+        error.response?.data?.message ||
+        t("admin.groups.compositeRoutes.failedToLoad"),
+    );
+    console.error("Error loading composite routes:", error);
+  } finally {
+    compositeRoutesLoading.value = false;
+  }
+};
+
+const handleCompositeRoutes = async (group: AdminGroup) => {
+  compositeRoutesGroup.value = group;
+  compositePreviewModel.value = "";
+  compositePreviewEndpoint.value = "any";
+  compositePreviewDecision.value = null;
+  resetCompositeRouteForm();
+  showCompositeRoutesModal.value = true;
+  await loadCompositeRoutes();
+};
+
+const closeCompositeRoutesModal = () => {
+  showCompositeRoutesModal.value = false;
+  compositeRoutesGroup.value = null;
+  compositeRoutes.value = [];
+  compositePreviewDecision.value = null;
+  resetCompositeRouteForm();
+};
+
+const editCompositeRoute = (route: CompositeModelRoute) => {
+  compositeRouteEditingId.value = route.id;
+  compositeRouteForm.public_model = route.public_model;
+  compositeRouteForm.match_type = route.match_type;
+  compositeRouteForm.target_platform = route.target_platform;
+  compositeRouteForm.upstream_model = route.upstream_model;
+  compositeRouteForm.endpoint = route.endpoint;
+  compositeRouteForm.priority = route.priority || 100;
+  compositeRouteForm.enabled = route.enabled;
+  compositeRouteForm.notes = route.notes || "";
+};
+
+const saveCompositeRoute = async () => {
+  if (!compositeRoutesGroup.value) return;
+  if (!compositeRouteForm.public_model.trim()) {
+    appStore.showError(t("admin.groups.compositeRoutes.publicModelRequired"));
+    return;
+  }
+  compositeRouteSaving.value = true;
+  try {
+    const payload = toCompositeRouteInput();
+    if (compositeRouteEditingId.value) {
+      await adminAPI.groups.updateCompositeRoute(
+        compositeRoutesGroup.value.id,
+        compositeRouteEditingId.value,
+        payload,
+      );
+      appStore.showSuccess(t("admin.groups.compositeRoutes.routeUpdated"));
+    } else {
+      await adminAPI.groups.createCompositeRoute(
+        compositeRoutesGroup.value.id,
+        payload,
+      );
+      appStore.showSuccess(t("admin.groups.compositeRoutes.routeCreated"));
+    }
+    resetCompositeRouteForm();
+    await loadCompositeRoutes();
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail ||
+        error.response?.data?.message ||
+        t("admin.groups.compositeRoutes.failedToSave"),
+    );
+    console.error("Error saving composite route:", error);
+  } finally {
+    compositeRouteSaving.value = false;
+  }
+};
+
+const deleteCompositeRoute = async (route: CompositeModelRoute) => {
+  if (!compositeRoutesGroup.value) return;
+  if (!window.confirm(t("admin.groups.compositeRoutes.deleteConfirm"))) return;
+  try {
+    await adminAPI.groups.deleteCompositeRoute(
+      compositeRoutesGroup.value.id,
+      route.id,
+    );
+    if (compositeRouteEditingId.value === route.id) {
+      resetCompositeRouteForm();
+    }
+    appStore.showSuccess(t("admin.groups.compositeRoutes.routeDeleted"));
+    await loadCompositeRoutes();
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail ||
+        error.response?.data?.message ||
+        t("admin.groups.compositeRoutes.failedToDelete"),
+    );
+    console.error("Error deleting composite route:", error);
+  }
+};
+
+const previewCompositeRoute = async () => {
+  if (!compositeRoutesGroup.value || !compositePreviewModel.value.trim()) {
+    return;
+  }
+  compositePreviewLoading.value = true;
+  try {
+    compositePreviewDecision.value = await adminAPI.groups.previewCompositeRoute(
+      compositeRoutesGroup.value.id,
+      {
+        model: compositePreviewModel.value.trim(),
+        endpoint: compositePreviewEndpoint.value,
+      },
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail ||
+        error.response?.data?.message ||
+        t("admin.groups.compositeRoutes.failedToPreview"),
+    );
+    console.error("Error previewing composite route:", error);
+  } finally {
+    compositePreviewLoading.value = false;
+  }
 };
 
 const handleDelete = (group: AdminGroup) => {
@@ -5025,9 +8209,26 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
     }
+    if (!supportsLivePlatform(newVal)) {
+      createForm.allow_live = false;
+    }
+    if (!isProfitControlPlatform(newVal)) {
+      createForm.profit_control_enabled = false;
+      createForm.profit_min_margin_percent = 0;
+      createForm.profit_safety_buffer_percent = 0;
+    }
+    createForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
+      newVal,
+      createForm.max_reasoning_effort,
+    );
+    createForm.reasoning_effort_mappings = reasoningEffortMappingsToRows(
+      reasoningEffortMappingsToAPI(createForm.reasoning_effort_mappings),
+      newVal,
+    );
+    createReasoningEffortPolicyRef.value?.resetValidation();
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
@@ -5058,9 +8259,26 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
     }
+    if (!supportsLivePlatform(newVal)) {
+      editForm.allow_live = false;
+    }
+    if (!isProfitControlPlatform(newVal)) {
+      editForm.profit_control_enabled = false;
+      editForm.profit_min_margin_percent = 0;
+      editForm.profit_safety_buffer_percent = 0;
+    }
+    editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
+      newVal,
+      editForm.max_reasoning_effort,
+    );
+    editForm.reasoning_effort_mappings = reasoningEffortMappingsToRows(
+      reasoningEffortMappingsToAPI(editForm.reasoning_effort_mappings),
+      newVal,
+    );
+    editReasoningEffortPolicyRef.value?.resetValidation();
     if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
@@ -5093,9 +8311,12 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       editForm.allow_messages_dispatch = false
       editForm.default_mapped_model = ''
+    }
+    if (!supportsLivePlatform(newVal)) {
+      editForm.allow_live = false
     }
   }
 )
@@ -5160,6 +8381,7 @@ const saveSortOrder = async () => {
 
 onMounted(() => {
   loadGroups();
+  void loadLiveCapability();
   loadModelsListCandidates("create", 0, createForm.platform);
   document.addEventListener("click", handleClickOutside);
 });

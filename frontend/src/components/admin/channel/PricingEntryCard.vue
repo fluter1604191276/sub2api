@@ -101,7 +101,7 @@
             {{ t('admin.channels.form.defaultPrices') }}
             <span class="ml-1 font-normal text-gray-400">$/MTok</span>
           </label>
-          <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          <div class="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-6">
             <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.inputPrice') }}</label>
               <input :value="entry.input_price" @input="emitField('input_price', ($event.target as HTMLInputElement).value)"
@@ -123,14 +123,32 @@
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
             <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageInputPrice') }}</label>
+              <input :value="entry.image_input_price" @input="emitField('image_input_price', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
+            </div>
+            <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.imageTokenPrice') }}</label>
               <input :value="entry.image_output_price" @input="emitField('image_output_price', ($event.target as HTMLInputElement).value)"
                 type="number" step="any" min="0" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.pricePlaceholder')" />
             </div>
           </div>
 
-          <!-- Token intervals -->
-          <div class="mt-3">
+          <div v-if="enableTierMultipliers" class="mt-3 grid max-w-md grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.fastMultiplier') }}</label>
+              <input :value="entry.fast_multiplier" @input="emitField('fast_multiplier', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
+            </div>
+            <div>
+              <label class="text-xs text-gray-400">{{ t('admin.channels.form.flexMultiplier') }}</label>
+              <input :value="entry.flex_multiplier" @input="emitField('flex_multiplier', ($event.target as HTMLInputElement).value)"
+                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
+            </div>
+          </div>
+
+          <!-- Channel token intervals; the group long-context toggle controls whether tiers apply. -->
+          <div v-if="!hideTokenIntervals" class="mt-3">
             <div class="flex items-center justify-between">
               <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
                 {{ t('admin.channels.form.intervals') }}
@@ -146,11 +164,18 @@
                 :key="idx"
                 :interval="iv"
                 :mode="entry.billing_mode"
+                :enable-multipliers="enableTierMultipliers"
                 @update="updateInterval(idx, $event)"
                 @remove="removeInterval(idx)"
               />
             </div>
           </div>
+
+          <TimePricingSection
+            v-if="enableTimePricing"
+            :model-value="entry.time_pricing"
+            @update:model-value="emit('update', { ...entry, time_pricing: $event })"
+          />
         </div>
 
         <!-- Per-request mode -->
@@ -190,7 +215,7 @@
         </div>
 
         <!-- Image mode -->
-        <div v-else-if="entry.billing_mode === 'image'">
+        <div v-else-if="entry.billing_mode === 'image' || entry.billing_mode === 'video'">
           <div v-if="accountStats" class="mt-3 w-56" data-testid="account-stats-image-operation">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
               {{ t('admin.channels.form.imageOperation') }}
@@ -206,7 +231,7 @@
 
           <!-- Default image price (per-request, same as per_request mode) -->
           <label class="mt-3 block text-xs font-medium text-gray-500 dark:text-gray-400">
-            {{ defaultImagePriceLabel }}
+            {{ entry.billing_mode === 'video' ? t('admin.channels.form.defaultVideoPrice') : defaultImagePriceLabel }}
             <span class="ml-1 font-normal text-gray-400">$</span>
           </label>
           <div class="mt-1 w-48">
@@ -217,9 +242,9 @@
           <!-- Image tiers -->
           <div class="mt-3 flex items-center justify-between">
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
-              {{ t('admin.channels.form.imageTiers') }}
+              {{ entry.billing_mode === 'video' ? t('admin.channels.form.videoTiers') : t('admin.channels.form.imageTiers') }}
             </label>
-            <button type="button" @click="addImageTier" class="text-xs text-primary-600 hover:text-primary-700">
+            <button type="button" @click="addMediaTier" class="text-xs text-primary-600 hover:text-primary-700">
               + {{ t('admin.channels.form.addTier') }}
             </button>
           </div>
@@ -246,6 +271,7 @@ import Select from '@/components/common/Select.vue'
 import Icon from '@/components/icons/Icon.vue'
 import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
+import TimePricingSection from './TimePricingSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
 import { perTokenToMTok, getPlatformTagClass } from './types'
 import type { BillingMode } from '@/api/admin/channels'
@@ -258,8 +284,14 @@ const props = withDefaults(defineProps<{
   entry: PricingFormEntry
   platform?: string
   accountStats?: boolean
+  hideTokenIntervals?: boolean
+  enableTimePricing?: boolean
+  enableTierMultipliers?: boolean
 }>(), {
   accountStats: false,
+  hideTokenIntervals: false,
+  enableTimePricing: false,
+  enableTierMultipliers: false,
 })
 
 const emit = defineEmits<{
@@ -273,7 +305,8 @@ const collapsed = ref(props.entry.models.length > 0)
 const billingModeOptions = computed(() => [
   { value: 'token', label: t('admin.channels.billingMode.token') },
   { value: 'per_request', label: t('admin.channels.billingMode.perRequest') },
-  { value: 'image', label: t('admin.channels.billingMode.image') }
+  { value: 'image', label: t('admin.channels.billingMode.image') },
+  { value: 'video', label: t('admin.channels.billingMode.video') }
 ])
 
 const billingModeLabel = computed(() => {
@@ -303,6 +336,10 @@ function onBillingModeChange(nextMode: BillingMode) {
     ...props.entry,
     billing_mode: nextMode,
     intervals: [],
+    time_pricing: {
+      ...props.entry.time_pricing,
+      periods: [],
+    },
     image_operation: nextMode === 'image' ? (props.entry.image_operation ?? null) : null,
   })
 }
@@ -320,18 +357,26 @@ function addInterval() {
     min_tokens: 0, max_tokens: null, tier_label: '',
     input_price: null, output_price: null, cache_write_price: null,
     cache_read_price: null, per_request_price: null,
+    input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
   })
   emit('update', { ...props.entry, intervals })
 }
 
-function addImageTier() {
+function addMediaTier() {
   const intervals = [...(props.entry.intervals || [])]
-  const labels = props.accountStats ? ['1K', '2K', '4K'] : ['1K', '2K', '4K', 'HD']
+  const labels = props.accountStats
+    ? ['1K', '2K', '4K']
+    : props.entry.billing_mode === 'video'
+    ? ['480p', '720p', '1080p']
+    : ['1K', '2K', '4K', 'HD']
   intervals.push({
     min_tokens: 0, max_tokens: null, tier_label: labels[intervals.length] || '',
     input_price: null, output_price: null, cache_write_price: null,
     cache_read_price: null, per_request_price: null,
+    input_multiplier: null, output_multiplier: null,
+    cache_write_multiplier: null, cache_read_multiplier: null,
     sort_order: intervals.length
   })
   emit('update', { ...props.entry, intervals })
@@ -374,6 +419,7 @@ async function onModelsUpdate(newModels: string[]) {
         output_price: perTokenToMTok(result.output_price ?? null),
         cache_write_price: perTokenToMTok(result.cache_write_price ?? null),
         cache_read_price: perTokenToMTok(result.cache_read_price ?? null),
+        image_input_price: perTokenToMTok(result.image_input_price ?? null),
         image_output_price: perTokenToMTok(result.image_output_price ?? null),
       })
     }

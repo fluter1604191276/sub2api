@@ -155,3 +155,143 @@ func TestBuildPlatformSections_GroupsByPlatform(t *testing.T) {
 	require.Len(t, sections[0].SupportedModels, 1)
 	require.Equal(t, "claude-sonnet-4-6", sections[0].SupportedModels[0].Name)
 }
+
+func TestBuildPlatformSections_CompositeGroupExpandsAcrossConfiguredModelPlatforms(t *testing.T) {
+	anthropicPrice := 3e-6
+	openAIPrice := 2.5e-6
+	ch := service.AvailableChannel{
+		Name: "composite-channel",
+		SupportedModels: []service.SupportedModel{
+			{
+				Name:     "claude-sonnet-4-6",
+				Platform: service.PlatformAnthropic,
+				Pricing:  &service.ChannelModelPricing{InputPrice: &anthropicPrice},
+			},
+			{
+				Name:     "gpt-5",
+				Platform: service.PlatformOpenAI,
+				Pricing:  &service.ChannelModelPricing{InputPrice: &openAIPrice},
+			},
+		},
+	}
+	visible := []userAvailableGroup{
+		{ID: 9, Name: "composite", Platform: service.PlatformComposite},
+	}
+
+	sections := buildPlatformSections(ch, visible)
+
+	require.Len(t, sections, 2)
+	require.Equal(t, service.PlatformAnthropic, sections[0].Platform)
+	require.Equal(t, service.PlatformOpenAI, sections[1].Platform)
+	for _, section := range sections {
+		require.Len(t, section.Groups, 1)
+		require.Equal(t, int64(9), section.Groups[0].ID)
+		require.Equal(t, service.PlatformComposite, section.Groups[0].Platform)
+		require.Len(t, section.SupportedModels, 1)
+		require.Equal(t, section.Platform, section.SupportedModels[0].Platform)
+		require.NotNil(t, section.SupportedModels[0].Pricing)
+	}
+	require.Equal(t, "claude-sonnet-4-6", sections[0].SupportedModels[0].Name)
+	require.Equal(t, "gpt-5", sections[1].SupportedModels[0].Name)
+}
+
+func TestBuildPlatformSections_OrdinaryGroupRemainsPlatformIsolated(t *testing.T) {
+	ch := service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{
+			{Name: "claude-sonnet-4-6", Platform: service.PlatformAnthropic},
+			{Name: "gpt-5", Platform: service.PlatformOpenAI},
+		},
+	}
+	visible := []userAvailableGroup{
+		{ID: 1, Name: "anthropic-only", Platform: service.PlatformAnthropic},
+	}
+
+	sections := buildPlatformSections(ch, visible)
+
+	require.Len(t, sections, 1)
+	require.Equal(t, service.PlatformAnthropic, sections[0].Platform)
+	require.Len(t, sections[0].SupportedModels, 1)
+	require.Equal(t, "claude-sonnet-4-6", sections[0].SupportedModels[0].Name)
+}
+
+func TestBuildPlatformSections_CompositeAndOrdinaryGroupsShareConcreteSection(t *testing.T) {
+	ch := service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{
+			{Name: "claude-sonnet-4-6", Platform: service.PlatformAnthropic},
+			{Name: "gpt-5", Platform: service.PlatformOpenAI},
+		},
+	}
+	visible := []userAvailableGroup{
+		{ID: 1, Name: "anthropic-only", Platform: service.PlatformAnthropic},
+		{ID: 9, Name: "composite", Platform: service.PlatformComposite},
+	}
+
+	sections := buildPlatformSections(ch, visible)
+
+	require.Len(t, sections, 2)
+	require.Equal(t, service.PlatformAnthropic, sections[0].Platform)
+	require.Equal(t, []int64{1, 9}, []int64{
+		sections[0].Groups[0].ID,
+		sections[0].Groups[1].ID,
+	})
+	require.Equal(t, service.PlatformOpenAI, sections[1].Platform)
+	require.Len(t, sections[1].Groups, 1)
+	require.Equal(t, int64(9), sections[1].Groups[0].ID)
+}
+
+func TestBuildPlatformSections_CompositeWithoutModelsKeepsEmptyCompositeSection(t *testing.T) {
+	visible := []userAvailableGroup{
+		{ID: 9, Name: "composite", Platform: service.PlatformComposite},
+	}
+
+	sections := buildPlatformSections(service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{{Name: "invalid-without-platform"}},
+	}, visible)
+
+	require.Len(t, sections, 1)
+	require.Equal(t, service.PlatformComposite, sections[0].Platform)
+	require.Len(t, sections[0].Groups, 1)
+	require.Empty(t, sections[0].SupportedModels)
+}
+
+func TestBuildPublicPlatformSectionsFiltersHiddenModelsAndEmptySections(t *testing.T) {
+	ch := service.AvailableChannel{
+		SupportedModels: []service.SupportedModel{
+			{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeToken}},
+			{Name: "gpt-image-1.5", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
+			{Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
+		},
+	}
+	visible := []userAvailableGroup{
+		{ID: 1, Name: "openai", Platform: service.PlatformOpenAI},
+		{ID: 2, Name: "gemini", Platform: service.PlatformGemini},
+	}
+
+	sections := buildPublicPlatformSections(ch, visible, service.DefaultPublicCatalogVisibilityConfig())
+
+	require.Len(t, sections, 1)
+	require.Equal(t, service.PlatformOpenAI, sections[0].Platform)
+	require.Equal(t, []string{"gpt-5.6-sol", "gpt-image-1.5"}, []string{
+		sections[0].SupportedModels[0].Name,
+		sections[0].SupportedModels[1].Name,
+	})
+	require.Len(t, ch.SupportedModels, 3, "catalog filtering must not mutate the shared service result")
+}
+
+func TestBuildPublicPlatformSectionsHonorsExplicitMediaOverride(t *testing.T) {
+	ch := service.AvailableChannel{SupportedModels: []service.SupportedModel{{
+		Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini,
+		Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage},
+	}}}
+	visible := []userAvailableGroup{{ID: 2, Name: "gemini", Platform: service.PlatformGemini}}
+	cfg, err := service.ValidateAndNormalizePublicCatalogVisibility(service.PublicCatalogVisibilityConfig{
+		DefaultMediaVisibility: service.PublicCatalogMediaHidden,
+		Models:                 map[string]bool{"gemini:gemini-3.1-flash-image": true},
+	})
+	require.NoError(t, err)
+
+	sections := buildPublicPlatformSections(ch, visible, cfg)
+
+	require.Len(t, sections, 1)
+	require.Len(t, sections[0].SupportedModels, 1)
+}

@@ -11,9 +11,10 @@ const (
 	ModelCalibrationSkipNoTargetModels       = "no_target_models"
 	ModelCalibrationSkipNoPricing            = "no_pricing"
 	ModelCalibrationSkipAmbiguousPricing     = "ambiguous_pricing"
-	ModelCalibrationSkipWouldEmptyPricing    = "would_empty_pricing"
 	ModelCalibrationSkipChannelMappingSource = "channel_mapping_source"
 	ModelCalibrationSkipModelPatternConflict = "model_pattern_conflict"
+	ModelCalibrationSkipStaleModelReview     = "stale_model_review"
+	ModelCalibrationSkipBillingModeMismatch  = "billing_mode_mismatch"
 )
 
 type channelModelCalibrationAccountRepository interface {
@@ -27,9 +28,10 @@ type channelModelCalibrationWriteRepository interface {
 // ChannelPricingModelsUpdate is the minimal persistent change made by model calibration.
 // Pricing values, intervals, billing modes, and mappings are intentionally excluded.
 type ChannelPricingModelsUpdate struct {
-	ChannelID int64
-	PricingID int64
-	Models    []string
+	ChannelID      int64
+	PricingID      int64
+	PreviousModels []string
+	Models         []string
 }
 
 type ModelCalibrationSkippedItem struct {
@@ -299,7 +301,6 @@ func calibrateChannelPlatform(channelID int64, platform string, pricingRows []Ch
 	for i := range pricingRows {
 		row := pricingRows[i]
 		kept := make([]string, 0, len(row.Models))
-		stale := make([]string, 0)
 		for _, rawModel := range row.Models {
 			model := strings.TrimSpace(rawModel)
 			if model == "" {
@@ -314,16 +315,10 @@ func calibrateChannelPlatform(channelID int64, platform string, pricingRows []Ch
 				result.Skipped = append(result.Skipped, ModelCalibrationSkippedItem{Platform: platform, Model: model, Reason: ModelCalibrationSkipChannelMappingSource})
 				continue
 			}
-			stale = append(stale, model)
-		}
-
-		if len(kept) == 0 && len(stale) > 0 && (len(pricingRows) > 1 || len(targetModels) == 0) {
-			kept = append(kept, stale...)
-			for _, model := range stale {
-				result.Skipped = append(result.Skipped, ModelCalibrationSkippedItem{Platform: platform, Model: model, Reason: ModelCalibrationSkipWouldEmptyPricing})
-			}
-		} else {
-			result.Removals = append(result.Removals, stale...)
+			// Absence from active account mappings is not sufficient proof that a
+			// priced model should disappear. Keep it and require manual review.
+			kept = append(kept, model)
+			result.Skipped = append(result.Skipped, ModelCalibrationSkippedItem{Platform: platform, Model: model, Reason: ModelCalibrationSkipStaleModelReview})
 		}
 		updatedModels[row.ID] = kept
 	}
@@ -346,8 +341,11 @@ func calibrateChannelPlatform(channelID int64, platform string, pricingRows []Ch
 		} else {
 			rowID := pricingRows[0].ID
 			for _, model := range missing {
+				if !modelMatchesPricingRow(model, pricingRows[0]) {
+					result.Skipped = append(result.Skipped, ModelCalibrationSkippedItem{Platform: platform, Model: model, Reason: ModelCalibrationSkipBillingModeMismatch})
+					continue
+				}
 				if conflictsWithPatterns(updatedModels[rowID], model) {
-					result.Applicable = false
 					result.Skipped = append(result.Skipped, ModelCalibrationSkippedItem{Platform: platform, Model: model, Reason: ModelCalibrationSkipModelPatternConflict})
 					continue
 				}
@@ -364,9 +362,10 @@ func calibrateChannelPlatform(channelID int64, platform string, pricingRows []Ch
 			continue
 		}
 		result.updates = append(result.updates, ChannelPricingModelsUpdate{
-			ChannelID: channelID,
-			PricingID: row.ID,
-			Models:    append([]string(nil), models...),
+			ChannelID:      channelID,
+			PricingID:      row.ID,
+			PreviousModels: append([]string(nil), row.Models...),
+			Models:         append([]string(nil), models...),
 		})
 	}
 
@@ -374,10 +373,51 @@ func calibrateChannelPlatform(channelID int64, platform string, pricingRows []Ch
 	result.CalibratedModelCount = countUniqueUpdatedPatterns(updatedModels)
 	sort.Strings(result.Additions)
 	sort.Strings(result.Removals)
-	if len(result.Skipped) > 0 {
-		result.Applicable = false
-	}
 	return result
+}
+
+type modelModality string
+
+const (
+	modelModalityText  modelModality = "text"
+	modelModalityImage modelModality = "image"
+	modelModalityVideo modelModality = "video"
+)
+
+func modelMatchesPricingRow(model string, row ChannelModelPricing) bool {
+	modality := inferModelModality(model)
+	switch row.BillingMode {
+	case BillingModeImage:
+		return modality == modelModalityImage
+	case BillingModeToken, "":
+		return modality == modelModalityText
+	case BillingModePerRequest:
+		for _, existing := range row.Models {
+			if inferModelModality(existing) == modality {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func inferModelModality(model string) modelModality {
+	name := strings.ToLower(strings.TrimSpace(model))
+	imageMarkers := []string{"image", "imagen", "dall-e", "flux", "midjourney"}
+	for _, marker := range imageMarkers {
+		if strings.Contains(name, marker) {
+			return modelModalityImage
+		}
+	}
+	videoMarkers := []string{"video", "seedance", "sora", "veo", "kling", "runway", "hailuo"}
+	for _, marker := range videoMarkers {
+		if strings.Contains(name, marker) {
+			return modelModalityVideo
+		}
+	}
+	return modelModalityText
 }
 
 func addCanonicalModel(models map[string]string, raw string) {

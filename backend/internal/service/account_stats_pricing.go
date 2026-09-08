@@ -52,17 +52,34 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, usage.Tokens)
+		return tryModelFilePricingWithServiceTier(billingService, upstreamModel, usage.Tokens, usage.ServiceTier)
 	}
 
 	return nil
 }
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens) *float64 {
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier ...string) *float64 {
+	tier := ""
+	if len(serviceTier) > 0 {
+		tier = serviceTier[0]
+	}
+	return tryModelFilePricingWithServiceTier(billingService, model, tokens, tier)
+}
+
+func tryModelFilePricingWithServiceTier(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
 	pricing, err := billingService.GetModelPricing(model)
 	if err != nil || pricing == nil {
 		return nil
+	}
+	normalizedTier := normalizeBillingServiceTier(serviceTier)
+	if normalizedTier == "priority" || normalizedTier == "fast" || normalizedTier == "flex" ||
+		billingService.shouldApplySessionLongContextPricing(tokens, pricing) {
+		breakdown, err := billingService.CalculateCostWithServiceTier(model, tokens, 1, normalizedTier)
+		if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
+			return nil
+		}
+		return &breakdown.TotalCost
 	}
 	cost := float64(tokens.InputTokens)*pricing.InputPricePerToken +
 		float64(tokens.OutputTokens)*pricing.OutputPricePerToken +
@@ -228,6 +245,9 @@ func calculateStatsCost(pricing *ChannelModelPricing, usage AccountStatsUsageCon
 	case BillingModePerRequest:
 		return calculatePerRequestStatsCost(pricing, usage.RequestCount())
 	default:
+		// Custom account-stat pricing is already an explicit upstream cost
+		// declaration. Do not apply the request's user-facing service-tier
+		// multiplier again, otherwise a priority/fast request double-counts it.
 		return calculateTokenStatsCost(pricing, usage.Tokens)
 	}
 }
@@ -293,6 +313,9 @@ func applyAccountStatsCost(
 	}
 	usage := AccountStatsUsageContext{Tokens: tokens}
 	if usageLog != nil {
+		if usageLog.ServiceTier != nil {
+			usage.ServiceTier = strings.TrimSpace(*usageLog.ServiceTier)
+		}
 		usage.ImageCount = usageLog.ImageCount
 		if usageLog.ImageSize != nil {
 			usage.ImageSize = strings.TrimSpace(*usageLog.ImageSize)

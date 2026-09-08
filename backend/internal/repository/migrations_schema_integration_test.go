@@ -5,10 +5,32 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestMigrationsRunner_ConcurrentInstancesSerializeOnSessionLock(t *testing.T) {
+	const instances = 2
+	errorsByInstance := make([]error, instances)
+	var wg sync.WaitGroup
+	for i := 0; i < instances; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			errorsByInstance[index] = ApplyMigrations(ctx, integrationDB)
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errorsByInstance {
+		require.NoErrorf(t, err, "migration instance %d", i)
+	}
+}
 
 func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	tx := testTx(t)
@@ -34,6 +56,50 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "accounts", "session_window_status", "character varying", 20, true)
 	requireIndex(t, tx, "accounts", "idx_accounts_autopause_expiry_due")
 
+	// groups: OpenAI Live 默认关闭，管理员显式开启后才可访问。
+	requireColumn(t, tx, "groups", "allow_live", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "smart_scheduler_enabled", "boolean", 0, false)
+	requireColumnDefaultContains(t, tx, "groups", "smart_scheduler_enabled", "false")
+	requireColumn(t, tx, "groups", "recovery_probe_enabled", "boolean", 0, false)
+	requireColumn(t, tx, "groups", "recovery_probe_mode", "character varying", 16, false)
+	requireColumn(t, tx, "groups", "recovery_probe_model", "character varying", 200, false)
+	requireColumn(t, tx, "groups", "recovery_probe_interval_seconds", "integer", 0, false)
+	requireColumn(t, tx, "groups", "recovery_probe_attempts_per_round", "integer", 0, false)
+	requireColumn(t, tx, "groups", "recovery_probe_idle_threshold_seconds", "integer", 0, false)
+	requireColumn(t, tx, "groups", "recovery_probe_backoff_cap_seconds", "integer", 0, false)
+	requireColumnDefaultContains(t, tx, "groups", "recovery_probe_enabled", "false")
+	requireIndex(t, tx, "group_recovery_probe_states", "idx_group_recovery_probe_states_due")
+	requireIndex(t, tx, "group_recovery_probe_states", "idx_group_recovery_probe_states_group_model")
+	requireColumn(t, tx, "group_recovery_probe_states", "physical_state_id", "bigint", 0, true)
+	requireIndex(t, tx, "group_recovery_probe_states", "idx_group_recovery_probe_states_physical")
+	requireIndex(t, tx, "group_recovery_probe_states", "idx_group_recovery_probe_states_identity_key")
+	requireUniqueIndexDefinitionContains(t, tx, "group_recovery_probe_states", "idx_group_recovery_probe_states_identity_key", "group_id", "account_id", "lower", "btrim", "model")
+	requireColumn(t, tx, "group_recovery_probe_physical_states", "model_key", "character varying", 200, false)
+	requireColumn(t, tx, "group_recovery_probe_physical_states", "owner_group_id", "bigint", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_physical_states", "next_probe_at", "timestamp with time zone", 0, false)
+	requireConstraintDefinitionContains(t, tx, "group_recovery_probe_physical_states", "group_recovery_probe_physical_unique", "account_id", "model_key")
+	requireConstraintDefinitionContains(t, tx, "group_recovery_probe_physical_states", "group_recovery_probe_physical_model_key_check", "lower", "btrim", "model_key")
+	requireIndex(t, tx, "group_recovery_probe_physical_states", "idx_group_recovery_probe_physical_due")
+	requireIndex(t, tx, "usage_logs", "idx_usage_logs_recovery_probe_real_usage")
+	requireColumn(t, tx, "group_recovery_probe_audits", "actual_cost", "numeric", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "physical_state_id", "bigint", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "beneficiary_group_count", "integer", 0, false)
+	requireConstraintDefinitionContains(t, tx, "group_recovery_probe_audits", "group_recovery_probe_audits_beneficiary_count_check", "beneficiary_group_count", ">= 1")
+	requireColumn(t, tx, "group_recovery_probe_audits", "cost_status", "character varying", 16, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "input_tokens", "integer", 0, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "output_tokens", "integer", 0, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "cache_creation_tokens", "integer", 0, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "cache_read_tokens", "integer", 0, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "settlement_status", "character varying", 24, false)
+	requireColumn(t, tx, "group_recovery_probe_audits", "settled_cost", "numeric", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "usage_log_id", "bigint", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "billing_user_id", "bigint", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "billing_api_key_id", "bigint", 0, true)
+	requireColumn(t, tx, "group_recovery_probe_audits", "settlement_error", "text", 0, false)
+	requireIndex(t, tx, "group_recovery_probe_audits", "idx_group_recovery_probe_audits_group_created")
+	requireIndex(t, tx, "group_recovery_probe_audits", "idx_group_recovery_probe_audits_settlement")
+	requireIndex(t, tx, "group_recovery_probe_audits", "idx_group_recovery_probe_audits_physical_created")
+
 	// api_keys: key length should be 128
 	requireColumn(t, tx, "api_keys", "key", "character varying", 128, false)
 
@@ -44,6 +110,7 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// usage_logs: billing_type used by filters/stats
 	requireColumn(t, tx, "usage_logs", "billing_type", "smallint", 0, false)
 	requireColumn(t, tx, "usage_logs", "request_type", "smallint", 0, false)
+	requireConstraintDefinitionContains(t, tx, "usage_logs", "usage_logs_request_type_check", "request_type", "<= 6")
 	requireColumn(t, tx, "usage_logs", "openai_ws_mode", "boolean", 0, false)
 	requireColumn(t, tx, "usage_logs", "image_input_size", "character varying", 32, true)
 	requireColumn(t, tx, "usage_logs", "image_output_size", "character varying", 32, true)
@@ -52,6 +119,24 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	requireColumn(t, tx, "usage_logs", "video_count", "integer", 0, false)
 	requireColumn(t, tx, "usage_logs", "video_resolution", "character varying", 10, true)
 	requireColumn(t, tx, "usage_logs", "video_duration_seconds", "integer", 0, true)
+	requireColumn(t, tx, "usage_logs", "upstream_response_model", "character varying", 200, true)
+	requireColumn(t, tx, "usage_logs", "upstream_model_mismatch", "boolean", 0, true)
+	requireIndex(t, tx, "usage_logs", usageLogsUpstreamModelMismatchIndex)
+
+	var mismatchIndexDef string
+	require.NoError(t, tx.QueryRowContext(context.Background(), `
+SELECT pg_get_indexdef(i.indexrelid)
+FROM pg_class idx
+JOIN pg_index i ON i.indexrelid = idx.oid
+JOIN pg_class tbl ON tbl.oid = i.indrelid
+JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+WHERE ns.nspname = 'public'
+  AND tbl.relname = 'usage_logs'
+  AND idx.relname = $1
+`, usageLogsUpstreamModelMismatchIndex).Scan(&mismatchIndexDef))
+	require.Contains(t, mismatchIndexDef, "created_at DESC")
+	require.Contains(t, mismatchIndexDef, "id DESC")
+	require.Contains(t, mismatchIndexDef, "WHERE (upstream_model_mismatch IS TRUE)")
 	requireConstraintDefinitionContains(
 		t,
 		tx,
@@ -110,6 +195,13 @@ func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
 	// ops_system_logs: API key id index for operational log triage
 	requireColumn(t, tx, "ops_system_logs", "api_key_id", "bigint", 0, true)
 	requireIndex(t, tx, "ops_system_logs", "idx_ops_system_logs_api_key_id_created_at")
+
+	// Bounded ingress rejection security aggregates.
+	requireColumn(t, tx, "ops_ingress_reject_aggregates", "bucket_start", "timestamp with time zone", 0, false)
+	requireColumn(t, tx, "ops_ingress_reject_aggregates", "client_ip", "inet", 0, false)
+	requireColumn(t, tx, "ops_ingress_reject_aggregates", "request_count", "bigint", 0, false)
+	requireIndex(t, tx, "ops_ingress_reject_aggregates", "idx_ops_ingress_reject_aggregates_bucket")
+	requireIndex(t, tx, "ops_ingress_reject_aggregates", "idx_ops_ingress_reject_aggregates_ip_bucket")
 
 	// user_allowed_groups table should exist
 	var uagRegclass sql.NullString
@@ -192,6 +284,24 @@ SELECT EXISTS (
 `, table, index).Scan(&exists)
 	require.NoError(t, err, "query pg_indexes for %s.%s", table, index)
 	require.False(t, exists, "expected index %s on %s to be absent", index, table)
+}
+
+func requireUniqueIndexDefinitionContains(t *testing.T, tx *sql.Tx, table, index string, fragments ...string) {
+	t.Helper()
+
+	var def string
+	err := tx.QueryRowContext(context.Background(), `
+SELECT indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND tablename = $1
+  AND indexname = $2
+`, table, index).Scan(&def)
+	require.NoError(t, err, "query index definition for %s.%s", table, index)
+	require.Contains(t, def, "CREATE UNIQUE INDEX")
+	for _, fragment := range fragments {
+		require.Contains(t, strings.ToLower(def), strings.ToLower(fragment), "expected index definition for %s.%s to contain %q", table, index, fragment)
+	}
 }
 
 func requirePartialUniqueIndexDefinition(t *testing.T, tx *sql.Tx, table, index string, fragments ...string) {

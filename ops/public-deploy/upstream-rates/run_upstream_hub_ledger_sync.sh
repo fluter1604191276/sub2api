@@ -1,8 +1,9 @@
 #!/bin/zsh
 set -eu
 
-WORKDIR="/Users/fluter_claw/Desktop/study_project/sub2api/.worktrees/public-deploy"
-SCRIPT="ops/public-deploy/upstream-rates/sync_upstream_hub_snapshot_to_vps.py"
+SCRIPT_DIR="${0:A:h}"
+WORKDIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+SCRIPT="${WORKDIR}/ops/public-deploy/upstream-rates/sync_upstream_hub_snapshot_to_vps.py"
 LOCKDIR="/tmp/fluter-upstream-hub-ledger-sync.lock"
 PYTHON="/opt/homebrew/bin/python3"
 

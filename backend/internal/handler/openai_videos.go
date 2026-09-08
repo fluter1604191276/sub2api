@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -71,8 +72,8 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 	setOpsRequestContext(c, parsed.Model, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, parsed.Model, parsed.ModerationBody()); decision != nil && decision.Blocked {
-		h.errorResponse(c, contentModerationStatus(decision), contentModerationErrorCode(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, parsed.Model, parsed.ModerationBody()); decision != nil && !decision.AllowNextStage {
+		h.openAISecurityAuditError(c, decision)
 		return
 	}
 
@@ -105,8 +106,10 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
+	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
@@ -114,7 +117,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 	for {
 		reqLog.Debug("openai.video_generations.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
-			c.Request.Context(),
+			requestCtx,
 			apiKey.GroupID,
 			"",
 			sessionHash,
@@ -157,8 +160,16 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 		reqLog.Debug("openai.video_generations.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
-		accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-		if !acquired {
+		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+		if slotResult == openAISlotAcquireProfitVetoed {
+			// Video scheduling suppresses the text profit gate; keep a bounded defensive retry if a gate leaks in.
+			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
+				return
+			}
+			continue
+		}
+		if slotResult != openAISlotAcquireOK {
 			return
 		}
 
@@ -179,7 +190,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), false, nil)
 				if failoverErr.RetryableOnSameAccount {
 					retryLimit := account.GetPoolModeRetryCount()
 					if sameAccountRetryCount[account.ID] < retryLimit {
@@ -214,7 +225,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 				)
 				continue
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), false, nil)
 			wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
 			reqLog.Warn("openai.video_generations.forward_failed",
 				zap.Int64("account_id", account.ID),
@@ -224,7 +235,15 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 			return
 		}
 
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), true, nil)
+		if result != nil && strings.TrimSpace(result.VideoTaskID) != "" {
+			if err := h.gatewayService.BindOpenAIVideoTaskAccount(c.Request.Context(), apiKey.GroupID, result.VideoTaskID, account.ID); err != nil {
+				reqLog.Warn("openai.video_generations.bind_task_account_failed",
+					zap.Int64("account_id", account.ID),
+					zap.Error(err),
+				)
+			}
+		}
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
@@ -326,9 +345,10 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, []byte(taskID))
+	sessionHash := service.OpenAIVideoTaskSessionHash(taskID)
+	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
-		c.Request.Context(),
+		requestCtx,
 		apiKey.GroupID,
 		"",
 		sessionHash,
@@ -358,8 +378,8 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 	)
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 
-	accountReleaseFunc, acquired := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
-	if !acquired {
+	accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
+	if slotResult != openAISlotAcquireOK {
 		return
 	}
 
@@ -377,7 +397,7 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 	}
 	service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, responseLatencyMs)
 	if err != nil {
-		h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+		h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(""), false, nil)
 		wroteFallback := h.ensureForwardErrorResponse(c, streamStarted)
 		reqLog.Warn("openai.video_task.forward_failed",
 			zap.Int64("account_id", account.ID),
@@ -386,5 +406,5 @@ func (h *OpenAIGatewayHandler) VideoTask(c *gin.Context) {
 		)
 		return
 	}
-	h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, true, nil)
+	h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(""), true, nil)
 }

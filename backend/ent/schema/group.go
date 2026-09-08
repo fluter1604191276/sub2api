@@ -1,6 +1,8 @@
 package schema
 
 import (
+	"encoding/json"
+
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 
@@ -66,6 +68,12 @@ func (Group) Fields() []ent.Field {
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),
+		field.String("duplicate_operation_id").
+			MaxLen(64).
+			Optional().
+			Nillable().
+			Immutable().
+			Comment("内部幂等恢复标识，不对 API 暴露"),
 
 		// Subscription-related fields (added by migration 003)
 		field.String("platform").
@@ -142,6 +150,50 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.JSON("video_model_prices", map[string]map[string]float64{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("按模型族和分辨率覆盖视频每秒价格"),
+		field.Float("web_search_price_per_call").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示使用默认价 0.01（官方 $10/1000 次）"),
+
+		// 搜索/工具调用显式定价（per 1k calls），用于 Grok web_search 等。
+		field.Float("search_price_per_1k").
+			Optional().
+			Nillable().
+			Min(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("搜索工具价格 per 1000 calls（web_search 等）"),
+
+		// Grok Voice 显式定价（realtime / TTS / STT），不按文本 RateMultiplier。
+		field.Float("audio_realtime_price_per_min").
+			Optional().
+			Nillable().
+			Min(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("Voice realtime 每分钟价格（USD）"),
+		field.Float("audio_tts_price_per_million_chars").
+			Optional().
+			Nillable().
+			Min(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("TTS 每百万字符价格（USD）"),
+		field.Float("audio_stt_price_per_hour").
+			Optional().
+			Nillable().
+			Min(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("STT 每小时价格（USD）"),
+		field.Bool("long_context_pricing_enabled").
+			Default(true).
+			Comment("是否按上下文长度应用模型阶梯价格；默认开启以保持官方/渠道长上下文价"),
+		field.JSON("model_pricing", json.RawMessage{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组逐模型定价；优先级高于渠道和内置定价"),
 
 		// Claude Code 客户端限制 (added by migration 029)
 		field.Bool("claude_code_only").
@@ -187,6 +239,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("allow_messages_dispatch").
 			Default(false).
 			Comment("是否允许 /v1/messages 调度到此 OpenAI 分组"),
+		field.Bool("allow_live").
+			Default(false).
+			Comment("是否允许此 OpenAI 分组访问 Live 接口"),
 		field.Bool("require_oauth_only").
 			Default(false).
 			Comment("仅允许非 apikey 类型账号关联到此分组"),
@@ -210,6 +265,79 @@ func (Group) Fields() []ent.Field {
 		field.Int("rpm_limit").
 			Default(0).
 			Comment("分组 RPM 上限，0 表示不限制；设置后接管该分组用户的限流"),
+
+		// OpenAI/Codex 请求的推理强度上限（空字符串表示不限制）。
+		field.String("max_reasoning_effort").
+			MaxLen(20).
+			Default("").
+			Comment("OpenAI reasoning effort 上限；可选 minimal/low/medium/high/xhigh/max"),
+		field.JSON("reasoning_effort_mappings", []domain.ReasoningEffortMapping{}).
+			Default([]domain.ReasoningEffortMapping{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("OpenAI reasoning effort 自定义精确映射；先映射再应用上限"),
+
+		// 分组利润控制（migration 192/193）：openai/anthropic/gemini/grok/antigravity
+		// 的 token 分组可启用，composite 分组不能直接启用。
+		field.Bool("profit_control_enabled").
+			Default(false).
+			Comment("是否启用利润控制：调度时仅允许账号计费倍率满足毛利率要求的账号进入候选池"),
+		field.Float("profit_min_margin").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0).
+			Comment("最低毛利率，小数（0.30=30%）；账号准入条件为 U <= D*(1-margin-buffer)"),
+		field.Float("profit_safety_buffer").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0).
+			Comment("安全缓冲，小数；与 margin 相加后从下游倍率中扣除，默认 0"),
+		field.Bool("smart_scheduler_enabled").
+			Default(false).
+			Comment("是否允许智能调度接管本分组的账号候选排序；默认关闭"),
+		field.Bool("recovery_probe_enabled").
+			Default(false).
+			Comment("是否对本分组中一小时无真实使用记录的账号执行恢复探针；默认关闭"),
+		field.String("recovery_probe_mode").
+			MaxLen(16).
+			Default("smart").
+			Comment("恢复探针模式：manual 固定间隔，smart 按连续失败次数退避"),
+		field.String("recovery_probe_model").
+			MaxLen(200).
+			Default("").
+			Comment("恢复探针使用的分组公开模型 ID"),
+		field.Int("recovery_probe_interval_seconds").
+			Default(900).
+			Comment("手动模式固定间隔及成功后的复检间隔，单位秒"),
+		field.Int("recovery_probe_attempts_per_round").
+			Default(1).
+			Comment("每轮恢复探针测试次数，范围 1-5"),
+		field.Int("recovery_probe_idle_threshold_seconds").
+			Default(3600).
+			Comment("账号无真实使用记录多久后进入探针候选；当前固定为一小时"),
+		field.Int("recovery_probe_backoff_cap_seconds").
+			Default(1800).
+			Comment("智能模式瞬时失败退避上限，单位秒"),
+
+		// API Key/Bedrock 池模式与错误码策略。NULL 表示跟随账号显式配置，
+		// 账号也未配置时再使用系统默认；空数组是有意的显式清空。
+		field.Bool("pool_mode_enabled").
+			Optional().
+			Nillable().
+			Comment("分组级池模式开关；NULL 表示跟随账号"),
+		field.Int("pool_mode_retry_count").
+			Optional().
+			Nillable().
+			Comment("分组级同账号重试次数；NULL 表示跟随账号"),
+		field.JSON("pool_mode_retry_status_codes", (*[]int)(nil)).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组级池模式同账号重试状态码；NULL 表示跟随账号，空数组表示清空"),
+		field.Bool("custom_error_codes_enabled").
+			Optional().
+			Nillable().
+			Comment("分组级自定义错误码开关；NULL 表示跟随账号"),
+		field.JSON("custom_error_codes", (*[]int)(nil)).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}).
+			Comment("分组级自定义错误码；NULL 表示跟随账号，空数组表示清空"),
 	}
 }
 
@@ -239,5 +367,9 @@ func (Group) Indexes() []ent.Index {
 		index.Fields("is_exclusive"),
 		index.Fields("deleted_at"),
 		index.Fields("sort_order"),
+		index.Fields("duplicate_operation_id").
+			Unique().
+			StorageKey("idx_groups_duplicate_operation_id_active").
+			Annotations(entsql.IndexWhere("duplicate_operation_id IS NOT NULL AND deleted_at IS NULL")),
 	}
 }

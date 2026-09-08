@@ -53,3 +53,13 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar Infinite Canvas link', () => {
+  it('opens the public canvas site in a new tab for user navigation', () => {
+    expect(componentSource).toContain("const INFINITE_CANVAS_URL = 'https://canvas.fluterapi.top'")
+    expect(componentSource).toContain("label: t('nav.infiniteCanvas')")
+    expect(componentSource).toContain('externalUrl: INFINITE_CANVAS_URL')
+    expect(componentSource).toContain('target="_blank"')
+    expect(componentSource).toContain('rel="noopener noreferrer"')
+  })
+})

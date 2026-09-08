@@ -27,6 +27,10 @@ const (
 	FieldPingLatencyMs = "ping_latency_ms"
 	// FieldMessage holds the string denoting the message field in the database.
 	FieldMessage = "message"
+	// FieldQuota holds the string denoting the quota field in the database.
+	FieldQuota = "quota"
+	// FieldEstimatedCostUsd holds the string denoting the estimated_cost_usd field in the database.
+	FieldEstimatedCostUsd = "estimated_cost_usd"
 	// FieldCheckedAt holds the string denoting the checked_at field in the database.
 	FieldCheckedAt = "checked_at"
 	// EdgeMonitor holds the string denoting the monitor edge name in mutations.
@@ -51,6 +55,8 @@ var Columns = []string{
 	FieldLatencyMs,
 	FieldPingLatencyMs,
 	FieldMessage,
+	FieldQuota,
+	FieldEstimatedCostUsd,
 	FieldCheckedAt,
 }
 
@@ -71,6 +77,8 @@ var (
 	DefaultMessage string
 	// MessageValidator is a validator for the "message" field. It is called by the builders before save.
 	MessageValidator func(string) error
+	// DefaultEstimatedCostUsd holds the default value on creation for the "estimated_cost_usd" field.
+	DefaultEstimatedCostUsd float64
 	// DefaultCheckedAt holds the default value on creation for the "checked_at" field.
 	DefaultCheckedAt func() time.Time
 )
@@ -136,6 +144,11 @@ func ByPingLatencyMs(opts ...sql.OrderTermOption) OrderOption {
 // ByMessage orders the results by the message field.
 func ByMessage(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldMessage, opts...).ToFunc()
+}
+
+// ByEstimatedCostUsd orders the results by the estimated_cost_usd field.
+func ByEstimatedCostUsd(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEstimatedCostUsd, opts...).ToFunc()
 }
 
 // ByCheckedAt orders the results by the checked_at field.

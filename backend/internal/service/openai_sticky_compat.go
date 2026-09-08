@@ -163,6 +163,7 @@ func (s *OpenAIGatewayService) setStickySessionAccountID(ctx context.Context, gr
 	if err := s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), primaryKey, accountID, ttl); err != nil {
 		return err
 	}
+	s.logSmartStickySwitchApplied(ctx, groupID, accountID)
 
 	if !s.openAISessionHashDualWriteOldEnabled() {
 		return nil
@@ -215,6 +216,28 @@ func (s *OpenAIGatewayService) deleteStickySessionAccountID(ctx context.Context,
 
 	legacyKey := s.openAILegacySessionCacheKey(ctx, sessionHash)
 	if legacyKey != "" {
+		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), legacyKey)
+	}
+	return err
+}
+
+// deleteStickySessionAccountIDAllFormats is reserved for hard recovery paths.
+// A committed upstream failure must remove both the current xxhash binding and
+// the legacy SHA-256 binding even when migration reads/writes are currently
+// disabled, otherwise a later compatibility toggle can resurrect the failed
+// account for the same session.
+func (s *OpenAIGatewayService) deleteStickySessionAccountIDAllFormats(ctx context.Context, groupID *int64, sessionHash string) error {
+	if s == nil || s.cache == nil {
+		return nil
+	}
+	primaryKey := s.openAISessionCacheKey(sessionHash)
+	if primaryKey == "" {
+		return nil
+	}
+	err := s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), primaryKey)
+	legacyHash := openAILegacySessionHashFromContext(ctx)
+	legacyKey := s.openAISessionCacheKey(legacyHash)
+	if legacyKey != "" && legacyKey != primaryKey {
 		_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), legacyKey)
 	}
 	return err

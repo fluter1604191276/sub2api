@@ -10,10 +10,14 @@ Environment-variable/config dependency: none
 Billing impact: none
 Scheduling impact: account selection
 Client protocol impact: none
-Upstream version/base commit: v0.1.149 lineage, current custom release branch
+First release upstream version/base commit: v0.1.171
+First release official base commit: f0e7a9c7a23a7d02fb159b62fa809621eb0475a6
+First release custom source branch: release/v0.1.171-fluter-full-custom-20260829
+Current candidate upstream version/base commit: v0.1.183 / e8cb019fabf8b55199436229044cbf9aa7a82564
+Current candidate custom source branch: release/v0.1.183-fluter-full-custom-20260830
 Tests/fixtures: account model sync service tests and admin handler/service tests。
-Image smoke evidence: 认证检查同步入口、模型筛选和空模型回退行为。
-First release manifest: pending candidate build
+Image smoke evidence: 候选镜像 smoke 证据记录在发布 manifest 的 image_smoke 与 capability 字段。
+First release manifest: sub2api-release-20260829-r5.json
 Rollback note: 回退应用镜像；已持久化的模型快照不影响请求计费。
 Owner/status: fluter / ready for candidate build
 ```

@@ -19,16 +19,16 @@ func TestApplyModelCalibrationUpdatesRowsInOneTransaction(t *testing.T) {
 	repo := &channelRepository{db: db}
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE channel_model_pricing").
-		WithArgs([]byte(`["claude-sonnet-4-6","claude-opus-5"]`), int64(11), int64(7)).
+		WithArgs(`["claude-sonnet-4-6","claude-opus-5"]`, int64(11), int64(7), `["claude-sonnet-4-6"]`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec("UPDATE channel_model_pricing").
-		WithArgs([]byte(`["gpt-5.4"]`), int64(12), int64(8)).
+		WithArgs(`["gpt-5.4","gpt-5.5"]`, int64(12), int64(8), `["gpt-5.4"]`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	err = repo.ApplyModelCalibration(context.Background(), []service.ChannelPricingModelsUpdate{
-		{ChannelID: 7, PricingID: 11, Models: []string{"claude-sonnet-4-6", "claude-opus-5"}},
-		{ChannelID: 8, PricingID: 12, Models: []string{"gpt-5.4"}},
+		{ChannelID: 7, PricingID: 11, PreviousModels: []string{"claude-sonnet-4-6"}, Models: []string{"claude-sonnet-4-6", "claude-opus-5"}},
+		{ChannelID: 8, PricingID: 12, PreviousModels: []string{"gpt-5.4"}, Models: []string{"gpt-5.4", "gpt-5.5"}},
 	})
 
 	require.NoError(t, err)
@@ -43,14 +43,14 @@ func TestApplyModelCalibrationRollsBackWhenAnyRowIsMissing(t *testing.T) {
 	repo := &channelRepository{db: db}
 	mock.ExpectBegin()
 	mock.ExpectExec("UPDATE channel_model_pricing").
-		WithArgs([]byte(`["claude-opus-5"]`), int64(99), int64(7)).
+		WithArgs(`["claude-opus-5"]`, int64(99), int64(7), `["claude-old"]`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 
 	err = repo.ApplyModelCalibration(context.Background(), []service.ChannelPricingModelsUpdate{
-		{ChannelID: 7, PricingID: 99, Models: []string{"claude-opus-5"}},
+		{ChannelID: 7, PricingID: 99, PreviousModels: []string{"claude-old"}, Models: []string{"claude-opus-5"}},
 	})
 
-	require.ErrorContains(t, err, "pricing entry not found for calibration")
+	require.ErrorContains(t, err, "pricing entry changed or not found during calibration")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

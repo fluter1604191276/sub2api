@@ -16,13 +16,16 @@ Every release manifest must record the status and evidence for each capability b
 | cache-hit-rate | Rolling 24h cache-hit statistics in account management | GetBatchCacheHitStats, account_usage_service.go, account API/UI/tests | Cost analysis, pricing decisions | Required |
 | image-cost | Separate image upstream cost from user billing and size/operation context | account_stats_image_pricing.go, pricing tests, channel UI/tests | Billing and margin | Required |
 | pricing-calibration | Channel/model pricing calibration and explicit billing boundaries | channel calibration service/repository/tests, pricing routes | User charges, loss risk | Required |
-| available-channels-catalog | Category-first public catalogue of channels, groups, and supported models | AvailableChannelsTable.vue, availableChannels.ts, frontend tests | Public model visibility and pricing presentation | Required |
-| model-plaza | Aggregated user-facing model catalogue with search, category filters, and source/pricing details | ModelPlazaView.vue, modelPlaza.ts, model plaza tests, route/sidebar | Public model visibility and pricing presentation | Required |
+| catalog-surfaces | User-facing available-channel catalog and model-plaza navigation, protocol-platform filtering aligned with group management, summaries, readable group names, plus administrator-controlled public model visibility | backend/internal/service/public_catalog_visibility.go, backend/internal/handler/admin/public_catalog_handler.go, frontend/src/views/admin/PublicCatalogView.vue, frontend/src/api/admin/publicCatalog.ts, public catalog and model-plaza tests | Catalog discoverability only; no billing, mapping, routing, probe, or scheduler effect | Required |
 | model-sync-filter | Sync upstream-supported models, model filtering, page-size behavior | account model sync service, account routes/UI/tests | Availability and mapping | Required |
 | error-passthrough | Configurable error rewriting without leaking upstream URLs | error passthrough handler/service/routes/tests | Security and client retry behavior | Required |
+| model-capability-failover | Deterministic upstream model-capability rejection isolation and account failover | model_not_found_error.go, ratelimit_service.go, OpenAI failover handlers, classifier/rate-limit tests | Routing, model availability, sticky-session escape | Required |
+| generic-400-failover | Account-scoped failover for the narrow `HTTP 400 Upstream request failed` gateway response | openai_gateway_upstream_errors.go, openai_account_runtime_block_fastpath.go, OpenAI gateway handlers/forwarders, failover and sticky tests | Routing, retry budget, sticky-session escape | Required |
+| v1-streaming-probe | V1 probes use streaming protocol and narrowly retry explicit stream-only 400 responses | channel_monitor_checker.go, channel monitor checker tests | Monitoring accuracy, internal probe cost | Required |
+| channel-monitor-bulk-interval | Batch-update V1 channel-monitor probe intervals with scheduler resync and jitter clamping | channel_monitor_service.go, channel_monitor_repo.go, channel_monitor_handler.go, MonitorBulkIntervalDialog.vue, bulk interval tests | Monitoring cadence and upstream probe load | Required |
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
-| ops-baseline | Backups, role marker, release evidence, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
+| ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
 
 ## Status Semantics
 
@@ -51,6 +54,20 @@ Owner/status:
 
 Do not put API keys, cookies, Bearer tokens, database passwords, or raw upstream request bodies in this inventory.
 
+## Pricing Calibration Boundary
+
+OpenAI `gpt-5.6-*` and `gpt-6-astra` use the official 272K long-context
+schedule. The threshold is strictly greater than 272,000 tokens, with the
+request context calculated as input + cache creation + cache read. Once over
+the threshold, input, cache read, and cache creation use the input multiplier;
+output uses the output multiplier.
+
+Adding a model's official schedule does not itself turn on user billing. A
+group must have `LongContextPricingEnabled` enabled, and OpenAI account paths
+that require the account-level guard must have
+`openai_long_context_billing_enabled=true`. Both gates must be verified as
+part of a production pricing release.
+
 ## Source Of Truth
 
 The source of truth is the tuple:
@@ -60,6 +77,26 @@ production image digest + release-manifest.json + source snapshot hash + this in
 ~~~
 
 Git branch names, image tag names, local folder names, and memory are labels only.
+
+## Catalog Visibility Boundary
+
+The `public_catalog_visibility` setting is an independent presentation policy. The
+administrator page is `/admin/channels/catalog`, backed by:
+
+~~~text
+GET /api/v1/admin/public-catalog/visibility
+PUT /api/v1/admin/public-catalog/visibility
+~~~
+
+The policy supports a default media visibility and explicit `platform:model`
+overrides. Text models remain visible by default; `gpt-image` and
+`gpt-image-*` remain visible by default; other media models remain hidden until
+explicitly enabled. Historical overrides are retained when a model temporarily
+disappears from the active-channel candidate list.
+
+This setting must not be reused as a source for channel pricing, model mappings,
+group routing, user billing, upstream cost accounting, probes, monitoring, or
+smart scheduling.
 
 ## Required Release Records
 

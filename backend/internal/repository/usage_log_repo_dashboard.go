@@ -24,6 +24,8 @@ func (r *usageLogRepository) getPerformanceStats(ctx context.Context, userID int
 	if userID > 0 {
 		query += " AND user_id = $2"
 		args = append(args, userID)
+	} else {
+		query += " AND request_type <> 6"
 	}
 
 	var requestCount int64
@@ -296,6 +298,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
+				AND request_type <> 6
 		)
 		SELECT
 			COUNT(*) FILTER (WHERE created_at >= $1::timestamptz AND created_at < $2::timestamptz) AS total_requests,
@@ -358,6 +361,7 @@ func (r *usageLogRepository) fillDashboardUsageStatsFromUsageLogs(ctx context.Co
 			FROM usage_logs
 			WHERE created_at >= LEAST($1::timestamptz, $3::timestamptz)
 				AND created_at < GREATEST($2::timestamptz, $4::timestamptz)
+				AND request_type <> 6
 		)
 		SELECT
 			COUNT(DISTINCT CASE WHEN created_at >= $1::timestamptz AND created_at < $2::timestamptz THEN user_id END) AS active_users,

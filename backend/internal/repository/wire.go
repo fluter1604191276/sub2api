@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -67,9 +68,15 @@ var ProviderSet = wire.NewSet(
 	NewUserRepository,
 	NewAPIKeyRepository,
 	NewGroupRepository,
+	NewAdminGroupRepository,
+	NewCompositeModelRouteRepository,
 	NewAccountRepository,
+	NewAdminAccountRepository,
 	NewScheduledTestPlanRepository,   // 定时测试计划仓储
 	NewScheduledTestResultRepository, // 定时测试结果仓储
+	NewGroupRecoveryProbeRepository,
+	wire.Bind(new(service.GroupRecoveryProbeRepository), new(*groupRecoveryProbeRepository)),
+	wire.Bind(new(service.GroupRecoveryProbeBillingRepository), new(*groupRecoveryProbeRepository)),
 	NewProxyRepository,
 	NewRedeemCodeRepository,
 	NewPromoCodeRepository,
@@ -83,14 +90,19 @@ var ProviderSet = wire.NewSet(
 	NewDashboardAggregationRepository,
 	NewSettingRepository,
 	NewOpsRepository,
+	NewAuditLogRepository,
+	NewPasskeyRepository,
+	NewPasskeySessionStore,
 	NewUserSubscriptionRepository,
 	NewUserAttributeDefinitionRepository,
 	NewUserAttributeValueRepository,
 	NewUserGroupRateRepository,
 	NewErrorPassthroughRepository,
 	NewTLSFingerprintProfileRepository,
+	NewPluginRepository,
 	NewChannelRepository,
 	NewChannelMonitorRepository,
+	NewChannelMonitorV2Repository,
 	NewChannelMonitorRequestTemplateRepository,
 	NewContentModerationRepository,
 	NewAffiliateRepository,
@@ -116,11 +128,13 @@ var ProviderSet = wire.NewSet(
 	NewRedeemCache,
 	NewUpdateCache,
 	NewGeminiTokenCache,
+	NewImageTaskStore,
 	NewBatchImageQueue,
 	NewBatchImageDownloadLimiter,
 	NewLeaderLockCache,
 	ProvideSchedulerCache,
 	NewSchedulerOutboxRepository,
+	NewAuthCacheInvalidationOutboxRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
 	NewRefreshTokenCache,
@@ -135,8 +149,13 @@ var ProviderSet = wire.NewSet(
 	NewPgDumper,
 	NewS3BackupStoreFactory,
 
+	// Image storage (async image task result offload)
+	ProvideImageStorageFactory,
+
 	// HTTP service ports (DI Strategy A: return interface directly)
 	NewTurnstileVerifier,
+	NewTencentCaptchaVerifier,
+	NewAliyunCaptchaVerifier,
 	ProvidePricingRemoteClient,
 	ProvideGitHubReleaseClient,
 	NewProxyExitInfoProber,
@@ -164,6 +183,16 @@ var ProviderSet = wire.NewSet(
 func ProvideEnt(cfg *config.Config) (*ent.Client, error) {
 	client, _, err := InitEnt(cfg)
 	return client, err
+}
+
+// ProvideImageStorageFactory 提供按需构造对象存储客户端的工厂。
+//
+// 这里返回工厂而不是实例：异步生图的开关与凭证可以在后台随时改动，客户端必须能在
+// 设置保存后重建，而不是在启动时定死一份。
+func ProvideImageStorageFactory() service.ImageStorageFactory {
+	return func(ctx context.Context, cfg *config.ImageStorageConfig) (service.ImageStorage, error) {
+		return NewS3ImageStorage(ctx, cfg)
+	}
 }
 
 // ProvideSQLDB 从 Ent 客户端提取底层的 *sql.DB 连接。

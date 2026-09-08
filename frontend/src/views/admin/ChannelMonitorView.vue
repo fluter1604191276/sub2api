@@ -1,6 +1,60 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
+    <div class="w-full min-w-0 space-y-6 pb-8">
+      <header
+        class="page-header mb-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6"
+      >
+        <h1 class="page-title flex items-center gap-2 text-xl font-black text-gray-900 dark:text-white">
+          <span class="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-blue-50 text-blue-500 dark:bg-blue-900/30 dark:text-blue-400">
+            <Icon name="chart" size="sm" />
+          </span>
+          {{ t('admin.channelMonitor.title') }}
+        </h1>
+        <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          {{
+            isV1Mode
+              ? t('channelMonitorV2.admin.descriptionV1')
+              : t('channelMonitorV2.admin.descriptionV2')
+          }}
+        </p>
+        <div v-if="adminMonitorTab === 'legacy'" class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.budget.today') }}: ${{ budgetStatus.today_estimated_cost_usd.toFixed(4) }}
+          <span v-if="budgetStatus.daily_budget_usd > 0"> / ${{ budgetStatus.daily_budget_usd.toFixed(2) }}</span>
+          <span v-if="budgetStatus.exhausted" class="ml-2 text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
+        </div>
+        <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+          <div
+            class="tabs inline-flex w-full max-w-xl flex-wrap sm:w-auto"
+            role="tablist"
+            :aria-label="t('channelMonitorV2.admin.tabAria')"
+          >
+            <button
+              type="button"
+              role="tab"
+              class="tab flex-1 sm:flex-none"
+              :class="adminMonitorTab === 'v2' ? 'tab-active' : ''"
+              :aria-selected="adminMonitorTab === 'v2'"
+              @click="adminMonitorTab = 'v2'"
+            >
+              {{ t('channelMonitorV2.admin.tabV2') }}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="tab flex-1 sm:flex-none"
+              :class="adminMonitorTab === 'legacy' ? 'tab-active' : ''"
+              :aria-selected="adminMonitorTab === 'legacy'"
+              @click="adminMonitorTab = 'legacy'"
+            >
+              {{ isV1Mode ? t('channelMonitorV2.admin.tabV1Active') : t('channelMonitorV2.admin.tabV1History') }}
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <MonitorSettingsPanel v-if="adminMonitorTab === 'v2'" />
+
+      <TablePageLayout v-else>
       <template #filters>
         <MonitorFiltersBar
           v-model:search="searchQuery"
@@ -10,12 +64,22 @@
           @reload="reload"
           @create="openCreateDialog"
           @manage-templates="showTemplateManager = true"
+          @bulk-interval="showBulkIntervalDialog = true"
           @search-input="handleSearch"
+          :selected-count="selectedMonitorIds.length"
         />
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="monitors" :loading="loading">
+        <DataTable
+          v-model:selected-keys="selectedMonitorIds"
+          :columns="columns"
+          :data="monitors"
+          :loading="loading"
+          :selectable="true"
+          row-key="id"
+          :selection-label="t('admin.channelMonitor.selectMonitor')"
+        >
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -28,6 +92,10 @@
           <template #cell-provider="{ row }">
             <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="providerBadgeClass(row.provider)">
               {{ providerLabel(row.provider) }}
+            </span>
+            <!-- 三种检测模式并列展示，quota 系配额数据源与纯探活一眼可分 -->
+            <span class="ml-1 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="checkModeBadgeClass(row.check_mode)">
+              {{ checkModeLabel(row.check_mode) }}
             </span>
           </template>
 
@@ -51,7 +119,9 @@
             <MonitorActionsCell
               :row="row"
               :running="runningId === row.id"
+              :duplicating="duplicatingIds.has(row.id)"
               @run="handleRunNow"
+              @duplicate="handleDuplicate"
               @edit="openEditDialog"
               @delete="handleDelete"
             />
@@ -78,7 +148,8 @@
           @update:pageSize="onPageSizeChange"
         />
       </template>
-    </TablePageLayout>
+      </TablePageLayout>
+    </div>
 
     <MonitorFormDialog
       :show="showDialog"
@@ -99,6 +170,13 @@
       @close="showRunResult = false"
     />
 
+    <MonitorBulkIntervalDialog
+      :show="showBulkIntervalDialog"
+      :selected-ids="selectedMonitorIds"
+      @close="showBulkIntervalDialog = false"
+      @success="handleBulkIntervalSuccess"
+    />
+
     <ConfirmDialog
       :show="showDeleteDialog"
       :title="t('common.delete')"
@@ -113,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -140,14 +218,21 @@ import MonitorTemplateManagerDialog from '@/components/admin/monitor/MonitorTemp
 import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import MonitorBulkIntervalDialog from '@/components/admin/monitor/MonitorBulkIntervalDialog.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
+import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const isV1Mode = computed(() => isChannelMonitorV1Mode())
+const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
 const {
   providerLabel,
   providerBadgeClass,
+  checkModeLabel,
+  checkModeBadgeClass,
   formatLatency,
   formatAvailability,
 } = useChannelMonitorFormat()
@@ -167,6 +252,10 @@ const showDeleteDialog = ref(false)
 const deleting = ref<ChannelMonitor | null>(null)
 const showRunResult = ref(false)
 const runResults = ref<CheckResult[]>([])
+const duplicatingIds = reactive(new Set<number>())
+const selectedMonitorIds = ref<number[]>([])
+const showBulkIntervalDialog = ref(false)
+const budgetStatus = ref({ today_estimated_cost_usd: 0, daily_budget_usd: 0, exhausted: false, resets_at: '' })
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -205,6 +294,8 @@ async function reload() {
     if (ctrl.signal.aborted || abortController !== ctrl) return
     monitors.value = res.items || []
     pagination.total = res.total
+    const visibleIDs = new Set(monitors.value.map((monitor) => monitor.id))
+    selectedMonitorIds.value = selectedMonitorIds.value.filter((id) => visibleIDs.has(id))
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
@@ -215,6 +306,15 @@ async function reload() {
       abortController = null
     }
   }
+}
+
+async function loadBudget() {
+  try { budgetStatus.value = await adminAPI.channelMonitor.getBudgetStatus() } catch { /* auxiliary */ }
+}
+
+function handleBulkIntervalSuccess() {
+  selectedMonitorIds.value = []
+  void reload()
 }
 
 function handleSearch() {
@@ -262,6 +362,10 @@ async function toggleEnabled(row: ChannelMonitor) {
 }
 
 async function handleRunNow(row: ChannelMonitor) {
+  if (!isV1Mode.value) {
+    appStore.showError(t('admin.channelMonitor.runFailed'))
+    return
+  }
   if (runningId.value != null) return
   runningId.value = row.id
   try {
@@ -275,6 +379,25 @@ async function handleRunNow(row: ChannelMonitor) {
     appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.runFailed')))
   } finally {
     runningId.value = null
+  }
+}
+
+async function handleDuplicate(row: ChannelMonitor) {
+  if (row.api_key_decrypt_failed) {
+    appStore.showError(t('admin.channelMonitor.duplicateKeyUnavailable'))
+    return
+  }
+  if (duplicatingIds.has(row.id)) return
+
+  duplicatingIds.add(row.id)
+  try {
+    const duplicate = await adminAPI.channelMonitor.duplicate(row.id)
+    appStore.showSuccess(t('admin.channelMonitor.duplicateSuccess', { name: duplicate.name }))
+    await reload()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.duplicateFailed')))
+  } finally {
+    duplicatingIds.delete(row.id)
   }
 }
 
@@ -296,7 +419,12 @@ async function confirmDelete() {
   }
 }
 
-onMounted(reload)
+watch(adminMonitorTab, (tab) => {
+  if (tab === 'legacy') { if (monitors.value.length === 0) void reload(); void loadBudget() }
+})
+onMounted(() => {
+  if (adminMonitorTab.value === 'legacy') { void reload(); void loadBudget() }
+})
 onUnmounted(() => {
   if (searchTimeout) clearTimeout(searchTimeout)
   abortController?.abort()

@@ -29,6 +29,9 @@ func canonicalizeOpenAIModelAliasSpelling(model string) string {
 	if strings.HasPrefix(normalized, "gpt5") {
 		normalized = "gpt-5" + strings.TrimPrefix(normalized, "gpt5")
 	}
+	if strings.HasPrefix(normalized, "gpt6") {
+		normalized = "gpt-6" + strings.TrimPrefix(normalized, "gpt6")
+	}
 	if !strings.HasPrefix(normalized, "gpt-") && !strings.Contains(normalized, "codex") {
 		return ""
 	}
@@ -65,12 +68,22 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 
 	switch {
+	case isOpenAIGPT6AstraModel(normalized):
+		return "gpt-6-astra"
 	case strings.Contains(normalized, "gpt-5.6-sol"):
 		return "gpt-5.6-sol"
 	case strings.Contains(normalized, "gpt-5.6-terra"):
 		return "gpt-5.6-terra"
 	case strings.Contains(normalized, "gpt-5.6-luna"):
 		return "gpt-5.6-luna"
+	case normalized == "gpt-5.6":
+		return "gpt-5.6-sol"
+	case strings.HasPrefix(normalized, "gpt-5.6-"):
+		suffix := strings.TrimPrefix(normalized, "gpt-5.6-")
+		if suffix == "max" || isKnownCodexModelSuffix(suffix) {
+			return "gpt-5.6-sol"
+		}
+		return ""
 	case strings.Contains(normalized, "gpt-5.5-pro"):
 		return "gpt-5.5-pro"
 	case strings.Contains(normalized, "gpt-5.5"):
@@ -96,6 +109,45 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	default:
 		return ""
 	}
+}
+
+// isOpenAIGPT6AstraModel only recognizes the published Astra identifier and
+// its dated snapshots. It intentionally does not treat the broader gpt-6-*
+// family as Astra, because a later OpenAI model may carry different pricing.
+func isOpenAIGPT6AstraModel(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "gpt-6-astra" {
+		return true
+	}
+
+	snapshot, ok := strings.CutPrefix(normalized, "gpt-6-astra-")
+	if !ok || len(snapshot) != 8 {
+		return false
+	}
+	for _, character := range snapshot {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
+// （含大小写/路径/后缀变体）或已归一化的基名，两者均能正确识别。
+func isOpenAIGPT56Model(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "gpt-5.6" {
+		return true
+	}
+	if suffix, ok := strings.CutPrefix(normalized, "gpt-5.6-"); ok && (suffix == "max" || isKnownCodexModelSuffix(suffix)) {
+		return true
+	}
+	for _, prefix := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+		if normalized == prefix || strings.HasPrefix(normalized, prefix+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {

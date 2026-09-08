@@ -44,6 +44,9 @@ export default {
     inactive: 'Inactive',
     more: 'More',
     close: 'Close',
+    toggleMenu: 'Toggle menu',
+    userMenu: 'User menu',
+    pageNotFound: 'Page not found',
     enabled: 'Enabled',
     disabled: 'Disabled',
 	    total: 'Total',
@@ -78,6 +81,13 @@ export default {
     view: 'View',
     settings: 'Settings',
     chooseFile: 'Choose File',
+    upload: 'Upload',
+    remove: 'Remove',
+    noFileSelected: 'No file selected',
+    selectedFile: 'Selected: {name}',
+    fileReadFailed: 'Failed to read file',
+    selectImageFile: 'Please select an image file',
+    fileTooLargeKb: 'File too large ({size} KB), max {max} KB',
     copy: 'Copy',
     notAvailable: 'N/A',
     now: 'Now',
@@ -147,10 +157,12 @@ export default {
 
   // Navigation
   nav: {
+    catalog: 'Model catalog navigation',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
+    infiniteCanvas: 'Infinite Canvas',
     usage: 'Usage',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
@@ -164,8 +176,10 @@ export default {
     channels: 'Channels',
     modelPlaza: 'Model Plaza',
     availableChannels: 'Available Channels',
+    modelPlaza: 'Model Plaza',
     subscriptions: 'Subscriptions',
     accounts: 'Accounts',
+    plugins: 'Plugins',
     proxies: 'Proxies',
     redeemCodes: 'Redeem Codes',
     ops: 'Ops',
@@ -189,8 +203,13 @@ export default {
     channelManagement: 'Channels',
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
+    publicCatalog: 'Catalog Display',
     channelStatus: 'Channel Status',
     riskControl: 'Risk Control',
+    securityAudit: 'Security Audit',
+    contentModeration: 'Content Moderation',
+    promptAudit: 'Prompt Audit',
+    auditLogs: 'Audit Logs',
   },
 
   // Auth
@@ -199,6 +218,10 @@ export default {
     signInToAccount: 'Sign in to your account to continue',
     signIn: 'Sign In',
     signingIn: 'Signing in...',
+    passkeySignIn: 'Sign in with a passkey',
+    passkeySigningIn: 'Waiting for passkey...',
+    passkeyCancelled: 'Passkey sign-in was cancelled.',
+    passkeyFailed: 'Passkey sign-in failed. Please try again.',
     createAccount: 'Create Account',
     signUpToStart: 'Sign up to start using {siteName}',
     signUp: 'Sign up',
@@ -223,6 +246,8 @@ export default {
       USER_NOT_ACTIVE: 'Account has been disabled.',
     },
     registrationFailed: 'Registration failed. Please try again.',
+    emailDomainRegistrationLimit:
+      'This email domain cannot register another account. Please use a mainstream email, or contact support to add your enterprise domain to the allowlist.',
     emailSuffixNotAllowed: 'This email domain is not allowed for registration.',
     emailSuffixNotAllowedWithAllowed:
       'This email domain is not allowed. Allowed domains: {suffixes}',
@@ -232,6 +257,10 @@ export default {
     reloginRequired: 'Session expired. Please log in again.',
     turnstileExpired: 'Verification expired, please try again',
     turnstileFailed: 'Verification failed, please try again',
+    captchaVerified: 'Verification completed',
+    captchaLoading: 'Loading verification…',
+    captchaClickToVerify: 'Click to complete verification',
+    captchaVerifying: 'Verifying…',
     completeVerification: 'Please complete the verification',
     verifyYourEmail: 'Verify Your Email',
     sessionExpired: 'Session expired',
@@ -412,6 +441,15 @@ export default {
     invalidResetLinkHint: 'This password reset link is invalid or has expired. Please request a new one.',
     requestNewResetLink: 'Request New Reset Link',
     invalidOrExpiredToken: 'The password reset link is invalid or has expired. Please request a new one.'
+  },
+
+  // Step-up (sudo) 2FA prompt
+  stepUp: {
+    title: 'Two-Factor Verification Required',
+    hint: 'Enter the 6-digit code from your authenticator app to continue this sensitive operation.',
+    verifyFailed: 'Verification failed, please try again',
+    notEnabled: 'This operation requires two-factor authentication. Please enable TOTP in your profile first.',
+    adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.'
   },
 
   // Dashboard

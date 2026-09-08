@@ -80,6 +80,11 @@ func Message(v string) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldMessage, v))
 }
 
+// EstimatedCostUsd applies equality check predicate on the "estimated_cost_usd" field. It's identical to EstimatedCostUsdEQ.
+func EstimatedCostUsd(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldEstimatedCostUsd, v))
+}
+
 // CheckedAt applies equality check predicate on the "checked_at" field. It's identical to CheckedAtEQ.
 func CheckedAt(v time.Time) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldCheckedAt, v))
@@ -363,6 +368,56 @@ func MessageEqualFold(v string) predicate.ChannelMonitorHistory {
 // MessageContainsFold applies the ContainsFold predicate on the "message" field.
 func MessageContainsFold(v string) predicate.ChannelMonitorHistory {
 	return predicate.ChannelMonitorHistory(sql.FieldContainsFold(FieldMessage, v))
+}
+
+// QuotaIsNil applies the IsNil predicate on the "quota" field.
+func QuotaIsNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIsNull(FieldQuota))
+}
+
+// QuotaNotNil applies the NotNil predicate on the "quota" field.
+func QuotaNotNil() predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotNull(FieldQuota))
+}
+
+// EstimatedCostUsdEQ applies the EQ predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdEQ(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldEQ(FieldEstimatedCostUsd, v))
+}
+
+// EstimatedCostUsdNEQ applies the NEQ predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdNEQ(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNEQ(FieldEstimatedCostUsd, v))
+}
+
+// EstimatedCostUsdIn applies the In predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdIn(vs ...float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldIn(FieldEstimatedCostUsd, vs...))
+}
+
+// EstimatedCostUsdNotIn applies the NotIn predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdNotIn(vs ...float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldNotIn(FieldEstimatedCostUsd, vs...))
+}
+
+// EstimatedCostUsdGT applies the GT predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdGT(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGT(FieldEstimatedCostUsd, v))
+}
+
+// EstimatedCostUsdGTE applies the GTE predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdGTE(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldGTE(FieldEstimatedCostUsd, v))
+}
+
+// EstimatedCostUsdLT applies the LT predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdLT(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLT(FieldEstimatedCostUsd, v))
+}
+
+// EstimatedCostUsdLTE applies the LTE predicate on the "estimated_cost_usd" field.
+func EstimatedCostUsdLTE(v float64) predicate.ChannelMonitorHistory {
+	return predicate.ChannelMonitorHistory(sql.FieldLTE(FieldEstimatedCostUsd, v))
 }
 
 // CheckedAtEQ applies the EQ predicate on the "checked_at" field.

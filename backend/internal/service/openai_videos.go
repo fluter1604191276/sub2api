@@ -32,6 +32,18 @@ type OpenAIVideoGenerationRequest struct {
 	Body          []byte
 }
 
+func OpenAIVideoTaskSessionHash(taskID string) string {
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return ""
+	}
+	return "openai-video:" + DeriveSessionHashFromSeed(taskID)
+}
+
+func (s *OpenAIGatewayService) BindOpenAIVideoTaskAccount(ctx context.Context, groupID *int64, taskID string, accountID int64) error {
+	return s.BindStickySession(ctx, groupID, OpenAIVideoTaskSessionHash(taskID), accountID)
+}
+
 func (s *OpenAIGatewayService) ParseOpenAIVideoGenerationRequest(body []byte) (*OpenAIVideoGenerationRequest, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("failed to parse request body")
@@ -153,12 +165,14 @@ func (s *OpenAIGatewayService) ForwardVideoGeneration(
 	if err != nil {
 		return nil, err
 	}
+	taskID := firstJSONText(bodyBytes, "task_id", "id")
 	requestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	if requestID == "" {
-		requestID = firstJSONText(bodyBytes, "task_id", "id")
+		requestID = taskID
 	}
 	return &OpenAIForwardResult{
 		RequestID:       requestID,
+		VideoTaskID:     taskID,
 		Model:           requestModel,
 		BillingModel:    requestModel,
 		UpstreamModel:   upstreamModel,

@@ -6,11 +6,46 @@
 import { apiClient } from '../client'
 import type {
   AdminGroup,
+  AccountQualityStats,
+  SmartSchedulerPreview,
+  GroupRecoveryProbeBillingSettings,
+  GroupRecoveryProbeBillingStatus,
+  UpdateGroupRecoveryProbeBillingRequest,
   GroupPlatform,
+  CompositeModelRoute,
+  CompositeModelRouteInput,
+  CompositeRoutePreviewRequest,
+  CompositeRouteDecision,
   CreateGroupRequest,
   UpdateGroupRequest,
   PaginatedResponse
 } from '@/types'
+
+export interface LiveCapability {
+  supported: boolean
+  reason?: string
+}
+
+export interface SmartStickyPolicy {
+  preset?: string
+  target_score: number
+  review_interval_seconds: number
+  switch_cooldown_seconds: number
+  quality_lead: number
+  max_escapes: number
+  escape_window_seconds: number
+  elite_confirmations: number
+}
+
+export async function getSmartStickyPolicy(id: number): Promise<SmartStickyPolicy> {
+  const { data } = await apiClient.get<SmartStickyPolicy>(`/admin/groups/${id}/smart-scheduler/policy`)
+  return data
+}
+
+export async function updateSmartStickyPolicy(id: number, policy: Partial<SmartStickyPolicy> & { preset?: string }): Promise<SmartStickyPolicy> {
+  const { data } = await apiClient.put<SmartStickyPolicy>(`/admin/groups/${id}/smart-scheduler/policy`, policy)
+  return data
+}
 
 /**
  * List all groups with pagination
@@ -77,6 +112,12 @@ export async function getByPlatform(platform: GroupPlatform): Promise<AdminGroup
   return getAll(platform)
 }
 
+/** 获取当前 Sub2API 服务端的 Live 运行环境能力。 */
+export async function getLiveCapability(): Promise<LiveCapability> {
+  const { data } = await apiClient.get<LiveCapability>('/admin/groups/live-capability')
+  return data
+}
+
 /**
  * Get group by ID
  * @param id - Group ID
@@ -104,6 +145,40 @@ export async function getModelsListCandidates(
   return data.models || []
 }
 
+/** Read-only smart scheduler ranking for a group's bound accounts. */
+export async function getSmartSchedulerPreview(
+  id: number,
+  params?: { model?: string; endpoint?: string }
+): Promise<SmartSchedulerPreview> {
+  const { data } = await apiClient.get<SmartSchedulerPreview>(
+    `/admin/groups/${id}/smart-scheduler/preview`,
+    { params }
+  )
+  return data
+}
+
+/** Get global recovery-probe billing settings plus today's global/group spend. */
+export async function getRecoveryProbeBilling(
+  groupId?: number
+): Promise<GroupRecoveryProbeBillingStatus> {
+  const { data } = await apiClient.get<GroupRecoveryProbeBillingStatus>(
+    '/admin/groups/recovery-probe/billing',
+    { params: groupId ? { group_id: groupId } : undefined }
+  )
+  return data
+}
+
+/** Update the administrator-owned ledger key and global recovery-probe budget. */
+export async function updateRecoveryProbeBilling(
+  payload: UpdateGroupRecoveryProbeBillingRequest
+): Promise<GroupRecoveryProbeBillingSettings> {
+  const { data } = await apiClient.put<GroupRecoveryProbeBillingSettings>(
+    '/admin/groups/recovery-probe/billing',
+    payload
+  )
+  return data
+}
+
 /**
  * Create new group
  * @param groupData - Group data
@@ -111,6 +186,86 @@ export async function getModelsListCandidates(
  */
 export async function create(groupData: CreateGroupRequest): Promise<AdminGroup> {
   const { data } = await apiClient.post<AdminGroup>('/admin/groups', groupData)
+  return data
+}
+
+/**
+ * Duplicate a group on the server so configuration that is not present in the
+ * list response is preserved. Keep the operation key after ambiguous failures
+ * so a retry replays the original operation instead of creating another group.
+ */
+const duplicateOperationKeys = new Map<string, string>()
+
+interface DuplicateOperationScope {
+  adminID: string
+  key: string
+}
+
+function getCurrentAdminID(): string | null {
+  try {
+    const rawUser = globalThis.localStorage?.getItem('auth_user')
+    if (!rawUser) return null
+
+    const user: unknown = JSON.parse(rawUser)
+    if (typeof user !== 'object' || user === null) return null
+
+    const id = (user as { id?: unknown }).id
+    if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0) return null
+    return String(id)
+  } catch {
+    return null
+  }
+}
+
+function duplicateOperationScope(id: number): DuplicateOperationScope | null {
+  const adminID = getCurrentAdminID()
+  if (!adminID) return null
+
+  return {
+    adminID,
+    key: `sub2api:admin:group-duplicate:${adminID}:${id}`
+  }
+}
+
+function getStoredDuplicateOperationKey(storageKey: string): string | null {
+  try {
+    return globalThis.sessionStorage?.getItem(storageKey) ?? null
+  } catch {
+    return null
+  }
+}
+
+function storeDuplicateOperationKey(storageKey: string, key: string | null): void {
+  try {
+    if (key) globalThis.sessionStorage?.setItem(storageKey, key)
+    else globalThis.sessionStorage?.removeItem(storageKey)
+  } catch {
+    // In-memory retry protection still works when browser storage is unavailable.
+  }
+}
+
+export async function duplicate(id: number): Promise<AdminGroup> {
+  const scope = duplicateOperationScope(id)
+  let idempotencyKey = scope
+    ? duplicateOperationKeys.get(scope.key) ?? getStoredDuplicateOperationKey(scope.key)
+    : null
+  if (!idempotencyKey) {
+    const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    idempotencyKey = `group-duplicate-${scope?.adminID ?? 'unknown-admin'}-${id}-${requestID}`
+  }
+  if (scope) {
+    duplicateOperationKeys.set(scope.key, idempotencyKey)
+    storeDuplicateOperationKey(scope.key, idempotencyKey)
+  }
+
+  const { data } = await apiClient.post<AdminGroup>(`/admin/groups/${id}/duplicate`, undefined, {
+    headers: { 'Idempotency-Key': idempotencyKey }
+  })
+
+  if (scope) {
+    duplicateOperationKeys.delete(scope.key)
+    storeDuplicateOperationKey(scope.key, null)
+  }
   return data
 }
 
@@ -180,6 +335,55 @@ export async function getGroupApiKeys(
   const { data } = await apiClient.get<PaginatedResponse<any>>(`/admin/groups/${id}/api-keys`, {
     params: { page, page_size: pageSize }
   })
+  return data
+}
+
+export async function listCompositeRoutes(id: number): Promise<CompositeModelRoute[]> {
+  const { data } = await apiClient.get<CompositeModelRoute[]>(`/admin/groups/${id}/composite-routes`)
+  return data
+}
+
+export async function createCompositeRoute(
+  id: number,
+  route: CompositeModelRouteInput
+): Promise<CompositeModelRoute> {
+  const { data } = await apiClient.post<CompositeModelRoute>(
+    `/admin/groups/${id}/composite-routes`,
+    route
+  )
+  return data
+}
+
+export async function updateCompositeRoute(
+  id: number,
+  routeId: number,
+  route: CompositeModelRouteInput
+): Promise<CompositeModelRoute> {
+  const { data } = await apiClient.put<CompositeModelRoute>(
+    `/admin/groups/${id}/composite-routes/${routeId}`,
+    route
+  )
+  return data
+}
+
+export async function deleteCompositeRoute(
+  id: number,
+  routeId: number
+): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(
+    `/admin/groups/${id}/composite-routes/${routeId}`
+  )
+  return data
+}
+
+export async function previewCompositeRoute(
+  id: number,
+  request: CompositeRoutePreviewRequest
+): Promise<CompositeRouteDecision> {
+  const { data } = await apiClient.post<CompositeRouteDecision>(
+    `/admin/groups/${id}/composite-routes/preview`,
+    request
+  )
   return data
 }
 
@@ -302,18 +506,15 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
 }
 
 /**
- * Get usage summary (today + cumulative cost) for all groups
- * @param timezone - IANA timezone string (e.g. "Asia/Shanghai")
+ * Get usage summary (today + yesterday + cumulative cost) for all groups
  * @returns Array of group usage summaries
  */
-export async function getUsageSummary(
-  timezone?: string
-): Promise<{ group_id: number; today_cost: number; total_cost: number }[]> {
+export async function getUsageSummary(): Promise<
+  { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
+> {
   const { data } = await apiClient.get<
-    { group_id: number; today_cost: number; total_cost: number }[]
-  >('/admin/groups/usage-summary', {
-    params: timezone ? { timezone } : undefined
-  })
+    { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
+  >('/admin/groups/usage-summary')
   return data
 }
 
@@ -329,19 +530,48 @@ export async function getCapacitySummary(): Promise<
   return data
 }
 
+export interface BatchGroupQualityStatsResponse {
+  stats: Record<string, AccountQualityStats>
+}
+
+/**
+ * Get 24-hour quality summaries for the current group page.
+ */
+export async function getBatchQualityStats(
+  groupIds: number[]
+): Promise<BatchGroupQualityStatsResponse> {
+  const { data } = await apiClient.post<BatchGroupQualityStatsResponse>(
+    '/admin/groups/quality-stats/batch',
+    { group_ids: groupIds }
+  )
+  return data
+}
+
 export const groupsAPI = {
   list,
   getAll,
   getByPlatform,
   getAllIncludingInactive,
+  getLiveCapability,
   getById,
   getModelsListCandidates,
+  getSmartSchedulerPreview,
+  getSmartStickyPolicy,
+  updateSmartStickyPolicy,
+  getRecoveryProbeBilling,
+  updateRecoveryProbeBilling,
   create,
+  duplicate,
   update,
   delete: deleteGroup,
   toggleStatus,
   getStats,
   getGroupApiKeys,
+  listCompositeRoutes,
+  createCompositeRoute,
+  updateCompositeRoute,
+  deleteCompositeRoute,
+  previewCompositeRoute,
   getGroupRateMultipliers,
   clearGroupRateMultipliers,
   batchSetGroupRateMultipliers,
@@ -350,7 +580,8 @@ export const groupsAPI = {
   batchSetGroupRPMOverrides,
   updateSortOrder,
   getUsageSummary,
-  getCapacitySummary
+  getCapacitySummary,
+  getBatchQualityStats
 }
 
 export default groupsAPI

@@ -17,33 +17,35 @@ func modelSet(values ...string) map[string]string {
 	return result
 }
 
-func TestCalibrateChannelPlatformSinglePricingRowAddsAndRemoves(t *testing.T) {
+func TestCalibrateChannelPlatformSinglePricingRowAddsAndPreservesStaleModels(t *testing.T) {
 	preview := calibrateChannelPlatform(7, PlatformAnthropic, []ChannelModelPricing{
-		{ID: 11, ChannelID: 7, Platform: PlatformAnthropic, Models: []string{"claude-old", "claude-sonnet-4-6"}},
+		{ID: 11, ChannelID: 7, Platform: PlatformAnthropic, BillingMode: BillingModeToken, Models: []string{"claude-old", "claude-sonnet-4-6"}},
 	}, modelSet("claude-sonnet-4-6", "claude-opus-5"), nil)
 
 	require.True(t, preview.Applicable)
 	require.True(t, preview.Changed)
 	require.Equal(t, []string{"claude-opus-5"}, preview.Additions)
-	require.Equal(t, []string{"claude-old"}, preview.Removals)
+	require.Empty(t, preview.Removals)
 	require.Equal(t, 1, preview.UnchangedCount)
 	require.Len(t, preview.updates, 1)
-	require.Equal(t, []string{"claude-sonnet-4-6", "claude-opus-5"}, preview.updates[0].Models)
+	require.Equal(t, []string{"claude-old", "claude-sonnet-4-6"}, preview.updates[0].PreviousModels)
+	require.Equal(t, []string{"claude-old", "claude-sonnet-4-6", "claude-opus-5"}, preview.updates[0].Models)
+	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformAnthropic, Model: "claude-old", Reason: ModelCalibrationSkipStaleModelReview})
 }
 
-func TestCalibrateChannelPlatformSkipsAmbiguousAdditionsAndEmptyRows(t *testing.T) {
+func TestCalibrateChannelPlatformSkipsAmbiguousAdditionsAndPreservesExistingModels(t *testing.T) {
 	preview := calibrateChannelPlatform(7, PlatformOpenAI, []ChannelModelPricing{
-		{ID: 11, ChannelID: 7, Platform: PlatformOpenAI, Models: []string{"gpt-keep", "gpt-old"}},
-		{ID: 12, ChannelID: 7, Platform: PlatformOpenAI, Models: []string{"gpt-other"}},
+		{ID: 11, ChannelID: 7, Platform: PlatformOpenAI, BillingMode: BillingModeToken, Models: []string{"gpt-keep", "gpt-old"}},
+		{ID: 12, ChannelID: 7, Platform: PlatformOpenAI, BillingMode: BillingModeToken, Models: []string{"gpt-other"}},
 	}, modelSet("gpt-keep", "gpt-new"), nil)
 
 	require.False(t, preview.Applicable)
-	require.True(t, preview.Changed)
-	require.Equal(t, []string{"gpt-old"}, preview.Removals)
-	require.Len(t, preview.updates, 1)
-	require.Equal(t, []string{"gpt-keep"}, preview.updates[0].Models)
+	require.False(t, preview.Changed)
+	require.Empty(t, preview.Removals)
+	require.Empty(t, preview.updates)
 	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformOpenAI, Model: "gpt-new", Reason: ModelCalibrationSkipAmbiguousPricing})
-	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformOpenAI, Model: "gpt-other", Reason: ModelCalibrationSkipWouldEmptyPricing})
+	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformOpenAI, Model: "gpt-old", Reason: ModelCalibrationSkipStaleModelReview})
+	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformOpenAI, Model: "gpt-other", Reason: ModelCalibrationSkipStaleModelReview})
 }
 
 func TestCalibrateChannelPlatformPreservesWildcardsAndChannelMappingSources(t *testing.T) {
@@ -51,12 +53,31 @@ func TestCalibrateChannelPlatformPreservesWildcardsAndChannelMappingSources(t *t
 		{ID: 11, ChannelID: 7, Platform: PlatformAnthropic, Models: []string{"claude-*", "public-alias"}},
 	}, modelSet("claude-opus-5"), modelSet("public-alias"))
 
-	require.False(t, preview.Applicable)
+	require.True(t, preview.Applicable)
 	require.False(t, preview.Changed)
 	require.Equal(t, 1, preview.UnchangedCount)
 	require.Empty(t, preview.Additions)
 	require.Empty(t, preview.Removals)
 	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformAnthropic, Model: "public-alias", Reason: ModelCalibrationSkipChannelMappingSource})
+}
+
+func TestCalibrateChannelPlatformDoesNotAddTextModelsToImagePricing(t *testing.T) {
+	preview := calibrateChannelPlatform(19, PlatformOpenAI, []ChannelModelPricing{
+		{
+			ID:          33,
+			ChannelID:   19,
+			Platform:    PlatformOpenAI,
+			BillingMode: BillingModeImage,
+			Models:      []string{"gpt-image-1"},
+		},
+	}, modelSet("gpt-image-1", "gpt-image-2", "gpt-5.6"), nil)
+
+	require.True(t, preview.Applicable)
+	require.True(t, preview.Changed)
+	require.Equal(t, []string{"gpt-image-2"}, preview.Additions)
+	require.Len(t, preview.updates, 1)
+	require.Equal(t, []string{"gpt-image-1", "gpt-image-2"}, preview.updates[0].Models)
+	require.Contains(t, preview.Skipped, ModelCalibrationSkippedItem{Platform: PlatformOpenAI, Model: "gpt-5.6", Reason: ModelCalibrationSkipBillingModeMismatch})
 }
 
 type calibrationAccountRepoStub struct {
@@ -77,7 +98,7 @@ func (s *calibrationChannelRepoStub) ApplyModelCalibration(_ context.Context, up
 	return nil
 }
 
-func TestApplyModelCalibrationFiltersAccountsAndInvalidatesCaches(t *testing.T) {
+func TestApplyModelCalibrationAppliesSafeAdditionsWhileLeavingSkippedItemsForReview(t *testing.T) {
 	channel := Channel{
 		ID:       7,
 		Name:     "Claude",
@@ -101,7 +122,14 @@ func TestApplyModelCalibrationFiltersAccountsAndInvalidatesCaches(t *testing.T) 
 
 	require.NoError(t, err)
 	require.Equal(t, 1, preview.AppliedPricingRows)
+	require.Equal(t, 1, preview.SkippedCount)
+	require.Contains(t, preview.Channels[0].Skipped, ModelCalibrationSkippedItem{
+		Platform: PlatformAnthropic,
+		Model:    "claude-old",
+		Reason:   ModelCalibrationSkipStaleModelReview,
+	})
 	require.Len(t, repo.applied, 1)
-	require.Equal(t, []string{"claude-opus-5"}, repo.applied[0].Models)
+	require.Equal(t, []string{"claude-old"}, repo.applied[0].PreviousModels)
+	require.Equal(t, []string{"claude-old", "claude-opus-5"}, repo.applied[0].Models)
 	require.Equal(t, []int64{3}, auth.invalidatedGroupIDs)
 }

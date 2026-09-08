@@ -2,14 +2,21 @@ package admin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/platform/liveattestation"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -20,11 +27,85 @@ type GroupHandler struct {
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
+	smartScheduler       *service.SmartSchedulerPreviewService
+	recoveryProbeBilling *service.GroupRecoveryProbeBillingService
+}
+
+type smartStickyPolicyAdmin interface {
+	GetSmartStickyPolicy(context.Context, int64) (service.SmartStickyPolicy, error)
+	UpdateSmartStickyPolicy(context.Context, int64, service.SmartStickyPolicy) (service.SmartStickyPolicy, error)
+}
+
+// GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
+func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
+	err := liveattestation.NewProvider().Check(c.Request.Context())
+	result := gin.H{"supported": err == nil}
+	if err != nil {
+		result["reason"] = err.Error()
+	}
+	response.Success(c, result)
 }
 
 type optionalLimitField struct {
 	set   bool
 	value *float64
+}
+
+// optionalPolicyField distinguishes an omitted policy field from an explicit
+// JSON null, so the admin UI can restore group-level inheritance.
+type optionalPolicyField struct {
+	set  bool
+	null bool
+	raw  json.RawMessage
+}
+
+func (f *optionalPolicyField) UnmarshalJSON(data []byte) error {
+	f.set = true
+	trimmed := bytes.TrimSpace(data)
+	if bytes.Equal(trimmed, []byte("null")) {
+		f.null = true
+		f.raw = nil
+		return nil
+	}
+	f.raw = append(f.raw[:0], trimmed...)
+	return nil
+}
+
+func (f optionalPolicyField) boolValue() (*bool, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value bool
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected boolean: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) intValue() (*int, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value int
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected integer: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) intSliceValue() (*[]int, error) {
+	if !f.set || f.null {
+		return nil, nil
+	}
+	var value []int
+	if err := json.Unmarshal(f.raw, &value); err != nil {
+		return nil, fmt.Errorf("expected integer array: %w", err)
+	}
+	return &value, nil
+}
+
+func (f optionalPolicyField) shouldClear() bool {
+	return f.set && f.null
 }
 
 func (f *optionalLimitField) UnmarshalJSON(data []byte) error {
@@ -72,47 +153,73 @@ func (f optionalLimitField) ToServiceInput() *float64 {
 }
 
 // NewGroupHandler creates a new admin group handler
-func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService) *GroupHandler {
+func NewGroupHandler(adminService service.AdminService, dashboardService *service.DashboardService, groupCapacityService *service.GroupCapacityService, smartScheduler *service.SmartSchedulerPreviewService, recoveryProbeBilling *service.GroupRecoveryProbeBillingService) *GroupHandler {
 	return &GroupHandler{
 		adminService:         adminService,
 		dashboardService:     dashboardService,
 		groupCapacityService: groupCapacityService,
+		smartScheduler:       smartScheduler,
+		recoveryProbeBilling: recoveryProbeBilling,
 	}
 }
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	Name             string             `json:"name" binding:"required"`
-	Description      string             `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok"`
-	RateMultiplier   float64            `json:"rate_multiplier"`
-	IsExclusive      bool               `json:"is_exclusive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
+	Name                      string                        `json:"name" binding:"required"`
+	Description               string                        `json:"description"`
+	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek composite"`
+	RateMultiplier            float64                       `json:"rate_multiplier"`
+	IsExclusive               bool                          `json:"is_exclusive"`
+	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD             optionalLimitField            `json:"daily_limit_usd"`
+	WeeklyLimitUSD            optionalLimitField            `json:"weekly_limit_usd"`
+	MonthlyLimitUSD           optionalLimitField            `json:"monthly_limit_usd"`
+	LongContextPricingEnabled bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing              []service.ChannelModelPricing `json:"model_pricing"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
-	AllowImageGeneration            bool     `json:"allow_image_generation"`
-	AllowBatchImageGeneration       bool     `json:"allow_batch_image_generation"`
-	ImageRateIndependent            bool     `json:"image_rate_independent"`
-	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
-	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
-	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
-	VideoRateIndependent            bool     `json:"video_rate_independent"`
-	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
-	PeakRateEnabled                 bool     `json:"peak_rate_enabled"`
-	PeakStart                       string   `json:"peak_start"`
-	PeakEnd                         string   `json:"peak_end"`
-	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
-	ImagePrice1K                    *float64 `json:"image_price_1k"`
-	ImagePrice2K                    *float64 `json:"image_price_2k"`
-	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	VideoPrice480P                  *float64 `json:"video_price_480p"`
-	VideoPrice720P                  *float64 `json:"video_price_720p"`
-	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
-	ClaudeCodeOnly                  bool     `json:"claude_code_only"`
-	FallbackGroupID                 *int64   `json:"fallback_group_id"`
-	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
+	AllowImageGeneration              bool                          `json:"allow_image_generation"`
+	AllowBatchImageGeneration         bool                          `json:"allow_batch_image_generation"`
+	ImageRateIndependent              bool                          `json:"image_rate_independent"`
+	ImageRateMultiplier               *float64                      `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier      *float64                      `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier          *float64                      `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent              bool                          `json:"video_rate_independent"`
+	VideoRateMultiplier               *float64                      `json:"video_rate_multiplier"`
+	PeakRateEnabled                   bool                          `json:"peak_rate_enabled"`
+	PeakStart                         string                        `json:"peak_start"`
+	PeakEnd                           string                        `json:"peak_end"`
+	PeakRateMultiplier                *float64                      `json:"peak_rate_multiplier"`
+	ProfitControlEnabled              bool                          `json:"profit_control_enabled"`
+	ProfitMinMargin                   *float64                      `json:"profit_min_margin"`
+	ProfitSafetyBuffer                *float64                      `json:"profit_safety_buffer"`
+	SmartSchedulerEnabled             bool                          `json:"smart_scheduler_enabled"`
+	RecoveryProbeEnabled              bool                          `json:"recovery_probe_enabled"`
+	RecoveryProbeMode                 string                        `json:"recovery_probe_mode"`
+	RecoveryProbeModel                string                        `json:"recovery_probe_model"`
+	RecoveryProbeIntervalSeconds      int                           `json:"recovery_probe_interval_seconds"`
+	RecoveryProbeAttemptsPerRound     int                           `json:"recovery_probe_attempts_per_round"`
+	RecoveryProbeIdleThresholdSeconds int                           `json:"recovery_probe_idle_threshold_seconds"`
+	RecoveryProbeBackoffCapSeconds    int                           `json:"recovery_probe_backoff_cap_seconds"`
+	PoolModeEnabled                   *bool                         `json:"pool_mode_enabled"`
+	PoolModeRetryCount                *int                          `json:"pool_mode_retry_count"`
+	PoolModeRetryStatusCodes          *[]int                        `json:"pool_mode_retry_status_codes"`
+	CustomErrorCodesEnabled           *bool                         `json:"custom_error_codes_enabled"`
+	CustomErrorCodes                  *[]int                        `json:"custom_error_codes"`
+	ImagePrice1K                      *float64                      `json:"image_price_1k"`
+	ImagePrice2K                      *float64                      `json:"image_price_2k"`
+	ImagePrice4K                      *float64                      `json:"image_price_4k"`
+	VideoPrice480P                    *float64                      `json:"video_price_480p"`
+	VideoPrice720P                    *float64                      `json:"video_price_720p"`
+	VideoPrice1080P                   *float64                      `json:"video_price_1080p"`
+	VideoModelPrices                  map[string]map[string]float64 `json:"video_model_prices,omitempty"`
+	WebSearchPricePerCall             *float64                      `json:"web_search_price_per_call"`
+	SearchPricePer1k                  *float64                      `json:"search_price_per_1k"`
+	AudioRealtimePricePerMin          *float64                      `json:"audio_realtime_price_per_min"`
+	AudioTtsPricePerMillionChars      *float64                      `json:"audio_tts_price_per_million_chars"`
+	AudioSttPricePerHour              *float64                      `json:"audio_stt_price_per_hour"`
+	ClaudeCodeOnly                    bool                          `json:"claude_code_only"`
+	FallbackGroupID                   *int64                        `json:"fallback_group_id"`
+	FallbackGroupIDOnInvalidRequest   *int64                        `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled bool               `json:"model_routing_enabled"`
@@ -121,6 +228,7 @@ type CreateGroupRequest struct {
 	SupportedModelScopes []string `json:"supported_model_scopes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch       bool                                      `json:"allow_messages_dispatch"`
+	AllowLive                   bool                                      `json:"allow_live"`
 	RequireOAuthOnly            bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          string                                    `json:"default_mapped_model"`
@@ -128,44 +236,72 @@ type CreateGroupRequest struct {
 	ModelsListConfig            service.GroupModelsListConfig             `json:"models_list_config"`
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit int `json:"rpm_limit"`
+	// OpenAI/Codex 请求推理强度上限，空字符串表示不限制。
+	MaxReasoningEffort string `json:"max_reasoning_effort"`
+	// OpenAI/Codex 推理强度精确映射。
+	ReasoningEffortMappings []service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 	// 从指定分组复制账号（创建后自动绑定）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
 }
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	Name             string             `json:"name"`
-	Description      *string            `json:"description"`
-	Platform         string             `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok"`
-	RateMultiplier   *float64           `json:"rate_multiplier"`
-	IsExclusive      *bool              `json:"is_exclusive"`
-	Status           string             `json:"status" binding:"omitempty,oneof=active inactive"`
-	SubscriptionType string             `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD    optionalLimitField `json:"daily_limit_usd"`
-	WeeklyLimitUSD   optionalLimitField `json:"weekly_limit_usd"`
-	MonthlyLimitUSD  optionalLimitField `json:"monthly_limit_usd"`
+	Name                      string                         `json:"name"`
+	Description               *string                        `json:"description"`
+	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek composite"`
+	RateMultiplier            *float64                       `json:"rate_multiplier"`
+	IsExclusive               *bool                          `json:"is_exclusive"`
+	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
+	SubscriptionType          string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD             optionalLimitField             `json:"daily_limit_usd"`
+	WeeklyLimitUSD            optionalLimitField             `json:"weekly_limit_usd"`
+	MonthlyLimitUSD           optionalLimitField             `json:"monthly_limit_usd"`
+	LongContextPricingEnabled *bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing              *[]service.ChannelModelPricing `json:"model_pricing"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
-	AllowImageGeneration            *bool    `json:"allow_image_generation"`
-	AllowBatchImageGeneration       *bool    `json:"allow_batch_image_generation"`
-	ImageRateIndependent            *bool    `json:"image_rate_independent"`
-	ImageRateMultiplier             *float64 `json:"image_rate_multiplier"`
-	BatchImageDiscountMultiplier    *float64 `json:"batch_image_discount_multiplier"`
-	BatchImageHoldMultiplier        *float64 `json:"batch_image_hold_multiplier"`
-	VideoRateIndependent            *bool    `json:"video_rate_independent"`
-	VideoRateMultiplier             *float64 `json:"video_rate_multiplier"`
-	PeakRateEnabled                 *bool    `json:"peak_rate_enabled"`
-	PeakStart                       *string  `json:"peak_start"`
-	PeakEnd                         *string  `json:"peak_end"`
-	PeakRateMultiplier              *float64 `json:"peak_rate_multiplier"`
-	ImagePrice1K                    *float64 `json:"image_price_1k"`
-	ImagePrice2K                    *float64 `json:"image_price_2k"`
-	ImagePrice4K                    *float64 `json:"image_price_4k"`
-	VideoPrice480P                  *float64 `json:"video_price_480p"`
-	VideoPrice720P                  *float64 `json:"video_price_720p"`
-	VideoPrice1080P                 *float64 `json:"video_price_1080p"`
-	ClaudeCodeOnly                  *bool    `json:"claude_code_only"`
-	FallbackGroupID                 *int64   `json:"fallback_group_id"`
-	FallbackGroupIDOnInvalidRequest *int64   `json:"fallback_group_id_on_invalid_request"`
+	AllowImageGeneration              *bool                         `json:"allow_image_generation"`
+	AllowBatchImageGeneration         *bool                         `json:"allow_batch_image_generation"`
+	ImageRateIndependent              *bool                         `json:"image_rate_independent"`
+	ImageRateMultiplier               *float64                      `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier      *float64                      `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier          *float64                      `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent              *bool                         `json:"video_rate_independent"`
+	VideoRateMultiplier               *float64                      `json:"video_rate_multiplier"`
+	PeakRateEnabled                   *bool                         `json:"peak_rate_enabled"`
+	PeakStart                         *string                       `json:"peak_start"`
+	PeakEnd                           *string                       `json:"peak_end"`
+	PeakRateMultiplier                *float64                      `json:"peak_rate_multiplier"`
+	ProfitControlEnabled              *bool                         `json:"profit_control_enabled"`
+	ProfitMinMargin                   *float64                      `json:"profit_min_margin"`
+	ProfitSafetyBuffer                *float64                      `json:"profit_safety_buffer"`
+	SmartSchedulerEnabled             *bool                         `json:"smart_scheduler_enabled"`
+	RecoveryProbeEnabled              *bool                         `json:"recovery_probe_enabled"`
+	RecoveryProbeMode                 *string                       `json:"recovery_probe_mode"`
+	RecoveryProbeModel                *string                       `json:"recovery_probe_model"`
+	RecoveryProbeIntervalSeconds      *int                          `json:"recovery_probe_interval_seconds"`
+	RecoveryProbeAttemptsPerRound     *int                          `json:"recovery_probe_attempts_per_round"`
+	RecoveryProbeIdleThresholdSeconds *int                          `json:"recovery_probe_idle_threshold_seconds"`
+	RecoveryProbeBackoffCapSeconds    *int                          `json:"recovery_probe_backoff_cap_seconds"`
+	PoolModeEnabled                   optionalPolicyField           `json:"pool_mode_enabled"`
+	PoolModeRetryCount                optionalPolicyField           `json:"pool_mode_retry_count"`
+	PoolModeRetryStatusCodes          optionalPolicyField           `json:"pool_mode_retry_status_codes"`
+	CustomErrorCodesEnabled           optionalPolicyField           `json:"custom_error_codes_enabled"`
+	CustomErrorCodes                  optionalPolicyField           `json:"custom_error_codes"`
+	ImagePrice1K                      *float64                      `json:"image_price_1k"`
+	ImagePrice2K                      *float64                      `json:"image_price_2k"`
+	ImagePrice4K                      *float64                      `json:"image_price_4k"`
+	VideoPrice480P                    *float64                      `json:"video_price_480p"`
+	VideoPrice720P                    *float64                      `json:"video_price_720p"`
+	VideoPrice1080P                   *float64                      `json:"video_price_1080p"`
+	VideoModelPrices                  map[string]map[string]float64 `json:"video_model_prices,omitempty"`
+	WebSearchPricePerCall             *float64                      `json:"web_search_price_per_call"`
+	SearchPricePer1k                  *float64                      `json:"search_price_per_1k"`
+	AudioRealtimePricePerMin          *float64                      `json:"audio_realtime_price_per_min"`
+	AudioTtsPricePerMillionChars      *float64                      `json:"audio_tts_price_per_million_chars"`
+	AudioSttPricePerHour              *float64                      `json:"audio_stt_price_per_hour"`
+	ClaudeCodeOnly                    *bool                         `json:"claude_code_only"`
+	FallbackGroupID                   *int64                        `json:"fallback_group_id"`
+	FallbackGroupIDOnInvalidRequest   *int64                        `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`
@@ -174,6 +310,7 @@ type UpdateGroupRequest struct {
 	SupportedModelScopes *[]string `json:"supported_model_scopes"`
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	AllowMessagesDispatch       *bool                                      `json:"allow_messages_dispatch"`
+	AllowLive                   *bool                                      `json:"allow_live"`
 	RequireOAuthOnly            *bool                                      `json:"require_oauth_only"`
 	RequirePrivacySet           *bool                                      `json:"require_privacy_set"`
 	DefaultMappedModel          *string                                    `json:"default_mapped_model"`
@@ -181,8 +318,28 @@ type UpdateGroupRequest struct {
 	ModelsListConfig            *service.GroupModelsListConfig             `json:"models_list_config"`
 	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
 	RPMLimit *int `json:"rpm_limit"`
+	// OpenAI/Codex 请求推理强度上限；空字符串清除，nil 不修改。
+	MaxReasoningEffort *string `json:"max_reasoning_effort"`
+	// nil 不修改，空数组清空，非空数组替换。
+	ReasoningEffortMappings *[]service.ReasoningEffortMapping `json:"reasoning_effort_mappings"`
 	// 从指定分组复制账号（同步操作：先清空当前分组的账号绑定，再绑定源分组的账号）
 	CopyAccountsFromGroupIDs []int64 `json:"copy_accounts_from_group_ids"`
+}
+
+type CompositeRouteRequest struct {
+	PublicModel    string `json:"public_model" binding:"required"`
+	MatchType      string `json:"match_type" binding:"omitempty,oneof=exact prefix"`
+	TargetPlatform string `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek"`
+	UpstreamModel  string `json:"upstream_model"`
+	Endpoint       string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	Priority       int    `json:"priority"`
+	Enabled        *bool  `json:"enabled"`
+	Notes          string `json:"notes"`
+}
+
+type CompositeRoutePreviewRequest struct {
+	Model    string `json:"model" binding:"required"`
+	Endpoint string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
 }
 
 // List handles listing all groups with pagination
@@ -218,6 +375,133 @@ func (h *GroupHandler) List(c *gin.Context) {
 		outGroups = append(outGroups, *dto.GroupFromServiceAdmin(&groups[i]))
 	}
 	response.Paginated(c, outGroups, total, page, pageSize)
+}
+
+// ListCompositeRoutes handles listing composite model routes for one group.
+// GET /api/v1/admin/groups/:id/composite-routes
+func (h *GroupHandler) ListCompositeRoutes(c *gin.Context) {
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	routes, err := h.adminService.ListCompositeRoutes(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, routes)
+}
+
+// CreateCompositeRoute handles creating one composite model route.
+// POST /api/v1/admin/groups/:id/composite-routes
+func (h *GroupHandler) CreateCompositeRoute(c *gin.Context) {
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req CompositeRouteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+	route, err := h.adminService.CreateCompositeRoute(c.Request.Context(), groupID, compositeRouteRequestToInput(req, true))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Created(c, route)
+}
+
+// UpdateCompositeRoute handles replacing one composite model route.
+// PUT /api/v1/admin/groups/:id/composite-routes/:route_id
+func (h *GroupHandler) UpdateCompositeRoute(c *gin.Context) {
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	routeID, ok := parsePositiveIDParam(c, "route_id")
+	if !ok {
+		return
+	}
+	var req CompositeRouteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+	route, err := h.adminService.UpdateCompositeRoute(c.Request.Context(), groupID, routeID, compositeRouteRequestToInput(req, true))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, route)
+}
+
+// DeleteCompositeRoute handles deleting one composite model route.
+// DELETE /api/v1/admin/groups/:id/composite-routes/:route_id
+func (h *GroupHandler) DeleteCompositeRoute(c *gin.Context) {
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	routeID, ok := parsePositiveIDParam(c, "route_id")
+	if !ok {
+		return
+	}
+	if err := h.adminService.DeleteCompositeRoute(c.Request.Context(), groupID, routeID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Composite route deleted"})
+}
+
+// PreviewCompositeRoute resolves a model without mutating routes.
+// POST /api/v1/admin/groups/:id/composite-routes/preview
+func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
+	groupID, ok := parsePositiveIDParam(c, "id")
+	if !ok {
+		return
+	}
+	var req CompositeRoutePreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body: "+err.Error())
+		return
+	}
+	decision, err := h.adminService.PreviewCompositeRoute(c.Request.Context(), groupID, service.CompositeRoutePreviewRequest{
+		Model:    req.Model,
+		Endpoint: req.Endpoint,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, decision)
+}
+
+func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool) service.CompositeRouteInput {
+	enabled := defaultEnabled
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	return service.CompositeRouteInput{
+		PublicModel:    req.PublicModel,
+		MatchType:      req.MatchType,
+		TargetPlatform: req.TargetPlatform,
+		UpstreamModel:  req.UpstreamModel,
+		Endpoint:       req.Endpoint,
+		Priority:       req.Priority,
+		Enabled:        enabled,
+		Notes:          req.Notes,
+	}
+}
+
+func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {
+	raw := c.Param(name)
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid "+name)
+		return 0, false
+	}
+	return id, true
 }
 
 // GetAll handles getting all active groups without pagination.
@@ -270,6 +554,51 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 	response.Success(c, dto.GroupFromServiceAdmin(group))
 }
 
+// GetSmartStickyPolicy returns the group's sticky quality escape policy.
+func (h *GroupHandler) GetSmartStickyPolicy(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	policyService, ok := h.adminService.(smartStickyPolicyAdmin)
+	if !ok {
+		response.Error(c, http.StatusNotImplemented, "Smart sticky policy unavailable")
+		return
+	}
+	policy, err := policyService.GetSmartStickyPolicy(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateSmartStickyPolicy updates or restores a group's sticky quality escape policy.
+func (h *GroupHandler) UpdateSmartStickyPolicy(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var policy service.SmartStickyPolicy
+	if err := c.ShouldBindJSON(&policy); err != nil {
+		response.BadRequest(c, "Invalid smart sticky policy")
+		return
+	}
+	policyService, ok := h.adminService.(smartStickyPolicyAdmin)
+	if !ok {
+		response.Error(c, http.StatusNotImplemented, "Smart sticky policy unavailable")
+		return
+	}
+	updated, err := policyService.UpdateSmartStickyPolicy(c.Request.Context(), id, policy)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, updated)
+}
+
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.
 // GET /api/v1/admin/groups/:id/models-list-candidates
 func (h *GroupHandler) GetModelsListCandidates(c *gin.Context) {
@@ -306,49 +635,83 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// platform 是 omitempty：预校验必须用与 CreateGroup 落库一致的归一化平台，
+	// 否则省略 platform 的请求会被误判成「平台不支持利润控制」。
+	if err := service.ValidateProfitControlConfig(service.NormalizeGroupPlatform(req.Platform), req.ProfitControlEnabled, float64ValueOrDefault(req.ProfitMinMargin, 0), float64ValueOrDefault(req.ProfitSafetyBuffer, 0)); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
-		VideoRateIndependent:            req.VideoRateIndependent,
-		VideoRateMultiplier:             req.VideoRateMultiplier,
-		PeakRateEnabled:                 req.PeakRateEnabled,
-		PeakStart:                       req.PeakStart,
-		PeakEnd:                         req.PeakEnd,
-		PeakRateMultiplier:              req.PeakRateMultiplier,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		VideoPrice480P:                  req.VideoPrice480P,
-		VideoPrice720P:                  req.VideoPrice720P,
-		VideoPrice1080P:                 req.VideoPrice1080P,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		ModelsListConfig:                req.ModelsListConfig,
-		RPMLimit:                        req.RPMLimit,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                              req.Name,
+		Description:                       req.Description,
+		Platform:                          req.Platform,
+		RateMultiplier:                    req.RateMultiplier,
+		IsExclusive:                       req.IsExclusive,
+		SubscriptionType:                  req.SubscriptionType,
+		DailyLimitUSD:                     req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                    req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                   req.MonthlyLimitUSD.ToServiceInput(),
+		LongContextPricingEnabled:         req.LongContextPricingEnabled,
+		ModelPricing:                      req.ModelPricing,
+		AllowImageGeneration:              req.AllowImageGeneration,
+		AllowBatchImageGeneration:         req.AllowBatchImageGeneration,
+		ImageRateIndependent:              req.ImageRateIndependent,
+		ImageRateMultiplier:               req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:      req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:          req.BatchImageHoldMultiplier,
+		VideoRateIndependent:              req.VideoRateIndependent,
+		VideoRateMultiplier:               req.VideoRateMultiplier,
+		PeakRateEnabled:                   req.PeakRateEnabled,
+		PeakStart:                         req.PeakStart,
+		PeakEnd:                           req.PeakEnd,
+		PeakRateMultiplier:                req.PeakRateMultiplier,
+		ProfitControlEnabled:              req.ProfitControlEnabled,
+		ProfitMinMargin:                   req.ProfitMinMargin,
+		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
+		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
+		RecoveryProbeMode:                 req.RecoveryProbeMode,
+		RecoveryProbeModel:                req.RecoveryProbeModel,
+		RecoveryProbeIntervalSeconds:      req.RecoveryProbeIntervalSeconds,
+		RecoveryProbeAttemptsPerRound:     req.RecoveryProbeAttemptsPerRound,
+		RecoveryProbeIdleThresholdSeconds: req.RecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    req.RecoveryProbeBackoffCapSeconds,
+		PoolModeEnabled:                   req.PoolModeEnabled,
+		PoolModeRetryCount:                req.PoolModeRetryCount,
+		PoolModeRetryStatusCodes:          req.PoolModeRetryStatusCodes,
+		CustomErrorCodesEnabled:           req.CustomErrorCodesEnabled,
+		CustomErrorCodes:                  req.CustomErrorCodes,
+		ImagePrice1K:                      req.ImagePrice1K,
+		ImagePrice2K:                      req.ImagePrice2K,
+		ImagePrice4K:                      req.ImagePrice4K,
+		VideoPrice480P:                    req.VideoPrice480P,
+		VideoPrice720P:                    req.VideoPrice720P,
+		VideoPrice1080P:                   req.VideoPrice1080P,
+		VideoModelPrices:                  req.VideoModelPrices,
+		WebSearchPricePerCall:             req.WebSearchPricePerCall,
+		SearchPricePer1k:                  req.SearchPricePer1k,
+		AudioRealtimePricePerMin:          req.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:      req.AudioTtsPricePerMillionChars,
+		AudioSTTPricePerHour:              req.AudioSttPricePerHour,
+		ClaudeCodeOnly:                    req.ClaudeCodeOnly,
+		FallbackGroupID:                   req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:   req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                      req.ModelRouting,
+		ModelRoutingEnabled:               req.ModelRoutingEnabled,
+		MCPXMLInject:                      req.MCPXMLInject,
+		SupportedModelScopes:              req.SupportedModelScopes,
+		AllowMessagesDispatch:             req.AllowMessagesDispatch,
+		AllowLive:                         req.AllowLive,
+		RequireOAuthOnly:                  req.RequireOAuthOnly,
+		RequirePrivacySet:                 req.RequirePrivacySet,
+		DefaultMappedModel:                req.DefaultMappedModel,
+		MessagesDispatchModelConfig:       req.MessagesDispatchModelConfig,
+		ModelsListConfig:                  req.ModelsListConfig,
+		RPMLimit:                          req.RPMLimit,
+		MaxReasoningEffort:                req.MaxReasoningEffort,
+		ReasoningEffortMappings:           req.ReasoningEffortMappings,
+		CopyAccountsFromGroupIDs:          req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -356,6 +719,53 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	response.Success(c, dto.GroupFromServiceAdmin(group))
+}
+
+// Duplicate handles creating an inactive group copy with the source account bindings.
+// POST /api/v1/admin/groups/:id/duplicate
+func (h *GroupHandler) Duplicate(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	actorScope := adminActorScope(c)
+
+	result, err := executeAdminIdempotent(
+		c,
+		"admin.groups.duplicate",
+		struct {
+			GroupID int64 `json:"group_id"`
+		}{GroupID: groupID},
+		service.DefaultWriteIdempotencyTTL(),
+		func(ctx context.Context) (any, error) {
+			group, execErr := h.adminService.DuplicateGroup(ctx, groupID, actorScope, c.GetHeader("Idempotency-Key"))
+			if execErr != nil {
+				return nil, execErr
+			}
+			return dto.GroupFromServiceAdmin(group), nil
+		},
+	)
+	if err != nil {
+		reason := infraerrors.Reason(err)
+		if reason == infraerrors.Reason(service.ErrIdempotencyInProgress) || reason == infraerrors.Reason(service.ErrIdempotencyStoreUnavail) {
+			recovered, recoverErr := h.adminService.RecoverDuplicateGroup(c.Request.Context(), groupID, actorScope, c.GetHeader("Idempotency-Key"))
+			if recoverErr != nil {
+				slog.Warn("group_duplicate_recovery_failed", "group_id", groupID, "actor_scope", actorScope, "reason", reason, "error", recoverErr)
+			} else if recovered != nil {
+				c.Header("X-Idempotency-Recovered", "true")
+				response.Success(c, dto.GroupFromServiceAdmin(recovered))
+				return
+			}
+		}
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	if result != nil && result.Replayed {
+		c.Header("X-Idempotency-Replayed", "true")
+	}
+	response.Success(c, result.Data)
 }
 
 // Update handles updating a group
@@ -372,51 +782,108 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	poolModeEnabled, err := req.PoolModeEnabled.boolValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_enabled: "+err.Error())
+		return
+	}
+	poolModeRetryCount, err := req.PoolModeRetryCount.intValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_retry_count: "+err.Error())
+		return
+	}
+	poolModeRetryStatusCodes, err := req.PoolModeRetryStatusCodes.intSliceValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid pool_mode_retry_status_codes: "+err.Error())
+		return
+	}
+	customErrorCodesEnabled, err := req.CustomErrorCodesEnabled.boolValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid custom_error_codes_enabled: "+err.Error())
+		return
+	}
+	customErrorCodes, err := req.CustomErrorCodes.intSliceValue()
+	if err != nil {
+		response.BadRequest(c, "Invalid custom_error_codes: "+err.Error())
+		return
+	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
-		Name:                            req.Name,
-		Description:                     req.Description,
-		Platform:                        req.Platform,
-		RateMultiplier:                  req.RateMultiplier,
-		IsExclusive:                     req.IsExclusive,
-		Status:                          req.Status,
-		SubscriptionType:                req.SubscriptionType,
-		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
-		WeeklyLimitUSD:                  req.WeeklyLimitUSD.ToServiceInput(),
-		MonthlyLimitUSD:                 req.MonthlyLimitUSD.ToServiceInput(),
-		AllowImageGeneration:            req.AllowImageGeneration,
-		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
-		ImageRateIndependent:            req.ImageRateIndependent,
-		ImageRateMultiplier:             req.ImageRateMultiplier,
-		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
-		VideoRateIndependent:            req.VideoRateIndependent,
-		VideoRateMultiplier:             req.VideoRateMultiplier,
-		PeakRateEnabled:                 req.PeakRateEnabled,
-		PeakStart:                       req.PeakStart,
-		PeakEnd:                         req.PeakEnd,
-		PeakRateMultiplier:              req.PeakRateMultiplier,
-		ImagePrice1K:                    req.ImagePrice1K,
-		ImagePrice2K:                    req.ImagePrice2K,
-		ImagePrice4K:                    req.ImagePrice4K,
-		VideoPrice480P:                  req.VideoPrice480P,
-		VideoPrice720P:                  req.VideoPrice720P,
-		VideoPrice1080P:                 req.VideoPrice1080P,
-		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
-		FallbackGroupID:                 req.FallbackGroupID,
-		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
-		ModelRouting:                    req.ModelRouting,
-		ModelRoutingEnabled:             req.ModelRoutingEnabled,
-		MCPXMLInject:                    req.MCPXMLInject,
-		SupportedModelScopes:            req.SupportedModelScopes,
-		AllowMessagesDispatch:           req.AllowMessagesDispatch,
-		RequireOAuthOnly:                req.RequireOAuthOnly,
-		RequirePrivacySet:               req.RequirePrivacySet,
-		DefaultMappedModel:              req.DefaultMappedModel,
-		MessagesDispatchModelConfig:     req.MessagesDispatchModelConfig,
-		ModelsListConfig:                req.ModelsListConfig,
-		RPMLimit:                        req.RPMLimit,
-		CopyAccountsFromGroupIDs:        req.CopyAccountsFromGroupIDs,
+		Name:                              req.Name,
+		Description:                       req.Description,
+		Platform:                          req.Platform,
+		RateMultiplier:                    req.RateMultiplier,
+		IsExclusive:                       req.IsExclusive,
+		Status:                            req.Status,
+		SubscriptionType:                  req.SubscriptionType,
+		DailyLimitUSD:                     req.DailyLimitUSD.ToServiceInput(),
+		WeeklyLimitUSD:                    req.WeeklyLimitUSD.ToServiceInput(),
+		MonthlyLimitUSD:                   req.MonthlyLimitUSD.ToServiceInput(),
+		LongContextPricingEnabled:         req.LongContextPricingEnabled,
+		ModelPricing:                      req.ModelPricing,
+		AllowImageGeneration:              req.AllowImageGeneration,
+		AllowBatchImageGeneration:         req.AllowBatchImageGeneration,
+		ImageRateIndependent:              req.ImageRateIndependent,
+		ImageRateMultiplier:               req.ImageRateMultiplier,
+		BatchImageDiscountMultiplier:      req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:          req.BatchImageHoldMultiplier,
+		VideoRateIndependent:              req.VideoRateIndependent,
+		VideoRateMultiplier:               req.VideoRateMultiplier,
+		PeakRateEnabled:                   req.PeakRateEnabled,
+		PeakStart:                         req.PeakStart,
+		PeakEnd:                           req.PeakEnd,
+		PeakRateMultiplier:                req.PeakRateMultiplier,
+		ProfitControlEnabled:              req.ProfitControlEnabled,
+		ProfitMinMargin:                   req.ProfitMinMargin,
+		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
+		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
+		RecoveryProbeMode:                 req.RecoveryProbeMode,
+		RecoveryProbeModel:                req.RecoveryProbeModel,
+		RecoveryProbeIntervalSeconds:      req.RecoveryProbeIntervalSeconds,
+		RecoveryProbeAttemptsPerRound:     req.RecoveryProbeAttemptsPerRound,
+		RecoveryProbeIdleThresholdSeconds: req.RecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    req.RecoveryProbeBackoffCapSeconds,
+		PoolModeEnabled:                   poolModeEnabled,
+		PoolModeRetryCount:                poolModeRetryCount,
+		PoolModeRetryStatusCodes:          poolModeRetryStatusCodes,
+		CustomErrorCodesEnabled:           customErrorCodesEnabled,
+		CustomErrorCodes:                  customErrorCodes,
+		PoolModeEnabledClear:              req.PoolModeEnabled.shouldClear(),
+		PoolModeRetryCountClear:           req.PoolModeRetryCount.shouldClear(),
+		PoolModeRetryStatusCodesClear:     req.PoolModeRetryStatusCodes.shouldClear(),
+		CustomErrorCodesEnabledClear:      req.CustomErrorCodesEnabled.shouldClear(),
+		CustomErrorCodesClear:             req.CustomErrorCodes.shouldClear(),
+		ImagePrice1K:                      req.ImagePrice1K,
+		ImagePrice2K:                      req.ImagePrice2K,
+		ImagePrice4K:                      req.ImagePrice4K,
+		VideoPrice480P:                    req.VideoPrice480P,
+		VideoPrice720P:                    req.VideoPrice720P,
+		VideoPrice1080P:                   req.VideoPrice1080P,
+		VideoModelPrices:                  req.VideoModelPrices,
+		WebSearchPricePerCall:             req.WebSearchPricePerCall,
+		SearchPricePer1k:                  req.SearchPricePer1k,
+		AudioRealtimePricePerMin:          req.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:      req.AudioTtsPricePerMillionChars,
+		AudioSTTPricePerHour:              req.AudioSttPricePerHour,
+		ClaudeCodeOnly:                    req.ClaudeCodeOnly,
+		FallbackGroupID:                   req.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest:   req.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                      req.ModelRouting,
+		ModelRoutingEnabled:               req.ModelRoutingEnabled,
+		MCPXMLInject:                      req.MCPXMLInject,
+		SupportedModelScopes:              req.SupportedModelScopes,
+		AllowMessagesDispatch:             req.AllowMessagesDispatch,
+		AllowLive:                         req.AllowLive,
+		RequireOAuthOnly:                  req.RequireOAuthOnly,
+		RequirePrivacySet:                 req.RequirePrivacySet,
+		DefaultMappedModel:                req.DefaultMappedModel,
+		MessagesDispatchModelConfig:       req.MessagesDispatchModelConfig,
+		ModelsListConfig:                  req.ModelsListConfig,
+		RPMLimit:                          req.RPMLimit,
+		MaxReasoningEffort:                req.MaxReasoningEffort,
+		ReasoningEffortMappings:           req.ReasoningEffortMappings,
+		CopyAccountsFromGroupIDs:          req.CopyAccountsFromGroupIDs,
 	})
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -488,6 +955,146 @@ func (h *GroupHandler) GetCapacitySummary(c *gin.Context) {
 		return
 	}
 	response.Success(c, results)
+}
+
+type BatchGroupQualityStatsRequest struct {
+	GroupIDs []int64 `json:"group_ids" binding:"required"`
+}
+
+// GetBatchQualityStats returns display-only latency summaries for the current
+// group page. It never changes group priority or scheduling state.
+// POST /api/v1/admin/groups/quality-stats/batch
+func (h *GroupHandler) GetBatchQualityStats(c *gin.Context) {
+	var req BatchGroupQualityStatsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	groupIDs := normalizeInt64IDList(req.GroupIDs)
+	if len(groupIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+	if h.dashboardService == nil {
+		response.InternalError(c, "Dashboard service is unavailable")
+		return
+	}
+
+	cacheKey := buildGroupQualityStatsBatchCacheKey(groupIDs)
+	if cached, ok := groupQualityStatsBatchCache.Get(cacheKey); ok {
+		if cached.ETag != "" {
+			c.Header("ETag", cached.ETag)
+			c.Header("Vary", "If-None-Match")
+			if ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+				c.Status(http.StatusNotModified)
+				return
+			}
+		}
+		c.Header("X-Snapshot-Cache", "hit")
+		response.Success(c, cached.Payload)
+		return
+	}
+
+	stats, err := h.dashboardService.GetGroupQualityStatsBatch(c.Request.Context(), groupIDs, time.Now().UTC())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	payload := gin.H{"stats": stats}
+	cached := groupQualityStatsBatchCache.Set(cacheKey, payload)
+	if cached.ETag != "" {
+		c.Header("ETag", cached.ETag)
+		c.Header("Vary", "If-None-Match")
+	}
+	c.Header("X-Snapshot-Cache", "miss")
+	response.Success(c, payload)
+}
+
+// GetSmartSchedulerPreview returns a read-only account ranking for one group.
+// It never changes account/group state and never performs an upstream request.
+func (h *GroupHandler) GetSmartSchedulerPreview(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	model := strings.TrimSpace(c.Query("model"))
+	if len([]rune(model)) > 200 {
+		response.BadRequest(c, "model is too long")
+		return
+	}
+	endpoint := strings.TrimSpace(c.Query("endpoint"))
+	if len([]rune(endpoint)) > 80 {
+		response.BadRequest(c, "endpoint is too long")
+		return
+	}
+	if h.smartScheduler == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Smart scheduler preview is unavailable")
+		return
+	}
+	preview, err := h.smartScheduler.Preview(c.Request.Context(), groupID, model, endpoint, time.Now().UTC())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
+
+type updateRecoveryProbeBillingRequest struct {
+	Enabled            bool    `json:"enabled"`
+	APIKeyID           int64   `json:"api_key_id"`
+	DailyBudgetUSD     float64 `json:"daily_budget_usd"`
+	PerAttemptLimitUSD float64 `json:"per_attempt_limit_usd"`
+}
+
+func (h *GroupHandler) GetRecoveryProbeBilling(c *gin.Context) {
+	if h.recoveryProbeBilling == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Recovery probe billing is unavailable")
+		return
+	}
+	var groupID int64
+	if rawGroupID := strings.TrimSpace(c.Query("group_id")); rawGroupID != "" {
+		parsedGroupID, err := strconv.ParseInt(rawGroupID, 10, 64)
+		if err != nil || parsedGroupID < 0 {
+			response.BadRequest(c, "Invalid group ID")
+			return
+		}
+		groupID = parsedGroupID
+	}
+	status, err := h.recoveryProbeBilling.GetStatus(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}
+
+func (h *GroupHandler) UpdateRecoveryProbeBilling(c *gin.Context) {
+	if h.recoveryProbeBilling == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Recovery probe billing is unavailable")
+		return
+	}
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Error(c, http.StatusUnauthorized, "Authentication required")
+		return
+	}
+	var req updateRecoveryProbeBillingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	settings, err := h.recoveryProbeBilling.UpdateSettings(c.Request.Context(), subject.UserID, service.GroupRecoveryProbeBillingSettings{
+		Enabled:            req.Enabled,
+		APIKeyID:           req.APIKeyID,
+		DailyBudgetUSD:     req.DailyBudgetUSD,
+		PerAttemptLimitUSD: req.PerAttemptLimitUSD,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, settings)
 }
 
 // GetGroupAPIKeys handles getting API keys in a group

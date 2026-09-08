@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,31 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
+func TestUpstreamOverloadMappingOnlyTreatsExplicit529AsClientRetryable503(t *testing.T) {
+	t.Run("anthropic compatible gateway", func(t *testing.T) {
+		status, errorType, message := (&GatewayHandler{}).mapUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Equal(t, "overloaded_error", errorType)
+		require.Contains(t, message, "retry later")
+
+		status, errorType, _ = (&GatewayHandler{}).mapUpstreamError(http.StatusServiceUnavailable)
+		require.Equal(t, http.StatusBadGateway, status)
+		require.Equal(t, "upstream_error", errorType)
+	})
+
+	t.Run("openai compatible gateway", func(t *testing.T) {
+		status, _, message := (&OpenAIGatewayHandler{}).mapUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Contains(t, message, "retry later")
+	})
+
+	t.Run("gemini compatible gateway", func(t *testing.T) {
+		status, message := mapGeminiUpstreamError(529)
+		require.Equal(t, http.StatusServiceUnavailable, status)
+		require.Contains(t, message, "retry later")
+	})
+}
+
 // Writer 已写后 ensureForwardErrorResponse 必须把错误以 SSE 形式追加，
 // 而不是 silent EOF。非 /responses 路径走 legacy data:{"type":"error"} 分支。
 func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) {
@@ -51,6 +77,22 @@ func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) 
 	require.Equal(t, http.StatusTeapot, w.Code)
 	assert.Contains(t, w.Body.String(), "already written")
 	assert.Contains(t, w.Body.String(), `data: {"type":"error"`)
+}
+
+func TestGatewayEnsureForwardErrorResponse_SkipsCommittedSSEError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+	c.Header("Content-Type", "text/event-stream")
+	_, _ = c.Writer.WriteString("event: error\ndata: {\"type\":\"error\"}\n\n")
+	service.MarkResponseCommitted(c)
+
+	h := &GatewayHandler{}
+	wrote := h.ensureForwardErrorResponse(c, true)
+
+	require.False(t, wrote)
+	require.Equal(t, 1, strings.Count(w.Body.String(), "event: error"))
 }
 
 // case B 回归：Anthropic-backed /responses，Writer 已被写过时

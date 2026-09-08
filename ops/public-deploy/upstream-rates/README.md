@@ -130,8 +130,9 @@ not copy login secrets, and does not edit production sub2api records.
 
 Local LaunchAgent `com.fluter.upstream-hub-ledger-sync` is the default
 unattended Mac-side trigger for this bridge. It runs
-`run_upstream_hub_ledger_sync.sh` hourly, which wraps the command above with a
-simple lock so overlapping syncs are skipped. The VPS timer is still responsible
+`run_upstream_hub_ledger_sync.sh` hourly, which resolves the repository root
+from the script's own location and wraps the command above with a simple lock
+so overlapping syncs are skipped. The VPS timer is still responsible
 for the server-side safe refresh and static dashboard render; it does not reach
 into the Mac upstream-hub database directly. The old Codex automation
 `fluter-upstream-ledger-hourly` is kept paused as a manual fallback for

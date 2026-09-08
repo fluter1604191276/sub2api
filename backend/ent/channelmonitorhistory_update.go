@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // ChannelMonitorHistoryUpdate is the builder for updating ChannelMonitorHistory entities.
@@ -145,6 +146,39 @@ func (_u *ChannelMonitorHistoryUpdate) ClearMessage() *ChannelMonitorHistoryUpda
 	return _u
 }
 
+// SetQuota sets the "quota" field.
+func (_u *ChannelMonitorHistoryUpdate) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpdate {
+	_u.mutation.SetQuota(v)
+	return _u
+}
+
+// ClearQuota clears the value of the "quota" field.
+func (_u *ChannelMonitorHistoryUpdate) ClearQuota() *ChannelMonitorHistoryUpdate {
+	_u.mutation.ClearQuota()
+	return _u
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (_u *ChannelMonitorHistoryUpdate) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpdate {
+	_u.mutation.ResetEstimatedCostUsd()
+	_u.mutation.SetEstimatedCostUsd(v)
+	return _u
+}
+
+// SetNillableEstimatedCostUsd sets the "estimated_cost_usd" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdate) SetNillableEstimatedCostUsd(v *float64) *ChannelMonitorHistoryUpdate {
+	if v != nil {
+		_u.SetEstimatedCostUsd(*v)
+	}
+	return _u
+}
+
+// AddEstimatedCostUsd adds value to the "estimated_cost_usd" field.
+func (_u *ChannelMonitorHistoryUpdate) AddEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpdate {
+	_u.mutation.AddEstimatedCostUsd(v)
+	return _u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_u *ChannelMonitorHistoryUpdate) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpdate {
 	_u.mutation.SetCheckedAt(v)
@@ -266,6 +300,18 @@ func (_u *ChannelMonitorHistoryUpdate) sqlSave(ctx context.Context) (_node int, 
 	}
 	if _u.mutation.MessageCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldMessage, field.TypeString)
+	}
+	if value, ok := _u.mutation.Quota(); ok {
+		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
+	}
+	if _u.mutation.QuotaCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldQuota, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.EstimatedCostUsd(); ok {
+		_spec.SetField(channelmonitorhistory.FieldEstimatedCostUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedEstimatedCostUsd(); ok {
+		_spec.AddField(channelmonitorhistory.FieldEstimatedCostUsd, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)
@@ -435,6 +481,39 @@ func (_u *ChannelMonitorHistoryUpdateOne) ClearMessage() *ChannelMonitorHistoryU
 	return _u
 }
 
+// SetQuota sets the "quota" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetQuota(v *domain.MonitorQuotaSnapshot) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.SetQuota(v)
+	return _u
+}
+
+// ClearQuota clears the value of the "quota" field.
+func (_u *ChannelMonitorHistoryUpdateOne) ClearQuota() *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ClearQuota()
+	return _u
+}
+
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (_u *ChannelMonitorHistoryUpdateOne) SetEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.ResetEstimatedCostUsd()
+	_u.mutation.SetEstimatedCostUsd(v)
+	return _u
+}
+
+// SetNillableEstimatedCostUsd sets the "estimated_cost_usd" field if the given value is not nil.
+func (_u *ChannelMonitorHistoryUpdateOne) SetNillableEstimatedCostUsd(v *float64) *ChannelMonitorHistoryUpdateOne {
+	if v != nil {
+		_u.SetEstimatedCostUsd(*v)
+	}
+	return _u
+}
+
+// AddEstimatedCostUsd adds value to the "estimated_cost_usd" field.
+func (_u *ChannelMonitorHistoryUpdateOne) AddEstimatedCostUsd(v float64) *ChannelMonitorHistoryUpdateOne {
+	_u.mutation.AddEstimatedCostUsd(v)
+	return _u
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (_u *ChannelMonitorHistoryUpdateOne) SetCheckedAt(v time.Time) *ChannelMonitorHistoryUpdateOne {
 	_u.mutation.SetCheckedAt(v)
@@ -586,6 +665,18 @@ func (_u *ChannelMonitorHistoryUpdateOne) sqlSave(ctx context.Context) (_node *C
 	}
 	if _u.mutation.MessageCleared() {
 		_spec.ClearField(channelmonitorhistory.FieldMessage, field.TypeString)
+	}
+	if value, ok := _u.mutation.Quota(); ok {
+		_spec.SetField(channelmonitorhistory.FieldQuota, field.TypeJSON, value)
+	}
+	if _u.mutation.QuotaCleared() {
+		_spec.ClearField(channelmonitorhistory.FieldQuota, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.EstimatedCostUsd(); ok {
+		_spec.SetField(channelmonitorhistory.FieldEstimatedCostUsd, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedEstimatedCostUsd(); ok {
+		_spec.AddField(channelmonitorhistory.FieldEstimatedCostUsd, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.CheckedAt(); ok {
 		_spec.SetField(channelmonitorhistory.FieldCheckedAt, field.TypeTime, value)

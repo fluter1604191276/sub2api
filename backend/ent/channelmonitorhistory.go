@@ -3,6 +3,7 @@
 package ent
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // ChannelMonitorHistory is the model entity for the ChannelMonitorHistory schema.
@@ -30,6 +32,10 @@ type ChannelMonitorHistory struct {
 	PingLatencyMs *int `json:"ping_latency_ms,omitempty"`
 	// Message holds the value of the "message" field.
 	Message string `json:"message,omitempty"`
+	// Quota holds the value of the "quota" field.
+	Quota *domain.MonitorQuotaSnapshot `json:"quota,omitempty"`
+	// Estimated standard model cost of this active probe; quota-only checks remain zero
+	EstimatedCostUsd float64 `json:"estimated_cost_usd,omitempty"`
 	// CheckedAt holds the value of the "checked_at" field.
 	CheckedAt time.Time `json:"checked_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -63,6 +69,10 @@ func (*ChannelMonitorHistory) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case channelmonitorhistory.FieldQuota:
+			values[i] = new([]byte)
+		case channelmonitorhistory.FieldEstimatedCostUsd:
+			values[i] = new(sql.NullFloat64)
 		case channelmonitorhistory.FieldID, channelmonitorhistory.FieldMonitorID, channelmonitorhistory.FieldLatencyMs, channelmonitorhistory.FieldPingLatencyMs:
 			values[i] = new(sql.NullInt64)
 		case channelmonitorhistory.FieldModel, channelmonitorhistory.FieldStatus, channelmonitorhistory.FieldMessage:
@@ -127,6 +137,20 @@ func (_m *ChannelMonitorHistory) assignValues(columns []string, values []any) er
 				return fmt.Errorf("unexpected type %T for field message", values[i])
 			} else if value.Valid {
 				_m.Message = value.String
+			}
+		case channelmonitorhistory.FieldQuota:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field quota", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.Quota); err != nil {
+					return fmt.Errorf("unmarshal field quota: %w", err)
+				}
+			}
+		case channelmonitorhistory.FieldEstimatedCostUsd:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field estimated_cost_usd", values[i])
+			} else if value.Valid {
+				_m.EstimatedCostUsd = value.Float64
 			}
 		case channelmonitorhistory.FieldCheckedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -196,6 +220,12 @@ func (_m *ChannelMonitorHistory) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("message=")
 	builder.WriteString(_m.Message)
+	builder.WriteString(", ")
+	builder.WriteString("quota=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Quota))
+	builder.WriteString(", ")
+	builder.WriteString("estimated_cost_usd=")
+	builder.WriteString(fmt.Sprintf("%v", _m.EstimatedCostUsd))
 	builder.WriteString(", ")
 	builder.WriteString("checked_at=")
 	builder.WriteString(_m.CheckedAt.Format(time.ANSIC))

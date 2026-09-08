@@ -150,6 +150,122 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 	require.Contains(t, recorder.Body.String(), "test_complete")
 }
 
+func TestAccountTestService_RunTestBackgroundOpenAIExtractsUsageAndEstimatedCost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rateMultiplier := 1.7
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.output_text.delta","delta":"ok"}
+data: {"type":"response.completed","response":{"model":"gpt-5.6-sol","usage":{"input_tokens":11,"output_tokens":7,"input_tokens_details":{"cached_tokens":3}}}}
+
+`))
+	account := &Account{
+		ID:             91,
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeOAuth,
+		Concurrency:    1,
+		RateMultiplier: &rateMultiplier,
+		Credentials:    map[string]any{"access_token": "test-token"},
+	}
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{91: account},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		accountRepo:    repo,
+		httpUpstream:   upstream,
+		billingService: NewBillingService(&config.Config{}, nil),
+		cfg:            &config.Config{},
+	}
+
+	result, err := svc.RunTestBackground(context.Background(), 91, "gpt-5.6-sol")
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Status)
+	require.Equal(t, UsageTokens{InputTokens: 11, OutputTokens: 7, CacheReadTokens: 3}, result.UsageTokens)
+	require.Equal(t, GroupRecoveryProbeCostStatusEstimated, result.CostStatus)
+	require.NotNil(t, result.EstimatedCost)
+
+	expected, err := svc.billingService.CalculateCost("gpt-5.6-sol", result.UsageTokens, rateMultiplier)
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, *result.EstimatedCost, 1e-12)
+}
+
+func TestAccountTestService_RunTestBackgroundClaudeExtractsUsageAndEstimatedCost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rateMultiplier := 1.25
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"message_start","message":{"usage":{"input_tokens":13,"cache_creation_input_tokens":5,"cache_read_input_tokens":2}}}
+data: {"type":"message_delta","usage":{"output_tokens":8}}
+data: {"type":"message_stop"}
+
+`))
+	account := &Account{
+		ID:             92,
+		Platform:       PlatformAnthropic,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		RateMultiplier: &rateMultiplier,
+		Credentials:    map[string]any{"api_key": "test-key"},
+	}
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{92: account},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		accountRepo:    repo,
+		httpUpstream:   upstream,
+		billingService: NewBillingService(&config.Config{}, nil),
+		cfg:            &config.Config{},
+	}
+
+	result, err := svc.RunTestBackground(context.Background(), 92, "claude-sonnet-4")
+	require.NoError(t, err)
+	require.Equal(t, "success", result.Status)
+	require.Equal(t, UsageTokens{
+		InputTokens:         13,
+		OutputTokens:        8,
+		CacheCreationTokens: 5,
+		CacheReadTokens:     2,
+	}, result.UsageTokens)
+	require.Equal(t, GroupRecoveryProbeCostStatusEstimated, result.CostStatus)
+	require.NotNil(t, result.EstimatedCost)
+
+	expected, err := svc.billingService.CalculateCost("claude-sonnet-4", result.UsageTokens, rateMultiplier)
+	require.NoError(t, err)
+	require.InDelta(t, expected.ActualCost, *result.EstimatedCost, 1e-12)
+}
+
+func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{httpUpstream: upstream}
+	account := &Account{
+		ID:          90,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.6", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
+}
+
 func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
@@ -231,6 +347,113 @@ func TestAccountTestService_OpenAIStreamEOFBeforeCompletedFails(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, recorder.Body.String(), "response.completed")
 	require.NotContains(t, recorder.Body.String(), `"success":true`)
+}
+
+func TestAccountTestService_DeepSeekCustomBaseURLUsesV1ResponsesPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          91,
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":      "sk-test",
+			"base_url":     "https://relay.example.com/v1",
+			"api_protocol": APIProtocolResponses,
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://relay.example.com/v1/responses", upstream.requests[0].URL.String())
+}
+
+func TestAccountTestService_DeepSeekResponsesRoutesToOpenAIProbe(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          93,
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":      "sk-test",
+			"base_url":     "https://relay.example.com/v1",
+			"api_protocol": APIProtocolResponses,
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{93: account},
+		},
+	}
+	svc.accountRepo = repo
+
+	err := svc.TestAccountConnection(ctx, account.ID, "gpt-5.4", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://relay.example.com/v1/responses", upstream.requests[0].URL.String())
+}
+
+func TestAccountTestService_DeepSeekDefaultBaseURLUsesNativeResponsesPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          92,
+		Platform:    PlatformDeepseek,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":      "sk-test",
+			"api_protocol": APIProtocolResponses,
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://api.deepseek.com/responses", upstream.requests[0].URL.String())
 }
 
 func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testing.T) {
@@ -407,6 +630,37 @@ func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 	require.Zero(t, repo.rateLimitedID)
 	require.Zero(t, repo.clearedErrorID)
 	require.Nil(t, account.RateLimitResetAt)
+}
+
+func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\"}\n\n"))
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          95,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "https://compat-upstream.example/v1",
+		},
+		Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	req := upstream.requests[0]
+	require.Equal(t, "https://compat-upstream.example/v1/responses", req.URL.String())
+	requireOpenAICodexProbeHeaders(t, req.Header)
 }
 
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {

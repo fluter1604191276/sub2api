@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -62,6 +63,39 @@ func TestWSResponseCreate_ExplicitFilterStripsServiceTier(t *testing.T) {
 
 	frame = []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"fast"}`)
 	updated, blocked, err = svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, "gpt-5.5", frame)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.NotContains(t, string(updated), `"service_tier"`)
+}
+
+func TestWSResponseCreate_UserScopedRuleOverridesGlobalRule(t *testing.T) {
+	settings := &OpenAIFastPolicySettings{
+		Rules: []OpenAIFastPolicyRule{
+			{
+				ServiceTier: OpenAIFastTierPriority,
+				Action:      BetaPolicyActionFilter,
+				Scope:       BetaPolicyScopeAll,
+			},
+			{
+				ServiceTier: OpenAIFastTierPriority,
+				Action:      BetaPolicyActionPass,
+				Scope:       BetaPolicyScopeAll,
+				UserIDs:     []int64{42},
+			},
+		},
+	}
+	svc := newOpenAIGatewayServiceWithSettings(t, settings)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	frame := []byte(`{"type":"response.create","model":"gpt-5.5","service_tier":"priority"}`)
+
+	allowedUserCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(42))
+	updated, blocked, err := svc.applyOpenAIFastPolicyToWSResponseCreate(allowedUserCtx, account, "gpt-5.5", frame)
+	require.NoError(t, err)
+	require.Nil(t, blocked)
+	require.Equal(t, "priority", gjson.GetBytes(updated, "service_tier").String())
+
+	otherUserCtx := context.WithValue(context.Background(), ctxkey.UserID, int64(43))
+	updated, blocked, err = svc.applyOpenAIFastPolicyToWSResponseCreate(otherUserCtx, account, "gpt-5.5", frame)
 	require.NoError(t, err)
 	require.Nil(t, blocked)
 	require.NotContains(t, string(updated), `"service_tier"`)
@@ -312,6 +346,23 @@ func TestPolicyEnforcingFrameConn_FollowupFrameWithoutModelUsesCapturedModel(t *
 	require.NotContains(t, string(payload), `"service_tier"`,
 		"D5 regression: empty model on follow-up frame must fall back to capturedSessionModel; whitelist policy filters service_tier=priority for gpt-5.5")
 	require.Equal(t, "response.create", gjson.GetBytes(payload, "type").String())
+}
+
+func TestOpenAIWSPassthroughPolicyModelDoesNotApplyAccountMapping(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"public-model": "private-model"},
+		},
+		Extra: map[string]any{"openai_passthrough": true},
+	}
+
+	responseCreate := []byte(`{"type":"response.create","model":"public-model"}`)
+	require.Equal(t, "public-model", openAIWSPassthroughPolicyModelForFrame(account, responseCreate))
+
+	sessionUpdate := []byte(`{"type":"session.update","session":{"model":"public-model"}}`)
+	require.Equal(t, "public-model", openAIWSPassthroughPolicyModelFromSessionFrame(account, sessionUpdate))
 }
 
 // TestPolicyEnforcingFrameConn_WithoutCapturedFallbackPolicyMisses pins the
@@ -1015,7 +1066,7 @@ func TestPassthroughUsageMeta_TracksReasoningEffortAcrossTurns(t *testing.T) {
 	firstOut, firstBlocked, firstErr := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, capturedSessionModel, firstFrame)
 	require.NoError(t, firstErr)
 	require.Nil(t, firstBlocked)
-	meta.initFromFirstFrame(firstOut)
+	meta.initFromFirstFrame(firstOut, capturedSessionModel)
 	require.NotNil(t, meta.reasoningEffort.Load())
 	require.Equal(t, "medium", *meta.reasoningEffort.Load())
 
@@ -1032,7 +1083,7 @@ func TestPassthroughUsageMeta_TracksReasoningEffortAcrossTurns(t *testing.T) {
 		out, blocked, policyErr := svc.applyOpenAIFastPolicyToWSResponseCreate(context.Background(), account, model, payload)
 		if policyErr == nil && blocked == nil &&
 			strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create" {
-			meta.updateFromResponseCreate(out, requestModelForThisFrame)
+			meta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 		}
 		return out, blocked, policyErr
 	}

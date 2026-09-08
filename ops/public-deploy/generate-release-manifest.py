@@ -25,9 +25,12 @@ CAPABILITY_IDS = (
     "pricing-calibration",
     "model-sync-filter",
     "error-passthrough",
+    "model-capability-failover",
+    "generic-400-failover",
     "responses-tools",
     "upstream-ledger",
     "ops-baseline",
+    "catalog-surfaces",
 )
 
 
