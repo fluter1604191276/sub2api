@@ -81,7 +81,7 @@ describe('available channel catalog filters', () => {
     })
   })
 
-  it('exposes suppliers inside OpenAI-compatible sections', () => {
+  it('keeps compatible models under their request protocol platform', () => {
     const mixed: UserAvailableChannel[] = [{
       name: 'CN models',
       description: '',
@@ -96,39 +96,15 @@ describe('available channel catalog filters', () => {
       }]
     }]
 
-    expect(availableCatalogPlatforms(mixed)).toEqual(['deepseek', 'kimi', 'openai'])
-    const kimi = filterAvailableChannels(mixed, { platform: 'kimi' })
-    expect(kimi[0].platforms).toHaveLength(1)
-    expect(kimi[0].platforms[0].platform).toBe('kimi')
-    expect(kimi[0].platforms[0].supported_models.map((model) => model.name)).toEqual(['kimi-k3'])
-    expect(kimi[0].platforms[0].groups).toEqual([])
-  })
-
-  it('keeps the request protocol while exposing the selected supplier to the table', () => {
-    const mixed: UserAvailableChannel[] = [{
-      name: 'CN models',
-      description: '',
-      platforms: [{
-        platform: 'openai',
-        groups: [{
-          id: 7,
-          name: 'OpenAI compatible pool',
-          platform: 'openai',
-          subscription_type: 'standard',
-          rate_multiplier: 1,
-          peak_rate_enabled: false,
-          peak_start: '',
-          peak_end: '',
-          peak_rate_multiplier: 1,
-          is_exclusive: false
-        }],
-        supported_models: [{ name: 'deepseek-v4-pro', platform: 'openai', pricing: null }]
-      }]
-    }]
-
-    const deepseek = filterAvailableChannels(mixed, { platform: 'deepseek' })
-    const group = deepseek[0].platforms[0].groups[0]
-    expect(group.platform).toBe('openai')
-    expect(group.display_platform).toBe('deepseek')
+    expect(availableCatalogPlatforms(mixed)).toEqual(['openai'])
+    const openai = filterAvailableChannels(mixed, { platform: 'openai' })
+    expect(openai[0].platforms).toHaveLength(1)
+    expect(openai[0].platforms[0].platform).toBe('openai')
+    expect(openai[0].platforms[0].supported_models.map((model) => model.name)).toEqual([
+      'kimi-k3',
+      'deepseek-v4-pro',
+      'gpt-5.6-sol'
+    ])
+    expect(filterAvailableChannels(mixed, { platform: 'kimi' })).toEqual([])
   })
 })

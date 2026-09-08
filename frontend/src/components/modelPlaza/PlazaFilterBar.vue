@@ -9,6 +9,7 @@
         <button
           v-for="p in ['all', ...platforms]"
           :key="`platform-${p}`"
+          :data-testid="`plaza-platform-${p}`"
           type="button"
           class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40 disabled:grayscale"
           :class="p === 'all' ? chipClass(platform === 'all') : platform === p ? 'chip-tinted-active' : 'chip-tinted'"
@@ -146,7 +147,6 @@ const props = defineProps<{
     id: number
     name: string
     platform: string
-    providers?: string[]
     rate: number
     isExclusive: boolean
     subscriptionType: string
@@ -185,7 +185,7 @@ const accessOptions = [
 function platformEnabled(p: string): boolean {
   return props.groups.some(
     (g) =>
-      groupProviders(g).includes(p) &&
+      g.platform === p &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       (props.rate === 'all' || g.rate === props.rate) &&
       matchesAccess(g, props.access)
@@ -199,7 +199,7 @@ function groupEnabled(g: {
   subscriptionType?: string
 }): boolean {
   return (
-    (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
+    (props.platform === 'all' || g.platform === props.platform) &&
     (props.rate === 'all' || g.rate === props.rate) &&
     accessEnabledForGroup(g)
   )
@@ -209,7 +209,7 @@ function accessEnabled(access: (typeof accessOptions)[number]['value']): boolean
   if (access === 'all') return true
   return props.groups.some(
     (g) =>
-      (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
+      (props.platform === 'all' || g.platform === props.platform) &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       (props.rate === 'all' || g.rate === props.rate) &&
       matchesAccess(g, access)
@@ -234,14 +234,10 @@ function rateEnabled(r: number): boolean {
   return props.groups.some(
     (g) =>
       g.rate === r &&
-      (props.platform === 'all' || groupProviders(g).includes(props.platform)) &&
+      (props.platform === 'all' || g.platform === props.platform) &&
       (props.groupId === 'all' || g.id === props.groupId) &&
       matchesAccess(g, props.access)
   )
-}
-
-function groupProviders(g: { platform: string; providers?: string[] }): string[] {
-  return g.providers?.length ? g.providers : [g.platform]
 }
 
 function chipClass(active: boolean): string {

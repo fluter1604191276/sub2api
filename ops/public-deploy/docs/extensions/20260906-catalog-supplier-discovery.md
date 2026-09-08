@@ -12,9 +12,14 @@ Client protocol impact: none
 Tests/fixtures: modelProvider.spec.ts; availableChannelsCatalog.spec.ts; frontend ESLint; frontend build; git diff --check
 First release manifest: pending candidate build
 Rollback note: revert this frontend commit or restore the previous application image; no database rollback is required.
-Owner/status: fluter / implemented locally, pending candidate verification
+Owner/status: fluter / superseded by the 2026-09-08 protocol-platform catalog change
 ```
 
 Implementation note: `platform` remains the request/routing protocol from the
 backend. `display_platform` is a frontend-only field used for badges and group
 colors after a mixed protocol section is split by inferred supplier.
+
+Superseded on 2026-09-08: supplier inference no longer participates in the
+platform filter, group badge, or platform count. This record remains as release
+history; the active behavior is documented in
+`20260908-catalog-protocol-platforms.md`.

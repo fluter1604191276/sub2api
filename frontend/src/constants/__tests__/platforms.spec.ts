@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
+import {
+  CONCRETE_PLATFORM_OPTIONS,
+  GROUP_PLATFORM_OPTIONS,
+  sortGroupPlatforms
+} from '@/constants/platforms'
 
 const concretePlatforms = [
   'anthropic',
@@ -21,6 +25,16 @@ describe('platform option catalogs', () => {
     expect(GROUP_PLATFORM_OPTIONS.map((option) => option.value)).toEqual([
       ...concretePlatforms,
       'composite'
+    ])
+  })
+
+  it('sorts visible values in the same order as group management', () => {
+    expect(sortGroupPlatforms(['deepseek', 'openai', 'anthropic', 'custom', 'gemini'])).toEqual([
+      'anthropic',
+      'openai',
+      'gemini',
+      'deepseek',
+      'custom'
     ])
   })
 })

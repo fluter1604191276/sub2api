@@ -3,7 +3,7 @@ import type {
   UserAvailableGroup,
   UserChannelPlatformSection
 } from '@/api/channels'
-import { modelProvider } from './modelProvider'
+import { sortGroupPlatforms } from '@/constants/platforms'
 
 export type AvailableChannelAccess = 'all' | 'public' | 'exclusive'
 
@@ -33,50 +33,10 @@ function sectionMatchesSearch(section: UserChannelPlatformSection, query: string
   )
 }
 
-/**
- * Split protocol sections into supplier sections for presentation.
- *
- * The API intentionally keeps the original protocol platform because it is
- * needed for routing and billing. A single OpenAI-compatible channel can
- * nevertheless contain Kimi or DeepSeek models, so the user-facing catalogue
- * needs a separate supplier view.
- */
-function catalogSections(section: UserChannelPlatformSection): UserChannelPlatformSection[] {
-  const byProvider = new Map<string, UserAvailableChannel['platforms'][number]['supported_models']>()
-  for (const model of section.supported_models) {
-    const provider = modelProvider(model.name, model.platform || section.platform)
-    const models = byProvider.get(provider) ?? []
-    models.push({ ...model, platform: provider })
-    byProvider.set(provider, models)
-  }
-
-  if (byProvider.size === 0) {
-    return [section]
-  }
-
-  return [...byProvider.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([provider, models]) => ({
-      ...section,
-      platform: provider,
-      // Keep the protocol platform on the group for routing semantics. This
-      // field is consumed only by the catalogue presentation components.
-      groups: section.groups.map((group) => ({
-        ...group,
-        display_platform: provider
-      })),
-      supported_models: models
-    }))
-}
-
-function channelCatalogSections(channel: UserAvailableChannel): UserChannelPlatformSection[] {
-  return channel.platforms.flatMap(catalogSections)
-}
-
 export function availableCatalogPlatforms(channels: UserAvailableChannel[]): string[] {
-  return [
-    ...new Set(channels.flatMap(channelCatalogSections).map((section) => section.platform))
-  ].sort()
+  return sortGroupPlatforms(
+    channels.flatMap((channel) => channel.platforms.map((section) => section.platform))
+  )
 }
 
 /**
@@ -97,7 +57,7 @@ export function filterAvailableChannels(
         !query ||
         channel.name.toLowerCase().includes(query) ||
         (channel.description || '').toLowerCase().includes(query)
-      const matchingSections = channelCatalogSections(channel)
+      const matchingSections = channel.platforms
         .filter((section) => platform === 'all' || section.platform === platform)
         .map((section) => ({
           section,
@@ -117,7 +77,7 @@ export function filterAvailableChannels(
 export function summarizeAvailableChannels(
   channels: UserAvailableChannel[]
 ): AvailableChannelSummary {
-  const sections = channels.flatMap(channelCatalogSections)
+  const sections = channels.flatMap((channel) => channel.platforms)
   const groups = sections.flatMap((section) => section.groups)
   const models = sections.flatMap((section) => section.supported_models)
 

@@ -96,9 +96,9 @@ function mountTable(props = {}) {
         Icon: { props: ['name'], template: '<i :data-icon="name" />' },
         PlatformIcon: { template: '<i data-platform-icon />' },
         GroupBadge: {
-          props: ['name', 'rateMultiplier', 'userRateMultiplier'],
+          props: ['name', 'platform', 'rateMultiplier', 'userRateMultiplier'],
           template:
-            '<span data-group-badge>{{ name }}:{{ rateMultiplier }}:{{ userRateMultiplier }}</span>',
+            '<span data-group-badge>{{ name }}:{{ platform }}:{{ rateMultiplier }}:{{ userRateMultiplier }}</span>',
         },
         SupportedModelChip: {
           props: ['model', 'noPricingLabel'],
@@ -137,7 +137,7 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     expect(mobile.text()).toContain('Models and pricing')
     expect(mobile.text()).toContain('availableChannels.exclusive')
     expect(mobile.text()).toContain('availableChannels.public')
-    expect(mobile.get('[data-group-badge]').text()).toBe('Exclusive Pro:1.2:0.8')
+    expect(mobile.get('[data-group-badge]').text()).toBe('Exclusive Pro:anthropic:1.2:0.8')
     expect(mobile.findAll('[data-group-badge]')).toHaveLength(2)
     expect(mobile.get('[data-icon="clock"]')).toBeTruthy()
     expect(mobile.text()).toContain('08:00')
@@ -163,6 +163,37 @@ describe('AvailableChannelsTable responsive surfaces', () => {
     expect(mobile.text()).toContain('OpenAI')
     expect(mobile.text()).toContain('No models')
     expect(mobile.findAll('dd')[0].text()).toBe('-')
+  })
+
+  it('uses the group request protocol for badges when the model has another supplier name', () => {
+    const wrapper = mountTable({
+      rows: [{
+        name: 'Compatible channel',
+        description: '',
+        platforms: [{
+          platform: 'openai',
+          groups: [{
+            id: 7,
+            name: 'DeepSeek OpenAI format',
+            platform: 'openai',
+            subscription_type: 'standard',
+            rate_multiplier: 1,
+            peak_rate_enabled: false,
+            peak_start: '',
+            peak_end: '',
+            peak_rate_multiplier: 1,
+            is_exclusive: false,
+          }],
+          supported_models: [{ name: 'deepseek-v4-pro', platform: 'openai', pricing: null }],
+        }],
+      }],
+    })
+
+    const badges = wrapper.findAll('[data-group-badge]').map((badge) => badge.text())
+    expect(badges).toEqual([
+      'DeepSeek OpenAI format:openai:1:',
+      'DeepSeek OpenAI format:openai:1:',
+    ])
   })
 
   it('provides loading and empty states on both responsive surfaces', async () => {

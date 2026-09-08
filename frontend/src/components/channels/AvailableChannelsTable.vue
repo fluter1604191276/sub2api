@@ -97,7 +97,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="(g.display_platform || g.platform) as GroupPlatform"
+                    :platform="g.platform as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -131,7 +131,7 @@
                 >
                   <GroupBadge
                     :name="g.name"
-                    :platform="(g.display_platform || g.platform) as GroupPlatform"
+                    :platform="g.platform as GroupPlatform"
                     :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                     :rate-multiplier="g.rate_multiplier"
                     :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -236,7 +236,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="(g.display_platform || g.platform) as GroupPlatform"
+                        :platform="g.platform as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
@@ -271,7 +271,7 @@
                       <GroupBadge
                         class="max-w-full"
                         :name="g.name"
-                        :platform="(g.display_platform || g.platform) as GroupPlatform"
+                        :platform="g.platform as GroupPlatform"
                         :subscription-type="(g.subscription_type || 'standard') as SubscriptionType"
                         :rate-multiplier="g.rate_multiplier"
                         :user-rate-multiplier="userGroupRates[g.id] ?? null"
