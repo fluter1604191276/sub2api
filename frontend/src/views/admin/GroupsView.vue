@@ -4601,13 +4601,13 @@
               </div>
             </div>
             <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.targetScore") }}<input v-model.number="stickyPolicy.target_score" class="input mt-1" type="number" min="0" max="100" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.reviewInterval") }}<input v-model.number="stickyPolicy.review_interval_seconds" class="input mt-1" type="number" min="15" max="3600" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.qualityLead") }}<input v-model.number="stickyPolicy.quality_lead" class="input mt-1" type="number" min="0" max="50" step="0.5" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.maxEscapes") }}<input v-model.number="stickyPolicy.max_escapes" class="input mt-1" type="number" min="1" max="100" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.cooldown") }}<input v-model.number="stickyPolicy.switch_cooldown_seconds" class="input mt-1" type="number" min="0" max="3600" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.window") }}<input v-model.number="stickyPolicy.escape_window_seconds" class="input mt-1" type="number" min="60" max="86400" /></label>
-              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.confirmations") }}<input v-model.number="stickyPolicy.elite_confirmations" class="input mt-1" type="number" min="1" max="5" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.targetScore") }}<input v-model.number="stickyPolicy.target_score" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="0" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.reviewInterval") }}<input v-model.number="stickyPolicy.review_interval_seconds" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="15" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.qualityLead") }}<input v-model.number="stickyPolicy.quality_lead" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="0" max="50" step="0.5" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.maxEscapes") }}<input v-model.number="stickyPolicy.max_escapes" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="1" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.cooldown") }}<input v-model.number="stickyPolicy.switch_cooldown_seconds" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="0" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.window") }}<input v-model.number="stickyPolicy.escape_window_seconds" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="60" max="86400" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.confirmations") }}<input v-model.number="stickyPolicy.elite_confirmations" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="1" max="5" /></label>
             </div>
           </div>
 
@@ -5873,7 +5873,7 @@ const smartSchedulerModel = ref("");
 const smartSchedulerEndpoint = ref("any");
 const smartSchedulerReqSeq = ref(0);
 const stickyPolicySaving = ref(false);
-const stickyPolicy = reactive({ target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+const stickyPolicy = reactive({ preset: 'recommended', target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
 const recoveryProbeEnabled = ref(false);
 const recoveryProbeMode = ref<"manual" | "smart" | "high_frequency">("manual");
 const recoveryProbeModel = ref("");
@@ -7695,6 +7695,7 @@ const handleSmartScheduler = async (group: AdminGroup) => {
 };
 
 const applyStickyPolicyPreset = (preset: string) => {
+  stickyPolicy.preset = preset;
   Object.assign(stickyPolicy, preset === "stability"
     ? { target_score: 80, review_interval_seconds: 15, switch_cooldown_seconds: 15, quality_lead: 2, max_escapes: 12, escape_window_seconds: 3600, elite_confirmations: 1 }
     : { target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });

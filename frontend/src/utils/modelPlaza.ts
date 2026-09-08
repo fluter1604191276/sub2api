@@ -39,7 +39,7 @@ export interface ModelPlazaFilters {
 }
 
 function modelKey(model: UserSupportedModel, platformHint: string): string {
-  const platform = (model.platform || platformHint).trim().toLowerCase()
+  const platform = (platformHint || model.platform).trim().toLowerCase()
   return `${platform}::${model.name.trim().toLowerCase()}`
 }
 
@@ -84,7 +84,7 @@ export function buildModelPlazaModels(channels: UserAvailableChannel[]): ModelPl
     for (const section of channel.platforms) {
       for (const model of section.supported_models) {
         const key = modelKey(model, section.platform)
-        const platform = (model.platform || section.platform).trim()
+        const platform = (section.platform || model.platform).trim()
         const category = getAvailableChannelCategory(model, section.platform)
         const plazaModel = models.get(key) || {
           key,

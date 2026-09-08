@@ -276,6 +276,7 @@ const deleteConfirmMessage = computed(() => {
 })
 
 async function reload() {
+  void loadBudget()
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
   abortController = ctrl

@@ -1,5 +1,5 @@
 <template>
-  <BaseDialog :show="show" :title="t('admin.accounts.modelSync.title')" width="extra-wide" @close="$emit('close')">
+  <BaseDialog :show="show" :title="t('admin.accounts.modelSync.title')" width="extra-wide" @close="handleClose">
     <div class="space-y-3">
       <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
         <span>{{ t('admin.accounts.modelSync.summary', { changed: changedCount, total: entries.length }) }}</span>
@@ -10,10 +10,12 @@
       <div class="max-h-[60vh] overflow-auto divide-y divide-gray-200 dark:divide-dark-700">
         <div v-for="entry in entries" :key="entry.account_id" class="py-3">
           <label class="flex items-start gap-3">
-            <input v-if="entry.status === 'upstream' && (entry.added?.length || entry.removed?.length)" type="checkbox" class="mt-1" :checked="selected.has(entry.account_id)" @change="toggle(entry.account_id)" />
+            <input v-if="entry.status === 'upstream' && entryState(entry.account_id) !== 'applied' && (entry.added?.length || entry.removed?.length)" type="checkbox" class="mt-1" :checked="selected.has(entry.account_id)" @change="toggle(entry.account_id)" />
             <span class="min-w-0 flex-1">
               <span class="font-medium">{{ entry.account_name }} (#{{ entry.account_id }})</span>
-              <span v-if="entry.status !== 'upstream'" class="ml-2 text-red-600">{{ entry.error || entry.status }}</span>
+              <span v-if="entryState(entry.account_id) === 'applied'" class="ml-2 text-emerald-600">{{ t('admin.accounts.modelSync.statusApplied') }}</span>
+              <span v-else-if="entryState(entry.account_id) === 'conflict'" class="ml-2 text-amber-600">{{ t('admin.accounts.modelSync.statusConflict') }}</span>
+              <span v-else-if="entryState(entry.account_id) === 'failed' || entry.status !== 'upstream'" class="ml-2 text-red-600">{{ entry.error || t('admin.accounts.modelSync.statusFailed') }}</span>
               <span v-else class="mt-1 block text-xs text-gray-500">+ {{ entry.added?.join(', ') || '-' }} · − {{ entry.removed?.join(', ') || '-' }}</span>
             </span>
           </label>
@@ -32,8 +34,25 @@ import { useAppStore } from '@/stores/app'
 const props = defineProps<{ show: boolean; entries: AccountModelSyncPreviewEntry[] }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'applied'): void }>()
 const { t } = useI18n(); const appStore = useAppStore(); const selected = ref(new Set<number>()); const applying = ref(false)
+const resultStates = ref(new Map<number, string>())
 const changedCount = computed(() => props.entries.filter(e => e.status === 'upstream' && ((e.added?.length ?? 0) > 0 || (e.removed?.length ?? 0) > 0)).length)
-watch(() => props.show, open => { if (open) selected.value = new Set(props.entries.filter(e => e.status === 'upstream' && ((e.added?.length ?? 0) > 0 || (e.removed?.length ?? 0) > 0)).map(e => e.account_id)) })
+watch(() => props.show, open => { if (open) { resultStates.value = new Map(); selected.value = new Set(props.entries.filter(e => e.status === 'upstream' && ((e.added?.length ?? 0) > 0 || (e.removed?.length ?? 0) > 0)).map(e => e.account_id)) } }, { immediate: true })
+const entryState = (id: number) => resultStates.value.get(id) || ''
+const handleClose = () => { if (!applying.value) emit('close') }
 const toggle = (id: number) => { const next = new Set(selected.value); next.has(id) ? next.delete(id) : next.add(id); selected.value = next }
-const apply = async () => { applying.value = true; try { const items = props.entries.filter(e => selected.value.has(e.account_id)).map(e => ({ account_id: e.account_id, version: e.version })); const result = await adminAPI.accounts.applyModelMappings(items); const conflicts = result.results.filter(r => r.status !== 'applied').length; appStore.showSuccess(t('admin.accounts.modelSync.applied', { count: items.length - conflicts, conflicts })); emit('applied'); emit('close') } catch { appStore.showError(t('admin.accounts.modelSync.applyFailed')) } finally { applying.value = false } }
+const apply = async () => {
+  applying.value = true
+  let applied = 0; let conflicts = 0; let failed = 0
+  try {
+    const pending = props.entries.filter(e => selected.value.has(e.account_id) && entryState(e.account_id) !== 'applied')
+    for (let i = 0; i < pending.length; i += 200) {
+      const batch = pending.slice(i, i + 200).map(e => ({ account_id: e.account_id, version: e.version, models: e.upstream_models || [] }))
+      const result = await adminAPI.accounts.applyModelMappings(batch)
+      for (const row of result.results) { resultStates.value.set(row.account_id, row.status); if (row.status === 'applied') applied++; else if (row.status === 'conflict') conflicts++; else failed++ }
+    }
+    selected.value = new Set([...selected.value].filter(id => entryState(id) !== 'applied'))
+    appStore.showSuccess(t('admin.accounts.modelSync.applied', { count: applied, conflicts: conflicts + failed }))
+    emit('applied')
+  } catch { appStore.showError(t('admin.accounts.modelSync.applyFailed')) } finally { applying.value = false }
+}
 </script>

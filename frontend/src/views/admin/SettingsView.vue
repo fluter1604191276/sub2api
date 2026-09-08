@@ -7079,6 +7079,13 @@
               </div>
 
               <div v-if="form.channel_monitor_mode === 'v1'">
+                <div class="mb-2 flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                  <span>{{ t('admin.channelMonitor.budget.today') }}: {{ channelMonitorBudget ? '$' + channelMonitorBudget.today_estimated_cost_usd.toFixed(4) : '-' }}</span>
+                  <button type="button" class="btn btn-ghost btn-sm" :title="t('common.refresh')" :disabled="channelMonitorBudgetLoading" @click="loadChannelMonitorBudget">
+                    <Icon name="refresh" size="sm" :class="{ 'animate-spin': channelMonitorBudgetLoading }" />
+                  </button>
+                  <span v-if="channelMonitorBudget?.exhausted" class="text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
+                </div>
                 <label class="input-label">{{ t('admin.settings.features.channelMonitor.dailyBudget') }}</label>
                 <input v-model.number="form.channel_monitor_daily_budget_usd" type="number" min="0" step="0.01" class="input" />
                 <p class="mt-1 text-xs text-gray-400">{{ t('admin.settings.features.channelMonitor.dailyBudgetHint') }}</p>
@@ -8853,6 +8860,20 @@ type SettingsTab =
   | "email"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
+const channelMonitorBudget = ref<Awaited<ReturnType<typeof adminAPI.channelMonitor.getBudgetStatus>> | null>(null);
+const channelMonitorBudgetLoading = ref(false);
+async function loadChannelMonitorBudget() {
+  channelMonitorBudgetLoading.value = true;
+  try {
+    channelMonitorBudget.value = await adminAPI.channelMonitor.getBudgetStatus();
+  } catch {
+    channelMonitorBudget.value = null;
+    appStore.showError(t('admin.channelMonitor.loadError'));
+  } finally {
+    channelMonitorBudgetLoading.value = false;
+  }
+}
+watch(activeTab, (tab) => { if (tab === 'features') void loadChannelMonitorBudget(); }, { immediate: true });
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },

@@ -785,6 +785,14 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	return r.updateCredentials(ctx, id, credentials, nil)
+}
+
+func (r *accountRepository) UpdateCredentialsIfUnchanged(ctx context.Context, id int64, credentials map[string]any, expected time.Time) error {
+	return r.updateCredentials(ctx, id, credentials, &expected)
+}
+
+func (r *accountRepository) updateCredentials(ctx context.Context, id int64, credentials map[string]any, expected *time.Time) error {
 	payload, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
 		return err
@@ -806,6 +814,12 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			ctx = dbent.NewTxContext(ctx, tx)
 			client = tx.Client()
 		}
+	}
+	versionCondition := ""
+	args := []any{string(payload), id}
+	if expected != nil {
+		versionCondition = " AND updated_at = $3"
+		args = append(args, *expected)
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
@@ -838,7 +852,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			END,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
-	`, string(payload), id)
+	`+versionCondition, args...)
 	if err != nil {
 		return err
 	}
@@ -847,6 +861,9 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		return err
 	}
 	if affected == 0 {
+		if expected != nil {
+			return service.ErrAccountModelSyncConflict
+		}
 		return service.ErrAccountNotFound
 	}
 	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {

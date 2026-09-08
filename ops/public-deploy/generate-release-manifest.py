@@ -31,6 +31,10 @@ CAPABILITY_IDS = (
     "upstream-ledger",
     "ops-baseline",
     "catalog-surfaces",
+    "channel-monitor-bulk-interval",
+    "channel-monitor-budget",
+    "smart-probe-modes",
+    "account-model-sync-preview",
 )
 
 

@@ -62,6 +62,14 @@ def valid_manifest() -> dict:
 
 
 class ReleaseManifestStructureTests(unittest.TestCase):
+    def test_new_smart_operations_are_required_by_both_manifest_tools(self):
+        self.assertEqual(set(verify.REQUIRED_CAPABILITIES), set(manifest_generator.CAPABILITY_IDS))
+        for capability in ("channel-monitor-bulk-interval", "channel-monitor-budget", "smart-probe-modes", "account-model-sync-preview"):
+            self.assertIn(capability, verify.IMAGE_CAPABILITY_MARKERS)
+            manifest = valid_manifest()
+            del manifest["capabilities"][capability]
+            self.assertIn(f"capability {capability} is missing", verify.validate_manifest_structure(manifest))
+
     def test_operational_release_files_require_live_production_baseline(self):
         repo_root = SCRIPT_DIR.parents[1]
         files = (

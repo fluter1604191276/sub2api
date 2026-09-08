@@ -91,7 +91,9 @@ type ChannelMonitorService struct {
 }
 
 type channelMonitorBudgetRepository interface {
-	TodayEstimatedCost(ctx context.Context, dayStart time.Time) (float64, error)
+	ReserveDailyBudget(ctx context.Context, day time.Time, reservation, dailyLimit float64) (bool, error)
+	SettleDailyBudget(ctx context.Context, day time.Time, reservation, actualCost float64) error
+	TodayEstimatedCost(ctx context.Context, day time.Time) (float64, error)
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -660,15 +662,6 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if !rt.ActiveProbesAllowed() {
 		return nil, ErrChannelMonitorActiveProbesRetired
 	}
-	if rt.DailyBudgetUSD > 0 {
-		status, err := s.BudgetStatus(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if status.Exhausted {
-			return nil, ErrChannelMonitorDailyBudgetExhausted
-		}
-	}
 	m, err := s.Get(ctx, id) // 已解密 APIKey
 	if err != nil {
 		return nil, err
@@ -676,6 +669,13 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	checkMode := defaultCheckMode(m.CheckMode)
 	if checkMode != MonitorCheckModeQuota && m.APIKeyDecryptFailed {
 		return nil, ErrChannelMonitorAPIKeyDecryptFailed
+	}
+	var reservation *ChannelMonitorBudgetReservation
+	if checkMode != MonitorCheckModeQuota && rt.DailyBudgetUSD > 0 {
+		reservation, err = s.reserveProbeBudget(ctx, m, rt.DailyBudgetUSD)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var results []*CheckResult
@@ -687,6 +687,10 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 		attachQuotaSnapshot(results, s.fetchQuotaSnapshot(ctx, m))
 	default:
 		results = s.runChecksConcurrent(ctx, m)
+	}
+	s.applyEstimatedCosts(m, results)
+	if reservation != nil {
+		s.settleProbeBudget(ctx, reservation, results)
 	}
 	s.persistCheckResults(ctx, m, results)
 	return results, nil
@@ -731,11 +735,6 @@ func attachQuotaSnapshot(results []*CheckResult, snapshot *domain.MonitorQuotaSn
 func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
 	rows := make([]*ChannelMonitorHistoryRow, 0, len(results))
 	for _, r := range results {
-		if s.billingService != nil && defaultCheckMode(m.CheckMode) != MonitorCheckModeQuota {
-			if cost, err := s.billingService.CalculateCost(r.Model, r.Usage, 1); err == nil {
-				r.EstimatedCostUSD = cost.TotalCost
-			}
-		}
 		rows = append(rows, &ChannelMonitorHistoryRow{
 			MonitorID:        m.ID,
 			Model:            r.Model,
@@ -755,6 +754,54 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 	if err := s.repo.MarkChecked(ctx, m.ID, time.Now()); err != nil {
 		slog.Error("channel_monitor: mark checked failed",
 			"monitor_id", m.ID, "error", err)
+	}
+}
+
+func (s *ChannelMonitorService) applyEstimatedCosts(m *ChannelMonitor, results []*CheckResult) {
+	if s.billingService == nil || defaultCheckMode(m.CheckMode) == MonitorCheckModeQuota {
+		return
+	}
+	for _, result := range results {
+		if !monitorUsageKnown(result.Usage) {
+			continue
+		}
+		if cost, err := s.billingService.CalculateCost(result.Model, result.Usage, 1); err == nil {
+			result.EstimatedCostUSD = cost.TotalCost
+		}
+	}
+}
+
+func (s *ChannelMonitorService) reserveProbeBudget(ctx context.Context, m *ChannelMonitor, limit float64) (*ChannelMonitorBudgetReservation, error) {
+	repo, ok := s.repo.(channelMonitorBudgetRepository)
+	if !ok || s.billingService == nil {
+		return nil, fmt.Errorf("channel monitor budget ledger or pricing is unavailable")
+	}
+	amount, err := estimateMonitorProbeReservation(m, s.billingService)
+	if err != nil {
+		return nil, fmt.Errorf("estimate channel monitor probe reservation: %w", err)
+	}
+	day := appTimezone.StartOfDay(appTimezone.Now())
+	admitted, err := repo.ReserveDailyBudget(ctx, day, amount, limit)
+	if err != nil {
+		return nil, fmt.Errorf("reserve channel monitor daily budget: %w", err)
+	}
+	if !admitted {
+		return nil, ErrChannelMonitorDailyBudgetExhausted
+	}
+	return &ChannelMonitorBudgetReservation{Day: day, Reserved: amount}, nil
+}
+
+func (s *ChannelMonitorService) settleProbeBudget(ctx context.Context, reservation *ChannelMonitorBudgetReservation, results []*CheckResult) {
+	actual := 0.0
+	for _, result := range results {
+		if !monitorUsageKnown(result.Usage) || result.EstimatedCostUSD < 0 {
+			return // Unknown usage/pricing keeps the conservative reservation.
+		}
+		actual += result.EstimatedCostUSD
+	}
+	repo := s.repo.(channelMonitorBudgetRepository)
+	if err := repo.SettleDailyBudget(ctx, reservation.Day, reservation.Reserved, actual); err != nil {
+		slog.Error("channel_monitor: settle daily budget failed", "error", err)
 	}
 }
 

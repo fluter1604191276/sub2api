@@ -358,7 +358,7 @@ const rateOptions = computed(() => {
 })
 
 function categoryLabel(category: ModelPlazaCategory): string {
-  return category === 'all' ? t('modelPlaza.categories.all') : t(`availableChannels.categories.${category}`)
+  return category === 'all' ? t('modelPlaza.categories.all') : platformLabel(category)
 }
 
 function formatRate(rate: number): string {

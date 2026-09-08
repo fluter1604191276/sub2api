@@ -33,6 +33,10 @@ REQUIRED_CAPABILITIES = (
     "upstream-ledger",
     "ops-baseline",
     "catalog-surfaces",
+    "channel-monitor-bulk-interval",
+    "channel-monitor-budget",
+    "smart-probe-modes",
+    "account-model-sync-preview",
 )
 
 CAPABILITY_FILES = {
@@ -195,6 +199,29 @@ CAPABILITY_FILES = {
         "frontend/src/views/ModelPlazaView.vue",
         "frontend/src/utils/availableChannelsCatalog.ts",
     ),
+    "channel-monitor-bulk-interval": (
+        "backend/internal/service/channel_monitor_service.go",
+        "backend/internal/repository/channel_monitor_repo.go",
+        "backend/internal/service/channel_monitor_bulk_interval_test.go",
+        "frontend/src/components/admin/monitor/MonitorBulkIntervalDialog.vue",
+    ),
+    "channel-monitor-budget": (
+        "backend/internal/service/channel_monitor_service.go",
+        "backend/migrations/232_channel_monitor_daily_budget.sql",
+        "frontend/src/views/admin/SettingsView.vue",
+    ),
+    "smart-probe-modes": (
+        "backend/internal/service/group_recovery_probe.go",
+        "backend/internal/service/smart_sticky_policy.go",
+        "backend/migrations/231_group_recovery_probe_high_frequency.sql",
+        "frontend/src/views/admin/GroupsView.vue",
+    ),
+    "account-model-sync-preview": (
+        "backend/internal/service/account_model_sync.go",
+        "backend/internal/service/account_model_sync_apply_test.go",
+        "frontend/src/components/admin/account/AccountModelSyncDialog.vue",
+        "frontend/src/api/admin/accounts.ts",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -235,6 +262,10 @@ IMAGE_CAPABILITY_MARKERS = {
         "model_plaza",
         "available_channels",
     ),
+    "channel-monitor-bulk-interval": ("batch-interval",),
+    "channel-monitor-budget": ("daily budget", "estimated_cost_usd"),
+    "smart-probe-modes": ("high_frequency", "sticky_policy"),
+    "account-model-sync-preview": ("sync/models/preview", "sync/models/apply"),
     "model-capability-failover": (
         "unknown provider for model",
         # The endpoint/model suffix is composed at runtime, so only the stable

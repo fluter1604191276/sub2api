@@ -152,6 +152,52 @@ func firstMonitorUsageInt(root gjson.Result, paths ...string) int64 {
 	return 0
 }
 
+func monitorUsageKnown(usage UsageTokens) bool {
+	return usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheCreationTokens > 0 || usage.CacheReadTokens > 0
+}
+
+const monitorUnknownOutputTokenReservation = 4096
+
+// estimateMonitorProbeReservation prices an intentionally high token bound:
+// one token per serialized request byte plus the configured output ceiling.
+// Replace bodies without a ceiling use 4096 output tokens rather than becoming
+// unbounded/free. The estimate is operational guardrail data, not an invoice.
+func estimateMonitorProbeReservation(m *ChannelMonitor, billing *BillingService) (float64, error) {
+	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
+	opts := &CheckOptions{APIMode: m.APIMode, ExtraHeaders: m.ExtraHeaders, BodyOverrideMode: m.BodyOverrideMode, BodyOverride: m.BodyOverride}
+	adapter, apiMode, ok := providerAdapterFor(m.Provider, m.APIMode)
+	if !ok {
+		return 0, ErrChannelMonitorInvalidProvider
+	}
+	total := 0.0
+	for _, model := range models {
+		body, err := buildRequestBody(adapter, m.Provider, apiMode, model, "Return the exact integer 42.", opts)
+		if err != nil {
+			return 0, err
+		}
+		usage := UsageTokens{InputTokens: len(body), OutputTokens: monitorProbeMaxOutputTokens(body)}
+		cost, err := billing.CalculateCost(model, usage, 1)
+		if err != nil {
+			return 0, err
+		}
+		if cost.TotalCost <= 0 {
+			return 0, fmt.Errorf("non-positive reservation price for model %s", model)
+		}
+		total += cost.TotalCost
+	}
+	return total, nil
+}
+
+func monitorProbeMaxOutputTokens(body []byte) int {
+	for _, path := range []string{"max_tokens", "max_output_tokens", "generationConfig.maxOutputTokens"} {
+		value := gjson.GetBytes(body, path)
+		if value.Exists() && value.Int() > 0 {
+			return int(value.Int())
+		}
+	}
+	return monitorUnknownOutputTokenReservation
+}
+
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
 // 拆出来是为了让 runCheckForModel 不超过 30 行。
 func finalizeOperationalOrDegraded(res *CheckResult, latency time.Duration, latencyMs int) *CheckResult {

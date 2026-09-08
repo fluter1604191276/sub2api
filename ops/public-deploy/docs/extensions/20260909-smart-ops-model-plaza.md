@@ -4,7 +4,7 @@ Capability ID: channel-monitor-budget; smart-probe-modes; account-model-sync-pre
 Business purpose: Keep monitoring spend bounded, evaluate healthier accounts more quickly, make sticky escape policy explicit, safely synchronize upstream model support in bulk, and present available channels by protocol platform.
 Backend/frontend files: `backend/internal/service/`, `backend/internal/handler/admin/`, `backend/ent/schema/channel_monitor_daily_rollup.go`, `backend/migrations/231_group_recovery_probe_high_frequency.sql`, `backend/migrations/232_channel_monitor_daily_budget.sql`, `frontend/src/components/admin/account/AccountModelSyncDialog.vue`, `frontend/src/views/user/ModelPlazaView.vue`, `frontend/src/components/channels/AvailableChannelsTable.vue`, `frontend/src/utils/{availableChannels,modelPlaza}.ts`.
 Routes or jobs: Smart-sticky policy admin routes; channel-monitor budget/list/settings routes; recovery-probe scheduler; account model sync preview/apply routes; user available-channel and model-plaza routes.
-Database migration/data dependency: Group recovery probe mode constraint and channel-monitor daily cost/budget fields; normal migration runner applies both migrations.
+Database migration/data dependency: Group recovery probe mode constraint and channel-monitor daily cost/budget fields plus durable daily budget ledger; normal migration runner applies migrations 231-233.
 Billing impact: internal cost (probe estimation and budget guard); no user-charge formula change.
 Scheduling impact: score-aware sticky escape and high-frequency probe candidate selection.
 Client protocol impact: OpenAI/Anthropic/Gemini-compatible monitoring probes; model-plaza presentation only.

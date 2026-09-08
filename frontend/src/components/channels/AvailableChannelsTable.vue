@@ -1,5 +1,5 @@
 <template>
-  <div class="available-channels-table-wrapper">
+  <div class="table-wrapper available-channels-table-wrapper">
     <div v-if="loading" class="catalogue-empty">
       <Icon name="refresh" size="lg" class="animate-spin text-gray-400" />
     </div>
@@ -23,7 +23,7 @@
             <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-100">{{ categoryLabel(category.category) }}</h2>
           </div>
           <span class="text-xs text-gray-400 dark:text-gray-500">
-            {{ category.rows.length }} {{ columns.platform.toLowerCase() }}
+            {{ category.rows.length }} {{ t('availableChannels.summary.channels') }}
           </span>
         </header>
 
@@ -154,7 +154,7 @@ import { buildAvailableChannelDisplayRows, type AvailableChannelCategory, type A
 
 const props = defineProps<{
   columns: {
-    category: string
+    category?: string
     platform: string
     groups: string
     supportedModels: string
@@ -183,29 +183,33 @@ const categoryBlocks = computed(() => {
 })
 
 function categoryLabel(category: AvailableChannelCategory): string {
-  return t(`availableChannels.categories.${category}`)
+  return platformLabel(category)
 }
 
 function categoryIcon(category: AvailableChannelCategory): 'chat' | 'terminal' | 'sparkles' | 'cloud' | 'cpu' | 'beaker' | 'grid' {
   switch (category) {
-    case 'claude': return 'chat'
-    case 'codex': return 'terminal'
+    case 'anthropic': return 'chat'
+    case 'openai': return 'terminal'
     case 'gemini': return 'sparkles'
     case 'grok': return 'cloud'
-    case 'domestic': return 'cpu'
-    case 'image': return 'beaker'
+    case 'kimi':
+    case 'zhipu':
+    case 'deepseek': return 'cpu'
+    case 'antigravity': return 'beaker'
     default: return 'grid'
   }
 }
 
 function categoryAccentClass(category: AvailableChannelCategory): string {
   switch (category) {
-    case 'claude': return 'text-orange-500'
-    case 'codex': return 'text-emerald-500'
+    case 'anthropic': return 'text-orange-500'
+    case 'openai': return 'text-emerald-500'
     case 'gemini': return 'text-blue-500'
     case 'grok': return 'text-zinc-700 dark:text-zinc-300'
-    case 'domestic': return 'text-teal-500'
-    case 'image': return 'text-pink-500'
+    case 'kimi':
+    case 'zhipu':
+    case 'deepseek': return 'text-teal-500'
+    case 'antigravity': return 'text-pink-500'
     default: return 'text-gray-400'
   }
 }

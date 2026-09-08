@@ -60,6 +60,7 @@ type smartStickySwitchPending struct {
 	expectedChallengerID    int64
 	previousScore           *float64
 	expectedChallengerScore *float64
+	policy                  SmartStickyPolicy
 }
 
 type smartStickyReviewState struct {
@@ -70,6 +71,7 @@ type smartStickyReviewState struct {
 	pendingChallengerID      int64
 	pendingConfirmationCount int
 	lastRetainedLogAt        time.Time
+	escapeTimes              []time.Time
 }
 
 type openAISmartStickyReviewRequest struct {
@@ -530,6 +532,10 @@ func (s *OpenAIGatewayService) finishSmartStickyReview(key string, now time.Time
 }
 
 func (s *OpenAIGatewayService) applySmartStickyReviewState(key string, now time.Time, decision openAISmartStickyReviewDecision) openAISmartStickyReviewDecision {
+	return s.applySmartStickyReviewStateWithPolicy(key, now, decision, RecommendedSmartStickyPolicy())
+}
+
+func (s *OpenAIGatewayService) applySmartStickyReviewStateWithPolicy(key string, now time.Time, decision openAISmartStickyReviewDecision, policy SmartStickyPolicy) openAISmartStickyReviewDecision {
 	if s == nil || strings.TrimSpace(key) == "" {
 		return decision
 	}
@@ -540,9 +546,30 @@ func (s *OpenAIGatewayService) applySmartStickyReviewState(key string, now time.
 	}
 	state := s.smartStickyReviews[key]
 	state.updatedAt = now
+	window := time.Duration(policy.EscapeWindowSeconds) * time.Second
+	if window > 0 {
+		cutoff := now.Add(-window)
+		kept := state.escapeTimes[:0]
+		for _, escapedAt := range state.escapeTimes {
+			if escapedAt.After(cutoff) {
+				kept = append(kept, escapedAt)
+			}
+		}
+		state.escapeTimes = kept
+	}
 
+	if decision.Switch && decision.Reason != "current_isolated" && !policy.usesLegacyDynamics() && len(state.escapeTimes) >= policy.MaxEscapes {
+		decision.ProposedReason = decision.Reason
+		decision.Reason = "escape_budget_exhausted"
+		decision.Switch = false
+		decision.Cooldown = true
+		state.pendingChallengerID = 0
+		state.pendingConfirmationCount = 0
+		s.smartStickyReviews[key] = state
+		return decision
+	}
 	if decision.Switch && decision.Reason != "current_isolated" && now.Before(state.cooldownUntil) &&
-		!smartStickyCooldownCanBeBroken(decision, state.cooldownUntil.Sub(now)) {
+		!smartStickyCooldownCanBeBrokenWithPolicy(decision, state.cooldownUntil.Sub(now), policy) {
 		decision.ProposedReason = decision.Reason
 		decision.Reason = "switch_cooldown"
 		decision.Switch = false
@@ -562,7 +589,11 @@ func (s *OpenAIGatewayService) applySmartStickyReviewState(key string, now time.
 			state.pendingConfirmationCount = 1
 		}
 		decision.ConfirmationCount = state.pendingConfirmationCount
-		if state.pendingConfirmationCount < smartStickyEliteConfirmations {
+		requiredConfirmations := smartStickyEliteConfirmations
+		if !policy.usesLegacyDynamics() {
+			requiredConfirmations = policy.EliteConfirmations
+		}
+		if state.pendingConfirmationCount < requiredConfirmations {
 			decision.ProposedReason = decision.Reason
 			decision.Reason = "switch_confirmation_pending"
 			decision.Switch = false
@@ -581,6 +612,10 @@ func (s *OpenAIGatewayService) applySmartStickyReviewState(key string, now time.
 }
 
 func (s *OpenAIGatewayService) markSmartStickySwitchApplied(key string, accountID int64, now time.Time, scores ...*float64) {
+	s.markSmartStickySwitchAppliedWithPolicy(key, accountID, now, RecommendedSmartStickyPolicy(), scores...)
+}
+
+func (s *OpenAIGatewayService) markSmartStickySwitchAppliedWithPolicy(key string, accountID int64, now time.Time, policy SmartStickyPolicy, scores ...*float64) {
 	if s == nil || strings.TrimSpace(key) == "" || accountID <= 0 {
 		return
 	}
@@ -594,11 +629,30 @@ func (s *OpenAIGatewayService) markSmartStickySwitchApplied(key string, accountI
 		s.smartStickyReviews = make(map[string]smartStickyReviewState)
 	}
 	state := s.smartStickyReviews[key]
-	state.cooldownUntil = now.Add(smartStickySwitchCooldownForScore(score))
+	cooldown := smartStickySwitchCooldownForScore(score)
+	if !policy.usesLegacyDynamics() {
+		cooldown = time.Duration(policy.SwitchCooldownSeconds) * time.Second
+	}
+	state.cooldownUntil = now.Add(cooldown)
+	if policy.EscapeWindowSeconds > 0 {
+		cutoff := now.Add(-time.Duration(policy.EscapeWindowSeconds) * time.Second)
+		kept := state.escapeTimes[:0]
+		for _, escapedAt := range state.escapeTimes {
+			if escapedAt.After(cutoff) {
+				kept = append(kept, escapedAt)
+			}
+		}
+		state.escapeTimes = kept
+	}
+	state.escapeTimes = append(state.escapeTimes, now)
 	state.lastSwitchedAccountID = accountID
 	state.pendingChallengerID = 0
 	state.pendingConfirmationCount = 0
-	minimumNextAt := now.Add(smartStickyWeakReviewInterval)
+	reviewInterval := smartStickyWeakReviewInterval
+	if !policy.usesLegacyDynamics() {
+		reviewInterval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
+	}
+	minimumNextAt := now.Add(reviewInterval)
 	if state.nextAt.IsZero() || state.nextAt.After(minimumNextAt) {
 		state.nextAt = minimumNextAt
 	}
@@ -621,13 +675,21 @@ func smartStickySwitchCooldownForScore(score *float64) time.Duration {
 }
 
 func smartStickyCooldownCanBeBroken(decision openAISmartStickyReviewDecision, remaining time.Duration) bool {
+	return smartStickyCooldownCanBeBrokenWithPolicy(decision, remaining, RecommendedSmartStickyPolicy())
+}
+
+func smartStickyCooldownCanBeBrokenWithPolicy(decision openAISmartStickyReviewDecision, remaining time.Duration, policy SmartStickyPolicy) bool {
 	if decision.CurrentScore == nil || *decision.CurrentScore >= smartStickyStrongMinScore {
 		return false
 	}
 	// B/C sessions are deliberately weakly sticky. A clear quality lead may
 	// break their short debounce window; A-or-better sessions retain the full
 	// cooldown and S-class confirmation policy.
-	return decision.QualityLead >= 8 && remaining <= smartStickyWeakSwitchCooldown
+	breakable := smartStickyWeakSwitchCooldown
+	if !policy.usesLegacyDynamics() {
+		breakable = time.Duration(policy.SwitchCooldownSeconds) * time.Second
+	}
+	return decision.QualityLead >= 8 && remaining <= breakable
 }
 
 func smartStickySessionFingerprint(key string) string {
@@ -713,13 +775,17 @@ func smartStickyRequiredQualityLead(score *float64) float64 {
 	return smartStickyWeakQualityLead
 }
 
-func armSmartStickySwitchTrace(ctx context.Context, req openAISmartStickyReviewRequest, currentAccountID int64, decision openAISmartStickyReviewDecision) {
+func armSmartStickySwitchTrace(ctx context.Context, req openAISmartStickyReviewRequest, currentAccountID int64, decision openAISmartStickyReviewDecision, policies ...SmartStickyPolicy) {
 	trace, _ := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
 	if trace == nil || !decision.Switch || currentAccountID <= 0 {
 		return
 	}
 	trace.mu.Lock()
 	defer trace.mu.Unlock()
+	policy := RecommendedSmartStickyPolicy()
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
 	trace.pending = &smartStickySwitchPending{
 		groupID:                 derefGroupID(req.GroupID),
 		model:                   req.RequestedModel,
@@ -730,6 +796,7 @@ func armSmartStickySwitchTrace(ctx context.Context, req openAISmartStickyReviewR
 		expectedChallengerID:    decision.ChallengerID,
 		previousScore:           decision.CurrentScore,
 		expectedChallengerScore: decision.ChallengerScore,
+		policy:                  policy,
 	}
 	trace.applied = false
 }
@@ -761,7 +828,7 @@ func (s *OpenAIGatewayService) logSmartStickySwitchApplied(ctx context.Context, 
 		)
 		return
 	}
-	s.markSmartStickySwitchApplied(pending.reviewKey, accountID, time.Now(), pending.expectedChallengerScore)
+	s.markSmartStickySwitchAppliedWithPolicy(pending.reviewKey, accountID, time.Now(), pending.policy, pending.expectedChallengerScore)
 
 	slog.Info("sticky.smart_scheduler_switch_applied",
 		"group_id", pending.groupID,
@@ -846,11 +913,11 @@ func decideOpenAISmartStickyReviewWithPolicy(ordering *SmartSchedulerOrdering, c
 	}
 	if current.Score != nil && decision.ChallengerScore != nil {
 		decision.RequiredQualityLead = smartStickyRequiredQualityLead(current.Score)
-		if policy.QualityLead > 0 {
+		if !policy.usesLegacyDynamics() && policy.QualityLead > 0 {
 			decision.RequiredQualityLead = policy.QualityLead
 		}
 		decision.QualityLead = *decision.ChallengerScore - *current.Score
-		targetEscape := *current.Score < policy.TargetScore && *decision.ChallengerScore >= policy.TargetScore
+		targetEscape := !policy.usesLegacyDynamics() && *current.Score < policy.TargetScore && *decision.ChallengerScore >= policy.TargetScore
 		if decision.QualityLead >= decision.RequiredQualityLead || targetEscape {
 			decision.Switch = true
 			decision.Reason = "better_quality"
@@ -929,8 +996,14 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 		return openAISmartStickyReviewDecision{}
 	}
 	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, currentAccountID, policy)
-	decision = s.applySmartStickyReviewState(key, now, decision)
-	if decision.ConfirmationPending || decision.Cooldown {
+	decision = s.applySmartStickyReviewStateWithPolicy(key, now, decision, policy)
+	if policy.usesLegacyDynamics() {
+		if decision.ConfirmationPending || decision.Cooldown {
+			interval = smartStickyWeakReviewInterval
+		} else if decision.Strong || decision.Switch {
+			interval = smartStickyStrongReviewInterval
+		}
+	} else if decision.ConfirmationPending || decision.Cooldown {
 		interval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
 	} else if decision.Strong || decision.Switch {
 		interval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
@@ -958,7 +1031,7 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 		"session_fingerprint", smartStickySessionFingerprint(key),
 	}
 	if decision.Switch {
-		armSmartStickySwitchTrace(ctx, req, currentAccountID, decision)
+		armSmartStickySwitchTrace(ctx, req, currentAccountID, decision, policy)
 		slog.Info("sticky.smart_scheduler_switched", attrs...)
 	} else if s.shouldLogSmartStickyRetention(key, now, decision) {
 		slog.Info("sticky.smart_scheduler_kept", attrs...)

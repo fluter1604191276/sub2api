@@ -49,6 +49,16 @@ describe('AvailableChannelsTable', () => {
   it('uses the group request protocol rather than the model supplier name', () => {
     const wrapper = mountTable({ rows: [{ name: 'Compatible channel', description: '', platforms: [{ platform: 'openai', groups: [{ id: 7, name: 'DeepSeek OpenAI format', platform: 'openai', subscription_type: 'standard', rate_multiplier: 1, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }], supported_models: [{ name: 'deepseek-v4-pro', platform: 'deepseek', pricing: null }] }] }] })
     expect(wrapper.find('[data-group-badge]').text()).toBe('DeepSeek OpenAI format:openai:1:')
+    expect(wrapper.find('h2').text()).toBe('OpenAI')
+    expect(wrapper.findAll('.available-category')).toHaveLength(1)
+  })
+
+  it('preserves empty protocol sections and the layout scroll hook', () => {
+    const wrapper = mountTable({ rows: [{ name: 'Empty channel', description: '', platforms: [{ platform: 'antigravity', groups: [], supported_models: [] }] }] })
+    expect(wrapper.classes()).toContain('table-wrapper')
+    expect(wrapper.find('.available-channel-row').text()).toContain('Empty channel')
+    expect(wrapper.find('.available-channel-row').text()).toContain('No models')
+    expect(wrapper.find('h2').text()).toBe('Antigravity')
   })
 
   it('keeps a readable empty state when no channel rows are available', () => {

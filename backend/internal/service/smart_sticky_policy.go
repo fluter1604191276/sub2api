@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,25 @@ type SmartStickyPolicy struct {
 	MaxEscapes            int     `json:"max_escapes"`
 	EscapeWindowSeconds   int     `json:"escape_window_seconds"`
 	EliteConfirmations    int     `json:"elite_confirmations"`
+	configured            bool
+}
+
+func (p SmartStickyPolicy) usesLegacyDynamics() bool {
+	if !p.configured {
+		return true
+	}
+	recommended := RecommendedSmartStickyPolicy()
+	return p.TargetScore == recommended.TargetScore &&
+		p.ReviewIntervalSeconds == recommended.ReviewIntervalSeconds &&
+		p.SwitchCooldownSeconds == recommended.SwitchCooldownSeconds &&
+		p.QualityLead == recommended.QualityLead &&
+		p.MaxEscapes == recommended.MaxEscapes &&
+		p.EscapeWindowSeconds == recommended.EscapeWindowSeconds &&
+		p.EliteConfirmations == recommended.EliteConfirmations
+}
+
+func (p SmartStickyPolicy) hasExplicitValues() bool {
+	return p.TargetScore != 0 || p.ReviewIntervalSeconds != 0 || p.SwitchCooldownSeconds != 0 || p.QualityLead != 0 || p.MaxEscapes != 0 || p.EscapeWindowSeconds != 0 || p.EliteConfirmations != 0
 }
 
 func RecommendedSmartStickyPolicy() SmartStickyPolicy {
@@ -29,20 +49,21 @@ func RecommendedSmartStickyPolicy() SmartStickyPolicy {
 }
 
 func StableSmartStickyPolicy() SmartStickyPolicy {
-	return SmartStickyPolicy{Preset: "stability", TargetScore: 80, ReviewIntervalSeconds: 15, SwitchCooldownSeconds: 15, QualityLead: 2, MaxEscapes: 12, EscapeWindowSeconds: 3600, EliteConfirmations: 1}
+	return SmartStickyPolicy{Preset: "stability", TargetScore: 80, ReviewIntervalSeconds: 15, SwitchCooldownSeconds: 15, QualityLead: 2, MaxEscapes: 12, EscapeWindowSeconds: 3600, EliteConfirmations: 1, configured: true}
 }
 
 func (p SmartStickyPolicy) Normalize() (SmartStickyPolicy, error) {
+	custom := p.configured || strings.EqualFold(p.Preset, "custom") || strings.EqualFold(p.Preset, "stability")
 	if p.TargetScore == 0 {
 		p.TargetScore = RecommendedSmartStickyPolicy().TargetScore
 	}
 	if p.ReviewIntervalSeconds == 0 {
 		p.ReviewIntervalSeconds = RecommendedSmartStickyPolicy().ReviewIntervalSeconds
 	}
-	if p.SwitchCooldownSeconds == 0 {
+	if p.SwitchCooldownSeconds == 0 && !custom {
 		p.SwitchCooldownSeconds = RecommendedSmartStickyPolicy().SwitchCooldownSeconds
 	}
-	if p.QualityLead == 0 {
+	if p.QualityLead == 0 && !custom {
 		p.QualityLead = RecommendedSmartStickyPolicy().QualityLead
 	}
 	if p.MaxEscapes == 0 {
@@ -54,7 +75,7 @@ func (p SmartStickyPolicy) Normalize() (SmartStickyPolicy, error) {
 	if p.EliteConfirmations == 0 {
 		p.EliteConfirmations = RecommendedSmartStickyPolicy().EliteConfirmations
 	}
-	if p.TargetScore < 0 || p.TargetScore > 100 || p.ReviewIntervalSeconds < 15 || p.ReviewIntervalSeconds > 3600 || p.SwitchCooldownSeconds < 0 || p.SwitchCooldownSeconds > 3600 || p.QualityLead < 0 || p.QualityLead > 50 || p.MaxEscapes < 1 || p.MaxEscapes > 100 || p.EscapeWindowSeconds < 60 || p.EscapeWindowSeconds > 86400 || p.EliteConfirmations < 1 || p.EliteConfirmations > 5 {
+	if math.IsNaN(p.TargetScore) || math.IsInf(p.TargetScore, 0) || math.IsNaN(p.QualityLead) || math.IsInf(p.QualityLead, 0) || p.TargetScore < 0 || p.TargetScore > 100 || p.ReviewIntervalSeconds < 15 || p.ReviewIntervalSeconds > 3600 || p.SwitchCooldownSeconds < 0 || p.SwitchCooldownSeconds > 3600 || p.QualityLead < 0 || p.QualityLead > 50 || p.MaxEscapes < 1 || p.MaxEscapes > 100 || p.EscapeWindowSeconds < 60 || p.EscapeWindowSeconds > 86400 || p.EliteConfirmations < 1 || p.EliteConfirmations > 5 {
 		return SmartStickyPolicy{}, fmt.Errorf("invalid smart sticky policy")
 	}
 	return p, nil
@@ -76,6 +97,7 @@ func (s *adminServiceImpl) GetSmartStickyPolicy(ctx context.Context, groupID int
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return RecommendedSmartStickyPolicy(), nil
 	}
+	p.configured = true
 	return p.Normalize()
 }
 
@@ -83,12 +105,13 @@ func (s *adminServiceImpl) UpdateSmartStickyPolicy(ctx context.Context, groupID 
 	if groupID <= 0 {
 		return SmartStickyPolicy{}, fmt.Errorf("invalid group id")
 	}
-	if strings.EqualFold(policy.Preset, "recommended") {
+	if !policy.hasExplicitValues() && strings.EqualFold(policy.Preset, "recommended") {
 		policy = RecommendedSmartStickyPolicy()
 	}
-	if strings.EqualFold(policy.Preset, "stability") {
+	if !policy.hasExplicitValues() && strings.EqualFold(policy.Preset, "stability") {
 		policy = StableSmartStickyPolicy()
 	}
+	policy.configured = true
 	policy, err := policy.Normalize()
 	if err != nil {
 		return SmartStickyPolicy{}, err
@@ -118,6 +141,7 @@ func (s *OpenAIGatewayService) smartStickyPolicy(ctx context.Context, groupID in
 	if json.Unmarshal([]byte(raw), &p) != nil {
 		return RecommendedSmartStickyPolicy()
 	}
+	p.configured = true
 	if normalized, err := p.Normalize(); err == nil {
 		return normalized
 	}

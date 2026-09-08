@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -317,16 +318,51 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	return nil
 }
 
-// TodayEstimatedCost sums only the monitor-owned probe ledger. It deliberately
-// does not touch usage_logs, user balances, API-key quota, or account quota.
-func (r *channelMonitorRepository) TodayEstimatedCost(ctx context.Context, dayStart time.Time) (float64, error) {
+// ReserveDailyBudget atomically creates/increments the application-date ledger
+// only if the reservation remains within the configured cap.
+func (r *channelMonitorRepository) ReserveDailyBudget(ctx context.Context, day time.Time, reservation, dailyLimit float64) (bool, error) {
+	var admitted float64
+	err := r.db.QueryRowContext(ctx, `
+		INSERT INTO channel_monitor_daily_budget_ledger (budget_date, estimated_cost_usd, updated_at)
+		SELECT $1::date, $2, NOW()
+		WHERE $2 > 0 AND $2 <= $3
+		ON CONFLICT (budget_date) DO UPDATE
+		SET estimated_cost_usd = channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd,
+		    updated_at = NOW()
+		WHERE channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd <= $3
+		RETURNING estimated_cost_usd`, day, reservation, dailyLimit).Scan(&admitted)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("reserve channel monitor budget: %w", err)
+	}
+	return true, nil
+}
+
+// SettleDailyBudget replaces one conservative reservation with known standard-
+// price usage. Callers deliberately skip this when usage or pricing is unknown.
+func (r *channelMonitorRepository) SettleDailyBudget(ctx context.Context, day time.Time, reservation, actualCost float64) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE channel_monitor_daily_budget_ledger
+		SET estimated_cost_usd = GREATEST(estimated_cost_usd - $2 + $3, 0), updated_at = NOW()
+		WHERE budget_date = $1::date`, day, reservation, actualCost)
+	if err != nil {
+		return fmt.Errorf("settle channel monitor budget: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil || rows != 1 {
+		return fmt.Errorf("settle channel monitor budget: ledger row missing")
+	}
+	return nil
+}
+
+func (r *channelMonitorRepository) TodayEstimatedCost(ctx context.Context, day time.Time) (float64, error) {
 	var total float64
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE(SUM(estimated_cost_usd), 0)
-		FROM channel_monitor_histories
-		WHERE checked_at >= $1`, dayStart.UTC()).Scan(&total)
+		SELECT COALESCE((SELECT estimated_cost_usd FROM channel_monitor_daily_budget_ledger WHERE budget_date = $1::date), 0)`, day).Scan(&total)
 	if err != nil {
-		return 0, fmt.Errorf("sum today's channel monitor estimated cost: %w", err)
+		return 0, fmt.Errorf("read today's channel monitor estimated cost: %w", err)
 	}
 	return total, nil
 }

@@ -613,12 +613,12 @@ export interface AccountModelSyncPreviewEntry {
 }
 export interface AccountModelSyncPreview { total: number; changed: number; results: AccountModelSyncPreviewEntry[] }
 export interface AccountModelSyncApplyResult { account_id: number; status: string; error?: string }
-export interface AccountModelSyncApplyItem { account_id: number; version: string }
+export interface AccountModelSyncApplyItem { account_id: number; version: string; models: string[] }
 export async function previewAllModelMappings(): Promise<AccountModelSyncPreview> {
   const { data } = await apiClient.post<AccountModelSyncPreview>('/admin/accounts/sync/models/preview', undefined, { timeout: 10 * 60 * 1000 })
   return data
 }
-export async function applyModelMappings(items: Array<{ account_id: number; version: string }>): Promise<{ results: AccountModelSyncApplyResult[] }> {
+export async function applyModelMappings(items: AccountModelSyncApplyItem[]): Promise<{ results: AccountModelSyncApplyResult[] }> {
   const { data } = await apiClient.post<{ results: AccountModelSyncApplyResult[] }>('/admin/accounts/sync/models/apply', { items }, { timeout: 10 * 60 * 1000 })
   return data
 }

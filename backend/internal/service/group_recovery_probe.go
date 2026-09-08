@@ -46,7 +46,7 @@ const (
 	GroupRecoveryProbeSmartEligibleMinIntervalSeconds = 60 * 60
 
 	groupRecoveryProbeDefaultWorkers = 4
-	groupRecoveryProbeTickInterval   = 30 * time.Second
+	groupRecoveryProbeTickInterval   = 5 * time.Second
 	groupRecoveryProbeAttemptTimeout = 3 * time.Minute
 	groupRecoveryProbeMaxErrorBytes  = 500
 )
@@ -149,11 +149,23 @@ type GroupRecoveryProbeJob struct {
 	ClaimedAt         time.Time
 }
 
-func groupRecoveryProbeSmartEligibleInterval(job GroupRecoveryProbeJob) time.Duration {
+func groupRecoveryProbeInterval(job GroupRecoveryProbeJob) time.Duration {
 	interval := time.Duration(job.IntervalSeconds) * time.Second
-	if interval < time.Minute {
-		interval = time.Duration(GroupRecoveryProbeDefaultIntervalSeconds) * time.Second
+	if job.Mode == GroupRecoveryProbeModeHighFrequency {
+		minimum := time.Duration(GroupRecoveryProbeHighFrequencyIntervalSeconds) * time.Second
+		if interval < minimum {
+			return minimum
+		}
+		return interval
 	}
+	if interval < time.Minute {
+		return time.Duration(GroupRecoveryProbeDefaultIntervalSeconds) * time.Second
+	}
+	return interval
+}
+
+func groupRecoveryProbeSmartEligibleInterval(job GroupRecoveryProbeJob) time.Duration {
+	interval := groupRecoveryProbeInterval(job)
 	if job.Mode == GroupRecoveryProbeModeSmart {
 		minimumSeconds := GroupRecoveryProbeSmartEligibleMinIntervalSeconds
 		switch {
@@ -335,10 +347,7 @@ func buildGroupRecoveryProbeCompletion(job GroupRecoveryProbeJob, result GroupRe
 		AttemptCount:    result.Attempts,
 		LastError:       sanitizeGroupRecoveryProbeError(result.LastError),
 	}
-	interval := time.Duration(job.IntervalSeconds) * time.Second
-	if interval < time.Minute {
-		interval = time.Duration(GroupRecoveryProbeDefaultIntervalSeconds) * time.Second
-	}
+	interval := groupRecoveryProbeInterval(job)
 
 	if result.SuccessCount == result.Attempts && result.Attempts > 0 {
 		successes := job.State.ConsecutiveSuccesses + result.SuccessCount

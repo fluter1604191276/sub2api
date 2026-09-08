@@ -80,14 +80,21 @@ type AccountModelSyncPreview struct {
 }
 
 type AccountModelSyncApplyItem struct {
-	AccountID int64  `json:"account_id" binding:"required"`
-	Version   string `json:"version" binding:"required"`
+	AccountID int64    `json:"account_id" binding:"required"`
+	Version   string   `json:"version" binding:"required"`
+	Models    []string `json:"models" binding:"required,min=1"`
 }
 
 type AccountModelSyncApplyResult struct {
 	AccountID int64  `json:"account_id"`
 	Status    string `json:"status"`
 	Error     string `json:"error,omitempty"`
+}
+
+var ErrAccountModelSyncConflict = errors.New("account changed after model preview")
+
+type accountModelSyncCredentialWriter interface {
+	UpdateCredentialsIfUnchanged(context.Context, int64, map[string]any, time.Time) error
 }
 
 type modelDiscoveryError struct {
@@ -244,24 +251,45 @@ func (s *AccountTestService) PreviewAllAccountModelMappings(ctx context.Context)
 		return nil, err
 	}
 	preview := &AccountModelSyncPreview{Total: len(accounts), Results: make([]AccountModelSyncPreviewEntry, len(accounts))}
+	const workerCount = 5
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	workers := workerCount
+	if len(accounts) < workers {
+		workers = len(accounts)
+	}
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				account := &accounts[i]
+				entry := AccountModelSyncPreviewEntry{AccountID: account.ID, AccountName: account.Name, Version: account.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+				entry.CurrentModels = exactMappedModels(account.Credentials)
+				accountCtx, cancel := context.WithTimeout(ctx, accountModelsSyncTimeout)
+				models, fetchErr := s.FetchUpstreamSupportedModels(accountCtx, account)
+				cancel()
+				if fetchErr != nil {
+					entry.Status = accountModelsSyncFailed
+					entry.Error = "upstream model discovery failed"
+				} else {
+					entry.Status = accountModelsSyncSuccess
+					entry.UpstreamModels = models
+					entry.Added, entry.Removed = modelSetDiff(entry.CurrentModels, models)
+				}
+				preview.Results[i] = entry
+			}
+		}()
+	}
 	for i := range accounts {
-		account := &accounts[i]
-		entry := AccountModelSyncPreviewEntry{AccountID: account.ID, AccountName: account.Name, Version: account.UpdatedAt.UTC().Format(time.RFC3339Nano)}
-		entry.CurrentModels = exactMappedModels(account.Credentials)
-		models, fetchErr := s.FetchUpstreamSupportedModels(ctx, account)
-		if fetchErr != nil {
-			entry.Status = accountModelsSyncFailed
-			entry.Error = "upstream model discovery failed"
-			preview.Results[i] = entry
-			continue
-		}
-		entry.Status = accountModelsSyncSuccess
-		entry.UpstreamModels = models
-		entry.Added, entry.Removed = modelSetDiff(entry.CurrentModels, models)
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+	for _, entry := range preview.Results {
 		if len(entry.Added) > 0 || len(entry.Removed) > 0 {
 			preview.Changed++
 		}
-		preview.Results[i] = entry
 	}
 	return preview, nil
 }
@@ -285,8 +313,8 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 			results = append(results, result)
 			continue
 		}
-		models, err := s.FetchUpstreamSupportedModels(ctx, account)
-		if err != nil || len(models) == 0 {
+		models := uniqueModelIDs(item.Models)
+		if len(models) == 0 {
 			result.Status, result.Error = "failed", "upstream model discovery failed"
 			results = append(results, result)
 			continue
@@ -296,23 +324,33 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 		if raw, ok := credentials["model_mapping"].(map[string]any); ok {
 			for k, v := range raw {
 				ks, vs := strings.TrimSpace(k), strings.TrimSpace(fmt.Sprint(v))
-				if ks != "" && vs != "" && ks != vs {
+				if ks != "" && vs != "" && (ks != vs || strings.Contains(ks, "*")) {
 					mapping[ks] = v
 				}
 			}
 		} else if raw, ok := credentials["model_mapping"].(map[string]string); ok {
 			for k, v := range raw {
 				ks, vs := strings.TrimSpace(k), strings.TrimSpace(v)
-				if ks != "" && vs != "" && ks != vs {
+				if ks != "" && vs != "" && (ks != vs || strings.Contains(ks, "*")) {
 					mapping[ks] = v
 				}
 			}
 		}
 		for _, model := range models {
-			mapping[model] = model
+			if _, manual := mapping[model]; !manual {
+				mapping[model] = model
+			}
 		}
 		credentials["model_mapping"] = mapping
-		if err := persistAccountCredentials(ctx, s.accountRepo, account, credentials); err != nil {
+		writer, ok := s.accountRepo.(accountModelSyncCredentialWriter)
+		if !ok {
+			result.Status, result.Error = "failed", "conditional model update unavailable"
+			results = append(results, result)
+			continue
+		}
+		if err := writer.UpdateCredentialsIfUnchanged(ctx, account.ID, credentials, account.UpdatedAt); errors.Is(err, ErrAccountModelSyncConflict) {
+			result.Status, result.Error = "conflict", "account changed after preview"
+		} else if err != nil {
 			result.Status, result.Error = "failed", "failed to persist model mapping"
 		} else {
 			result.Status = "applied"
@@ -324,9 +362,14 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 
 func exactMappedModels(credentials map[string]any) []string {
 	result := []string{}
-	raw, ok := credentials["model_mapping"].(map[string]any)
-	if !ok {
-		return result
+	raw := map[string]any{}
+	switch mapping := credentials["model_mapping"].(type) {
+	case map[string]any:
+		raw = mapping
+	case map[string]string:
+		for key, value := range mapping {
+			raw[key] = value
+		}
 	}
 	for key, value := range raw {
 		if strings.TrimSpace(key) != "" && key == strings.TrimSpace(fmt.Sprint(value)) && !strings.Contains(key, "*") {

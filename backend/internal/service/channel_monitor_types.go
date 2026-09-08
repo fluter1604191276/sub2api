@@ -221,6 +221,13 @@ type ChannelMonitorBudgetStatus struct {
 	ResetsAt              time.Time `json:"resets_at"`
 }
 
+// ChannelMonitorBudgetReservation is the durable admission amount retained
+// until a paid probe can be settled from trustworthy usage and pricing.
+type ChannelMonitorBudgetReservation struct {
+	Day      time.Time
+	Reserved float64
+}
+
 // ChannelMonitorHistoryEntry 历史记录查询返回行（含 ent 主键 ID）。
 type ChannelMonitorHistoryEntry struct {
 	ID            int64
