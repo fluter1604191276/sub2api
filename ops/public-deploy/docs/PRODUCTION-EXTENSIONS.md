@@ -53,6 +53,20 @@ Owner/status:
 
 Do not put API keys, cookies, Bearer tokens, database passwords, or raw upstream request bodies in this inventory.
 
+## Pricing Calibration Boundary
+
+OpenAI `gpt-5.6-*` and `gpt-6-astra` use the official 272K long-context
+schedule. The threshold is strictly greater than 272,000 tokens, with the
+request context calculated as input + cache creation + cache read. Once over
+the threshold, input, cache read, and cache creation use the input multiplier;
+output uses the output multiplier.
+
+Adding a model's official schedule does not itself turn on user billing. A
+group must have `LongContextPricingEnabled` enabled, and OpenAI account paths
+that require the account-level guard must have
+`openai_long_context_billing_enabled=true`. Both gates must be verified as
+part of a production pricing release.
+
 ## Source Of Truth
 
 The source of truth is the tuple:

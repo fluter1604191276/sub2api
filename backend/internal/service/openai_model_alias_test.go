@@ -34,3 +34,27 @@ func TestUsageBillingModelCandidates_BareGPT56IncludesSol(t *testing.T) {
 		usageBillingModelCandidates("openai/gpt-5.6"),
 	)
 }
+
+func TestNormalizeKnownOpenAICodexModel_GPT6AstraAcceptsOnlyPublishedAliases(t *testing.T) {
+	for _, input := range []string{
+		"gpt-6-astra",
+		"gpt6-astra",
+		"gpt-6-astra-20260908",
+		"openai/gpt-6-astra",
+	} {
+		t.Run(input, func(t *testing.T) {
+			require.Equal(t, "gpt-6-astra", normalizeKnownOpenAICodexModel(input))
+		})
+	}
+
+	for _, input := range []string{
+		"gpt-6-unknown",
+		"gpt-6-astra-preview",
+		"gpt-6-astra-2026-09-08",
+	} {
+		t.Run(input, func(t *testing.T) {
+			require.Empty(t, normalizeKnownOpenAICodexModel(input))
+			require.False(t, isOpenAIGPT6AstraModel(input))
+		})
+	}
+}

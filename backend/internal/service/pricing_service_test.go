@@ -77,7 +77,7 @@ func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	require.True(t, pricing.SupportsServiceTier)
 }
 
-func TestBillingService_GPT56CacheWritePricingUsesOfficialMultiplier(t *testing.T) {
+func TestBillingService_OpenAI272KModelsCacheWritePricingUsesOfficialMultiplier(t *testing.T) {
 	tests := []struct {
 		model             string
 		input             float64
@@ -90,6 +90,7 @@ func TestBillingService_GPT56CacheWritePricingUsesOfficialMultiplier(t *testing.
 		{model: "gpt-5.6-sol", input: 5e-6, inputPriority: 10e-6, output: 30e-6, outputPriority: 60e-6, cacheRead: 0.5e-6, cacheReadPriority: 1e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, inputPriority: 4e-6, output: 12e-6, outputPriority: 24e-6, cacheRead: 0.2e-6, cacheReadPriority: 0.4e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, inputPriority: 0.4e-6, output: 1.2e-6, outputPriority: 2.4e-6, cacheRead: 0.02e-6, cacheReadPriority: 0.04e-6},
+		{model: "gpt-6-astra", input: 10e-6, inputPriority: 20e-6, output: 50e-6, outputPriority: 100e-6, cacheRead: 1e-6, cacheReadPriority: 2e-6},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
@@ -129,7 +130,7 @@ func TestBillingService_GPT56CacheWritePricingUsesOfficialMultiplier(t *testing.
 	}
 }
 
-func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testing.T) {
+func TestBillingService_OpenAI272KModelsUseLongContextPricingAcrossModelsAndTiers(t *testing.T) {
 	models := []struct {
 		name               string
 		input, cached      float64
@@ -138,6 +139,7 @@ func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testi
 		{name: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
 		{name: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
 		{name: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
+		{name: "gpt-6-astra", input: 10e-6, cached: 1e-6, cacheWrite: 12.5e-6, output: 50e-6},
 	}
 	tiers := []struct {
 		name       string
@@ -173,16 +175,16 @@ func TestBillingService_GPT56UsesLongContextPricingAcrossModelsAndTiers(t *testi
 	}
 }
 
-func TestBillingService_GPT56LongContextBoundaryIsExclusive(t *testing.T) {
+func TestBillingService_OpenAI272KLongContextBoundaryIsExclusive(t *testing.T) {
 	svc := NewBillingService(&config.Config{}, nil)
 	tokens := UsageTokens{InputTokens: 100000, CacheCreationTokens: 100000, CacheReadTokens: 72000, OutputTokens: 10}
 
-	cost, err := svc.CalculateCost("gpt-5.6-sol", tokens, 1)
+	cost, err := svc.CalculateCost("gpt-6-astra", tokens, 1)
 	require.NoError(t, err)
-	require.InDelta(t, 100000*5e-6, cost.InputCost, 1e-12)
-	require.InDelta(t, 100000*6.25e-6, cost.CacheCreationCost, 1e-12)
-	require.InDelta(t, 72000*0.5e-6, cost.CacheReadCost, 1e-12)
-	require.InDelta(t, 10*30e-6, cost.OutputCost, 1e-12)
+	require.InDelta(t, 100000*10e-6, cost.InputCost, 1e-12)
+	require.InDelta(t, 100000*12.5e-6, cost.CacheCreationCost, 1e-12)
+	require.InDelta(t, 72000*1e-6, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, 10*50e-6, cost.OutputCost, 1e-12)
 }
 
 func TestPricingService_BareGPT56AliasDeterministicallyUsesSol(t *testing.T) {
@@ -228,6 +230,7 @@ func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6, inputPriority: 10e-6, cachedPriority: 1e-6, cacheWritePriority: 12.5e-6, outputPriority: 60e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6, inputPriority: 4e-6, cachedPriority: 0.4e-6, cacheWritePriority: 5e-6, outputPriority: 24e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6, inputPriority: 0.4e-6, cachedPriority: 0.04e-6, cacheWritePriority: 0.5e-6, outputPriority: 2.4e-6},
+		{model: "gpt-6-astra", input: 10e-6, cached: 1e-6, cacheWrite: 12.5e-6, output: 50e-6, inputPriority: 20e-6, cachedPriority: 2e-6, cacheWritePriority: 25e-6, outputPriority: 100e-6},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
@@ -248,7 +251,7 @@ func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 	}
 }
 
-func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
+func TestOpenAI272KDedicatedFallbacksUseOfficialRates(t *testing.T) {
 	tests := []struct {
 		model                             string
 		input, cached, cacheWrite, output float64
@@ -256,6 +259,7 @@ func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
 		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
+		{model: "gpt-6-astra", input: 10e-6, cached: 1e-6, cacheWrite: 12.5e-6, output: 50e-6},
 	}
 
 	for _, tt := range tests {
@@ -264,21 +268,50 @@ func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
 				"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
 			}}
 			svc := NewBillingService(&config.Config{}, pricingSvc)
-			pricing, err := svc.GetModelPricing(tt.model + "-preview")
+			modelAlias := tt.model + "-preview"
+			if tt.model == "gpt-6-astra" {
+				modelAlias = "gpt-6-astra-20260908"
+			}
+			pricing, err := svc.GetModelPricing(modelAlias)
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertOpenAI272KFallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
 		})
 
 		t.Run(tt.model+"/billing_service", func(t *testing.T) {
 			svc := NewBillingService(&config.Config{}, nil)
 			pricing, err := svc.GetModelPricing(tt.model)
 			require.NoError(t, err)
-			assertGPT56FallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
+			assertOpenAI272KFallbackPricing(t, pricing, tt.input, tt.cached, tt.cacheWrite, tt.output)
 		})
 	}
 }
 
-func assertGPT56FallbackPricing(t *testing.T, pricing *ModelPricing, input, cached, cacheWrite, output float64) {
+func TestOpenAIGPT6AstraFallbackPricingAcceptsOnlyPublishedAliases(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gpt-5.1-codex": {InputCostPerToken: 1.25e-6},
+	}}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+
+	for _, model := range []string{
+		"gpt-6-astra",
+		"gpt6-astra",
+		"gpt-6-astra-20260908",
+		"openai/gpt-6-astra",
+	} {
+		t.Run(model, func(t *testing.T) {
+			pricing, err := billingSvc.GetModelPricing(model)
+			require.NoError(t, err)
+			assertOpenAI272KFallbackPricing(t, pricing, 10e-6, 1e-6, 12.5e-6, 50e-6)
+		})
+	}
+
+	t.Run("does not price another GPT-6 model as Astra", func(t *testing.T) {
+		_, err := billingSvc.GetModelPricing("gpt-6-unknown")
+		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+	})
+}
+
+func assertOpenAI272KFallbackPricing(t *testing.T, pricing *ModelPricing, input, cached, cacheWrite, output float64) {
 	t.Helper()
 	require.InDelta(t, input, pricing.InputPricePerToken, 1e-12)
 	require.InDelta(t, cached, pricing.CacheReadPricePerToken, 1e-12)
