@@ -20,7 +20,8 @@
         <div v-if="adminMonitorTab === 'legacy'" class="mt-3 text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.channelMonitor.budget.today') }}: ${{ budgetStatus.today_estimated_cost_usd.toFixed(4) }}
           <span v-if="budgetStatus.daily_budget_usd > 0"> / ${{ budgetStatus.daily_budget_usd.toFixed(2) }}</span>
-          <span v-if="budgetStatus.exhausted" class="ml-2 text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
+          <span v-if="budgetStatus.unpriced_probes" class="ml-2 text-amber-600">{{ t('admin.channelMonitor.budget.incomplete') }}</span>
+          <span v-else-if="budgetStatus.exhausted" class="ml-2 text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
         </div>
         <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
           <div
@@ -255,7 +256,7 @@ const runResults = ref<CheckResult[]>([])
 const duplicatingIds = reactive(new Set<number>())
 const selectedMonitorIds = ref<number[]>([])
 const showBulkIntervalDialog = ref(false)
-const budgetStatus = ref({ today_estimated_cost_usd: 0, daily_budget_usd: 0, exhausted: false, resets_at: '' })
+const budgetStatus = ref<Awaited<ReturnType<typeof adminAPI.channelMonitor.getBudgetStatus>>>({ today_estimated_cost_usd: 0, daily_budget_usd: 0, exhausted: false, resets_at: '' })
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null

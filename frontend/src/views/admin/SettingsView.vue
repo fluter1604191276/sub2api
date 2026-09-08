@@ -7084,7 +7084,8 @@
                   <button type="button" class="btn btn-ghost btn-sm" :title="t('common.refresh')" :disabled="channelMonitorBudgetLoading" @click="loadChannelMonitorBudget">
                     <Icon name="refresh" size="sm" :class="{ 'animate-spin': channelMonitorBudgetLoading }" />
                   </button>
-                  <span v-if="channelMonitorBudget?.exhausted" class="text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
+                  <span v-if="channelMonitorBudget?.unpriced_probes" class="text-amber-600">{{ t('admin.channelMonitor.budget.incomplete') }}</span>
+                  <span v-else-if="channelMonitorBudget?.exhausted" class="text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
                 </div>
                 <label class="input-label">{{ t('admin.settings.features.channelMonitor.dailyBudget') }}</label>
                 <input v-model.number="form.channel_monitor_daily_budget_usd" type="number" min="0" step="0.01" class="input" />

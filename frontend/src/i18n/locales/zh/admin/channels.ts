@@ -563,7 +563,7 @@ export default {
       deleteSuccess: '监控删除成功',
       loadError: '加载监控列表失败',
       selectMonitor: '选择监控',
-      budget: { today: '今日探针估算花费', exhausted: '已达到每日上限，主动探测已暂停' },
+      budget: { today: '今日探针估算花费（含预留）', exhausted: '已达到每日上限，主动探测已暂停', incomplete: '今日存在无法估价的探测；启用日上限后将暂停付费探测至次日' },
       bulkInterval: {
         open: '批量设置间隔',
         title: '批量设置探测间隔',

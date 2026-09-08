@@ -726,6 +726,31 @@ func TestExtractOpenAIResponsesText_SSEDeltaDoesNotDuplicateCompletedSnapshot(t 
 	}
 }
 
+func TestExtractMonitorUsageDoesNotDoubleCountCachedInput(t *testing.T) {
+	usage := extractMonitorUsage([]byte(`{"usage":{"prompt_tokens":100,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":40}}}`))
+	if usage.InputTokens != 100 || usage.CacheReadTokens != 40 || usage.OutputTokens != 8 {
+		t.Fatalf("unexpected usage: %+v", usage)
+	}
+}
+
+func TestMonitorUsageCompleteRequiresTerminalSSEEvent(t *testing.T) {
+	partial := []byte("data: {\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\n\n")
+	if monitorUsageComplete(partial) {
+		t.Fatal("partial SSE usage must not release a reservation")
+	}
+	complete := []byte("data: {\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\ndata: [DONE]\n")
+	if !monitorUsageComplete(complete) {
+		t.Fatal("terminal SSE usage should be complete")
+	}
+}
+
+func TestExtractMonitorUsageIncludesGeminiThoughtTokens(t *testing.T) {
+	usage := extractMonitorUsage([]byte(`{"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":4,"thoughtsTokenCount":3}}`))
+	if usage.OutputTokens != 7 {
+		t.Fatalf("expected candidate plus thought tokens, got %+v", usage)
+	}
+}
+
 func TestExtractAnthropicMonitorText(t *testing.T) {
 	tests := []struct {
 		name string

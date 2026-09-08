@@ -134,16 +134,21 @@ type ChannelMonitorUpdateParams struct {
 
 // CheckResult 单个模型一次检测的结果。
 type CheckResult struct {
-	Model         string
+	Model string
+	// PricingModel is the upstream-resolved model used only for cost attribution.
+	// Model remains the configured monitor series key.
+	PricingModel  string
 	Status        string // operational / degraded / failed / error
 	LatencyMs     *int
 	PingLatencyMs *int
 	Message       string
 	CheckedAt     time.Time
 	// Quota 配额模式附带快照（quota 模式唯一数据；quota_probe 挂在主模型行）。
-	Quota            *domain.MonitorQuotaSnapshot
-	Usage            UsageTokens
-	EstimatedCostUSD float64
+	Quota              *domain.MonitorQuotaSnapshot
+	Usage              UsageTokens
+	UsageComplete      bool
+	EstimatedCostUSD   float64
+	EstimatedCostKnown bool
 }
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
@@ -218,6 +223,7 @@ type ChannelMonitorBudgetStatus struct {
 	TodayEstimatedCostUSD float64   `json:"today_estimated_cost_usd"`
 	DailyBudgetUSD        float64   `json:"daily_budget_usd"`
 	Exhausted             bool      `json:"exhausted"`
+	UnpricedProbes        int64     `json:"unpriced_probes"`
 	ResetsAt              time.Time `json:"resets_at"`
 }
 

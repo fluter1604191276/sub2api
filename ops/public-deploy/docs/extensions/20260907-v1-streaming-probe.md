@@ -11,7 +11,7 @@ Billing impact: internal cost
 Scheduling impact: score；探针结果影响渠道可用性与智能调度输入
 Client protocol impact: OpenAI Chat Completions；OpenAI Responses；OpenAI-compatible upstreams
 Tests/fixtures: 默认 Chat/Responses stream=true；Chat SSE delta；Responses response.output_text.delta；replace 模式明确 stream-only 400 的单次重试；普通 400 不重试。
-First release manifest: pending
+First release manifest: release/smart-ops-model-plaza-20260909
 Rollback note: 回退应用镜像即可；监控配置和历史结果保留。
 Owner/status: fluter / ready for candidate build
 ```

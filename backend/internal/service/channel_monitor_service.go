@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -94,6 +95,11 @@ type channelMonitorBudgetRepository interface {
 	ReserveDailyBudget(ctx context.Context, day time.Time, reservation, dailyLimit float64) (bool, error)
 	SettleDailyBudget(ctx context.Context, day time.Time, reservation, actualCost float64) error
 	TodayEstimatedCost(ctx context.Context, day time.Time) (float64, error)
+}
+
+type channelMonitorUnpricedRepository interface {
+	RecordUnpricedProbe(context.Context, time.Time) error
+	UnpricedProbeCount(context.Context, time.Time) (int64, error)
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -671,7 +677,7 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 		return nil, ErrChannelMonitorAPIKeyDecryptFailed
 	}
 	var reservation *ChannelMonitorBudgetReservation
-	if checkMode != MonitorCheckModeQuota && rt.DailyBudgetUSD > 0 {
+	if checkMode != MonitorCheckModeQuota && (rt.DailyBudgetUSD > 0 || s.billingService != nil) {
 		reservation, err = s.reserveProbeBudget(ctx, m, rt.DailyBudgetUSD)
 		if err != nil {
 			return nil, err
@@ -762,11 +768,16 @@ func (s *ChannelMonitorService) applyEstimatedCosts(m *ChannelMonitor, results [
 		return
 	}
 	for _, result := range results {
-		if !monitorUsageKnown(result.Usage) {
+		if !result.UsageComplete {
 			continue
 		}
-		if cost, err := s.billingService.CalculateCost(result.Model, result.Usage, 1); err == nil {
+		model := result.PricingModel
+		if model == "" {
+			model = result.Model
+		}
+		if cost, err := s.billingService.CalculateCost(model, result.Usage, 1); err == nil && cost != nil {
 			result.EstimatedCostUSD = cost.TotalCost
+			result.EstimatedCostKnown = true
 		}
 	}
 }
@@ -777,10 +788,18 @@ func (s *ChannelMonitorService) reserveProbeBudget(ctx context.Context, m *Chann
 		return nil, fmt.Errorf("channel monitor budget ledger or pricing is unavailable")
 	}
 	amount, err := estimateMonitorProbeReservation(m, s.billingService)
+	day := appTimezone.StartOfDay(appTimezone.Now())
 	if err != nil {
+		// With no cap, preserve existing custom monitors but persist the missing
+		// estimate so enabling a cap later cannot silently treat them as free.
+		if unpriced, ok := s.repo.(channelMonitorUnpricedRepository); ok && limit == 0 {
+			if recordErr := unpriced.RecordUnpricedProbe(ctx, day); recordErr != nil {
+				return nil, fmt.Errorf("record unpriced channel monitor probe: %w", recordErr)
+			}
+			return nil, nil
+		}
 		return nil, fmt.Errorf("estimate channel monitor probe reservation: %w", err)
 	}
-	day := appTimezone.StartOfDay(appTimezone.Now())
 	admitted, err := repo.ReserveDailyBudget(ctx, day, amount, limit)
 	if err != nil {
 		return nil, fmt.Errorf("reserve channel monitor daily budget: %w", err)
@@ -794,7 +813,7 @@ func (s *ChannelMonitorService) reserveProbeBudget(ctx context.Context, m *Chann
 func (s *ChannelMonitorService) settleProbeBudget(ctx context.Context, reservation *ChannelMonitorBudgetReservation, results []*CheckResult) {
 	actual := 0.0
 	for _, result := range results {
-		if !monitorUsageKnown(result.Usage) || result.EstimatedCostUSD < 0 {
+		if !result.UsageComplete || !result.EstimatedCostKnown || result.EstimatedCostUSD < 0 || math.IsNaN(result.EstimatedCostUSD) || math.IsInf(result.EstimatedCostUSD, 0) {
 			return // Unknown usage/pricing keeps the conservative reservation.
 		}
 		actual += result.EstimatedCostUSD
@@ -825,7 +844,13 @@ func (s *ChannelMonitorService) BudgetStatus(ctx context.Context) (*ChannelMonit
 		return nil, fmt.Errorf("get channel monitor daily cost: %w", err)
 	}
 	status.TodayEstimatedCostUSD = cost
-	status.Exhausted = status.DailyBudgetUSD > 0 && cost >= status.DailyBudgetUSD
+	if unpriced, ok := s.repo.(channelMonitorUnpricedRepository); ok {
+		status.UnpricedProbes, err = unpriced.UnpricedProbeCount(ctx, today)
+		if err != nil {
+			return nil, fmt.Errorf("get unpriced channel monitor probes: %w", err)
+		}
+	}
+	status.Exhausted = status.DailyBudgetUSD > 0 && (cost >= status.DailyBudgetUSD || status.UnpricedProbes > 0)
 	return status, nil
 }
 

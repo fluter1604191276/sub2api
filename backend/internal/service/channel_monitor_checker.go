@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -72,6 +73,11 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
 	res.Usage = extractMonitorUsage([]byte(rawBody))
+	res.UsageComplete = monitorUsageComplete([]byte(rawBody))
+	res.PricingModel = extractMonitorResponseModel([]byte(rawBody))
+	if res.PricingModel == "" {
+		res.PricingModel = model
+	}
 
 	if err != nil {
 		res.Status = MonitorStatusError
@@ -108,13 +114,33 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
 }
 
+func extractMonitorResponseModel(body []byte) string {
+	if model := gjson.GetBytes(body, "model").String(); model != "" {
+		return model
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		trimmed := strings.TrimSpace(line)
+		payload, ok := strings.CutPrefix(trimmed, "data:")
+		if !ok || !gjson.Valid(strings.TrimSpace(payload)) {
+			continue
+		}
+		payload = strings.TrimSpace(payload)
+		for _, path := range []string{"model", "response.model", "message.model"} {
+			if model := gjson.Get(payload, path).String(); model != "" {
+				return model
+			}
+		}
+	}
+	return ""
+}
+
 // extractMonitorUsage normalizes the final usage object from JSON or SSE
 // responses. SSE providers may repeat cumulative usage; field-wise maxima avoid
 // charging duplicated completion events.
 func extractMonitorUsage(body []byte) UsageTokens {
 	var usage UsageTokens
 	consume := func(payload []byte) {
-		paths := []string{"usage", "response.usage", "usageMetadata"}
+		paths := []string{"usage", "response.usage", "message.usage", "usageMetadata"}
 		for _, path := range paths {
 			u := gjson.GetBytes(payload, path)
 			if !u.Exists() {
@@ -124,6 +150,7 @@ func extractMonitorUsage(body []byte) UsageTokens {
 			usage.OutputTokens = max(usage.OutputTokens, int(firstMonitorUsageInt(u, "completion_tokens", "output_tokens", "candidatesTokenCount")))
 			usage.CacheReadTokens = max(usage.CacheReadTokens, int(firstMonitorUsageInt(u, "cache_read_input_tokens", "prompt_tokens_details.cached_tokens", "input_tokens_details.cached_tokens", "cachedContentTokenCount")))
 			usage.CacheCreationTokens = max(usage.CacheCreationTokens, int(firstMonitorUsageInt(u, "cache_creation_input_tokens")))
+			usage.OutputTokens = max(usage.OutputTokens, int(firstMonitorUsageInt(u, "completion_tokens", "output_tokens", "candidatesTokenCount"))+int(firstMonitorUsageInt(u, "thoughtsTokenCount", "thoughts_token_count")))
 		}
 	}
 	if !looksLikeSSE(body) {
@@ -143,6 +170,41 @@ func extractMonitorUsage(body []byte) UsageTokens {
 	return usage
 }
 
+// Both sides must be reported before a partial SSE response can release its
+// reservation. Anthropic reports input in message_start and output in delta.
+func monitorUsageComplete(body []byte) bool {
+	input, output := false, false
+	terminal := false
+	consume := func(payload []byte) {
+		kind := gjson.GetBytes(payload, "type").String()
+		terminal = terminal || kind == "response.completed" || kind == "message_stop" || kind == "response.failed" || kind == "response.incomplete"
+		for _, path := range []string{"usage", "response.usage", "message.usage", "usageMetadata"} {
+			u := gjson.GetBytes(payload, path)
+			input = input || u.Get("input_tokens").Exists() || u.Get("prompt_tokens").Exists() || u.Get("promptTokenCount").Exists()
+			output = output || u.Get("output_tokens").Exists() || u.Get("completion_tokens").Exists() || u.Get("candidatesTokenCount").Exists()
+		}
+	}
+	if !looksLikeSSE(body) {
+		consume(body)
+		return input && output
+	} else {
+		for _, line := range strings.Split(string(body), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "data: [DONE]" {
+				terminal = true
+				continue
+			}
+			if payload, ok := strings.CutPrefix(trimmed, "data:"); ok {
+				payload = strings.TrimSpace(payload)
+				if gjson.Valid(payload) {
+					consume([]byte(payload))
+				}
+			}
+		}
+	}
+	return input && output && terminal
+}
+
 func firstMonitorUsageInt(root gjson.Result, paths ...string) int64 {
 	for _, path := range paths {
 		if value := root.Get(path); value.Exists() {
@@ -156,12 +218,10 @@ func monitorUsageKnown(usage UsageTokens) bool {
 	return usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheCreationTokens > 0 || usage.CacheReadTokens > 0
 }
 
-const monitorUnknownOutputTokenReservation = 4096
-
 // estimateMonitorProbeReservation prices an intentionally high token bound:
 // one token per serialized request byte plus the configured output ceiling.
-// Replace bodies without a ceiling use 4096 output tokens rather than becoming
-// unbounded/free. The estimate is operational guardrail data, not an invoice.
+// Bodies without a usable ceiling cannot receive a capped reservation.
+// The estimate is operational guardrail data, not an upstream invoice.
 func estimateMonitorProbeReservation(m *ChannelMonitor, billing *BillingService) (float64, error) {
 	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
 	opts := &CheckOptions{APIMode: m.APIMode, ExtraHeaders: m.ExtraHeaders, BodyOverrideMode: m.BodyOverrideMode, BodyOverride: m.BodyOverride}
@@ -171,16 +231,30 @@ func estimateMonitorProbeReservation(m *ChannelMonitor, billing *BillingService)
 	}
 	total := 0.0
 	for _, model := range models {
-		body, err := buildRequestBody(adapter, m.Provider, apiMode, model, "Return the exact integer 42.", opts)
+		prompt := fmt.Sprintf(monitorChallengePromptTemplate, monitorChallengeMax, "+", monitorChallengeMax)
+		body, err := buildRequestBody(adapter, m.Provider, apiMode, model, prompt, opts)
 		if err != nil {
 			return 0, err
 		}
-		usage := UsageTokens{InputTokens: len(body), OutputTokens: monitorProbeMaxOutputTokens(body)}
+		output := monitorProbeMaxOutputTokens(body)
+		if output <= 0 {
+			return 0, fmt.Errorf("probe request requires a finite output ceiling")
+		}
+		if n := gjson.GetBytes(body, "n"); n.Exists() && n.Int() != 1 {
+			return 0, fmt.Errorf("budgeted probes require one completion")
+		}
+		if candidates := gjson.GetBytes(body, "generationConfig.candidateCount"); candidates.Exists() && candidates.Int() != 1 {
+			return 0, fmt.Errorf("budgeted probes require one candidate")
+		}
+		if rawModel := gjson.GetBytes(body, "model"); rawModel.Exists() {
+			model = rawModel.String()
+		}
+		usage := UsageTokens{InputTokens: len(body) + 256, OutputTokens: output, CacheCreationTokens: len(body) + 256}
 		cost, err := billing.CalculateCost(model, usage, 1)
 		if err != nil {
 			return 0, err
 		}
-		if cost.TotalCost <= 0 {
+		if cost == nil || math.IsNaN(cost.TotalCost) || math.IsInf(cost.TotalCost, 0) || cost.TotalCost <= 0 {
 			return 0, fmt.Errorf("non-positive reservation price for model %s", model)
 		}
 		total += cost.TotalCost
@@ -189,13 +263,16 @@ func estimateMonitorProbeReservation(m *ChannelMonitor, billing *BillingService)
 }
 
 func monitorProbeMaxOutputTokens(body []byte) int {
-	for _, path := range []string{"max_tokens", "max_output_tokens", "generationConfig.maxOutputTokens"} {
+	ceiling := 0
+	for _, path := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens", "generationConfig.maxOutputTokens"} {
 		value := gjson.GetBytes(body, path)
-		if value.Exists() && value.Int() > 0 {
-			return int(value.Int())
+		if value.Exists() && value.Int() > 0 && value.Int() <= 1000000 {
+			if int(value.Int()) > ceiling {
+				ceiling = int(value.Int())
+			}
 		}
 	}
-	return monitorUnknownOutputTokenReservation
+	return ceiling
 }
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。

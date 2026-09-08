@@ -27,6 +27,7 @@ export interface ChannelMonitorBudgetStatus {
   today_estimated_cost_usd: number
   daily_budget_usd: number
   exhausted: boolean
+  unpriced_probes?: number
   resets_at: string
 }
 

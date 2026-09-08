@@ -325,12 +325,13 @@ func (r *channelMonitorRepository) ReserveDailyBudget(ctx context.Context, day t
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO channel_monitor_daily_budget_ledger (budget_date, estimated_cost_usd, updated_at)
 		SELECT $1::date, $2, NOW()
-		WHERE $2 > 0 AND $2 <= $3
+		WHERE $2 > 0 AND ($3 = 0 OR $2 <= $3)
 		ON CONFLICT (budget_date) DO UPDATE
 		SET estimated_cost_usd = channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd,
 		    updated_at = NOW()
-		WHERE channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd <= $3
-		RETURNING estimated_cost_usd`, day, reservation, dailyLimit).Scan(&admitted)
+		WHERE $3 = 0 OR (channel_monitor_daily_budget_ledger.unpriced_probes = 0
+		    AND channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd <= $3)
+		RETURNING estimated_cost_usd`, day.Format("2006-01-02"), reservation, dailyLimit).Scan(&admitted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -346,7 +347,7 @@ func (r *channelMonitorRepository) SettleDailyBudget(ctx context.Context, day ti
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE channel_monitor_daily_budget_ledger
 		SET estimated_cost_usd = GREATEST(estimated_cost_usd - $2 + $3, 0), updated_at = NOW()
-		WHERE budget_date = $1::date`, day, reservation, actualCost)
+		WHERE budget_date = $1::date`, day.Format("2006-01-02"), reservation, actualCost)
 	if err != nil {
 		return fmt.Errorf("settle channel monitor budget: %w", err)
 	}
@@ -360,11 +361,24 @@ func (r *channelMonitorRepository) SettleDailyBudget(ctx context.Context, day ti
 func (r *channelMonitorRepository) TodayEstimatedCost(ctx context.Context, day time.Time) (float64, error) {
 	var total float64
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COALESCE((SELECT estimated_cost_usd FROM channel_monitor_daily_budget_ledger WHERE budget_date = $1::date), 0)`, day).Scan(&total)
+		SELECT COALESCE((SELECT estimated_cost_usd FROM channel_monitor_daily_budget_ledger WHERE budget_date = $1::date), 0)`, day.Format("2006-01-02")).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("read today's channel monitor estimated cost: %w", err)
 	}
 	return total, nil
+}
+
+func (r *channelMonitorRepository) RecordUnpricedProbe(ctx context.Context, day time.Time) error {
+	_, err := r.db.ExecContext(ctx, `INSERT INTO channel_monitor_daily_budget_ledger (budget_date, unpriced_probes)
+		VALUES ($1::date, 1) ON CONFLICT (budget_date) DO UPDATE
+		SET unpriced_probes = channel_monitor_daily_budget_ledger.unpriced_probes + 1, updated_at = NOW()`, day.Format("2006-01-02"))
+	return err
+}
+
+func (r *channelMonitorRepository) UnpricedProbeCount(ctx context.Context, day time.Time) (int64, error) {
+	var count int64
+	err := r.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT unpriced_probes FROM channel_monitor_daily_budget_ledger WHERE budget_date = $1::date), 0)`, day.Format("2006-01-02")).Scan(&count)
+	return count, err
 }
 
 // DeleteHistoryBefore 物理删 checked_at < before 的明细，分批 channelMonitorPruneBatchSize 行一批，
