@@ -840,6 +840,20 @@ export default {
         disableAction: 'Disable smart scheduling',
         toggleHint: 'When disabled, requests use the original scheduler. If scoring is abnormal, routing automatically falls back.',
         toggleSuccess: 'Smart scheduler setting updated',
+        stickyPolicy: {
+          title: 'Sticky escape policy',
+          description: 'Tune quality targets and escape frequency per group. The stability preset favors accounts scoring 80+ with an availability fallback.',
+          targetScore: 'Target score',
+          reviewInterval: 'Review interval (seconds)',
+          qualityLead: 'Quality lead',
+          maxEscapes: 'Max escapes per window',
+          cooldown: 'Switch cooldown (seconds)',
+          window: 'Escape window (seconds)',
+          confirmations: 'High-score confirmations',
+          stabilityPreset: 'High stability preset',
+          recommended: 'Restore recommended',
+          saved: 'Sticky escape policy saved'
+        },
         recoveryProbe: {
           title: 'Recovery probe',
           description: 'Off by default. When enabled, lightweight tests probe isolated or long-idle accounts. The idle threshold is fixed at 1h.',
@@ -848,8 +862,10 @@ export default {
           mode: 'Probe mode',
           modes: {
             manual: 'Fixed interval',
-            smart: 'Smart backoff'
+            smart: 'Smart backoff',
+            highFrequency: 'High-frequency streaming'
           },
+          recommended: 'Restore recommended',
           testModel: 'Test model',
           testModelPlaceholder: 'Required when enabled, e.g. claude-sonnet-4-6',
           fixedInterval: 'Fixed interval (seconds)',

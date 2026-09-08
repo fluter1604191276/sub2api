@@ -2982,6 +2982,37 @@ func (h *AccountHandler) SyncAllModels(c *gin.Context) {
 	response.Success(c, summary)
 }
 
+// PreviewAllModelMappings compares live upstream support with each account's
+// exact model mappings without persisting anything.
+func (h *AccountHandler) PreviewAllModelMappings(c *gin.Context) {
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account model sync service is not configured")
+		return
+	}
+	preview, err := h.accountTestService.PreviewAllAccountModelMappings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
+
+// ApplyModelMappings applies only explicitly selected preview entries.
+func (h *AccountHandler) ApplyModelMappings(c *gin.Context) {
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account model sync service is not configured")
+		return
+	}
+	var req struct {
+		Items []service.AccountModelSyncApplyItem `json:"items" binding:"required,min=1,max=200"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	response.Success(c, gin.H{"results": h.accountTestService.ApplyAccountModelMappings(c.Request.Context(), req.Items)})
+}
+
 // SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account
 // POST /api/v1/admin/accounts/:id/set-privacy
 func (h *AccountHandler) SetPrivacy(c *gin.Context) {

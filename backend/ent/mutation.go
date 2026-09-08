@@ -17907,24 +17907,26 @@ func (m *ChannelMonitorDailyRollupMutation) ResetEdge(name string) error {
 // ChannelMonitorHistoryMutation represents an operation that mutates the ChannelMonitorHistory nodes in the graph.
 type ChannelMonitorHistoryMutation struct {
 	config
-	op                 Op
-	typ                string
-	id                 *int64
-	model              *string
-	status             *channelmonitorhistory.Status
-	latency_ms         *int
-	addlatency_ms      *int
-	ping_latency_ms    *int
-	addping_latency_ms *int
-	message            *string
-	quota              **domain.MonitorQuotaSnapshot
-	checked_at         *time.Time
-	clearedFields      map[string]struct{}
-	monitor            *int64
-	clearedmonitor     bool
-	done               bool
-	oldValue           func(context.Context) (*ChannelMonitorHistory, error)
-	predicates         []predicate.ChannelMonitorHistory
+	op                    Op
+	typ                   string
+	id                    *int64
+	model                 *string
+	status                *channelmonitorhistory.Status
+	latency_ms            *int
+	addlatency_ms         *int
+	ping_latency_ms       *int
+	addping_latency_ms    *int
+	message               *string
+	quota                 **domain.MonitorQuotaSnapshot
+	estimated_cost_usd    *float64
+	addestimated_cost_usd *float64
+	checked_at            *time.Time
+	clearedFields         map[string]struct{}
+	monitor               *int64
+	clearedmonitor        bool
+	done                  bool
+	oldValue              func(context.Context) (*ChannelMonitorHistory, error)
+	predicates            []predicate.ChannelMonitorHistory
 }
 
 var _ ent.Mutation = (*ChannelMonitorHistoryMutation)(nil)
@@ -18371,6 +18373,62 @@ func (m *ChannelMonitorHistoryMutation) ResetQuota() {
 	delete(m.clearedFields, channelmonitorhistory.FieldQuota)
 }
 
+// SetEstimatedCostUsd sets the "estimated_cost_usd" field.
+func (m *ChannelMonitorHistoryMutation) SetEstimatedCostUsd(f float64) {
+	m.estimated_cost_usd = &f
+	m.addestimated_cost_usd = nil
+}
+
+// EstimatedCostUsd returns the value of the "estimated_cost_usd" field in the mutation.
+func (m *ChannelMonitorHistoryMutation) EstimatedCostUsd() (r float64, exists bool) {
+	v := m.estimated_cost_usd
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEstimatedCostUsd returns the old "estimated_cost_usd" field's value of the ChannelMonitorHistory entity.
+// If the ChannelMonitorHistory object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorHistoryMutation) OldEstimatedCostUsd(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEstimatedCostUsd is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEstimatedCostUsd requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEstimatedCostUsd: %w", err)
+	}
+	return oldValue.EstimatedCostUsd, nil
+}
+
+// AddEstimatedCostUsd adds f to the "estimated_cost_usd" field.
+func (m *ChannelMonitorHistoryMutation) AddEstimatedCostUsd(f float64) {
+	if m.addestimated_cost_usd != nil {
+		*m.addestimated_cost_usd += f
+	} else {
+		m.addestimated_cost_usd = &f
+	}
+}
+
+// AddedEstimatedCostUsd returns the value that was added to the "estimated_cost_usd" field in this mutation.
+func (m *ChannelMonitorHistoryMutation) AddedEstimatedCostUsd() (r float64, exists bool) {
+	v := m.addestimated_cost_usd
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEstimatedCostUsd resets all changes to the "estimated_cost_usd" field.
+func (m *ChannelMonitorHistoryMutation) ResetEstimatedCostUsd() {
+	m.estimated_cost_usd = nil
+	m.addestimated_cost_usd = nil
+}
+
 // SetCheckedAt sets the "checked_at" field.
 func (m *ChannelMonitorHistoryMutation) SetCheckedAt(t time.Time) {
 	m.checked_at = &t
@@ -18468,7 +18526,7 @@ func (m *ChannelMonitorHistoryMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorHistoryMutation) Fields() []string {
-	fields := make([]string, 0, 8)
+	fields := make([]string, 0, 9)
 	if m.monitor != nil {
 		fields = append(fields, channelmonitorhistory.FieldMonitorID)
 	}
@@ -18489,6 +18547,9 @@ func (m *ChannelMonitorHistoryMutation) Fields() []string {
 	}
 	if m.quota != nil {
 		fields = append(fields, channelmonitorhistory.FieldQuota)
+	}
+	if m.estimated_cost_usd != nil {
+		fields = append(fields, channelmonitorhistory.FieldEstimatedCostUsd)
 	}
 	if m.checked_at != nil {
 		fields = append(fields, channelmonitorhistory.FieldCheckedAt)
@@ -18515,6 +18576,8 @@ func (m *ChannelMonitorHistoryMutation) Field(name string) (ent.Value, bool) {
 		return m.Message()
 	case channelmonitorhistory.FieldQuota:
 		return m.Quota()
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		return m.EstimatedCostUsd()
 	case channelmonitorhistory.FieldCheckedAt:
 		return m.CheckedAt()
 	}
@@ -18540,6 +18603,8 @@ func (m *ChannelMonitorHistoryMutation) OldField(ctx context.Context, name strin
 		return m.OldMessage(ctx)
 	case channelmonitorhistory.FieldQuota:
 		return m.OldQuota(ctx)
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		return m.OldEstimatedCostUsd(ctx)
 	case channelmonitorhistory.FieldCheckedAt:
 		return m.OldCheckedAt(ctx)
 	}
@@ -18600,6 +18665,13 @@ func (m *ChannelMonitorHistoryMutation) SetField(name string, value ent.Value) e
 		}
 		m.SetQuota(v)
 		return nil
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEstimatedCostUsd(v)
+		return nil
 	case channelmonitorhistory.FieldCheckedAt:
 		v, ok := value.(time.Time)
 		if !ok {
@@ -18621,6 +18693,9 @@ func (m *ChannelMonitorHistoryMutation) AddedFields() []string {
 	if m.addping_latency_ms != nil {
 		fields = append(fields, channelmonitorhistory.FieldPingLatencyMs)
 	}
+	if m.addestimated_cost_usd != nil {
+		fields = append(fields, channelmonitorhistory.FieldEstimatedCostUsd)
+	}
 	return fields
 }
 
@@ -18633,6 +18708,8 @@ func (m *ChannelMonitorHistoryMutation) AddedField(name string) (ent.Value, bool
 		return m.AddedLatencyMs()
 	case channelmonitorhistory.FieldPingLatencyMs:
 		return m.AddedPingLatencyMs()
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		return m.AddedEstimatedCostUsd()
 	}
 	return nil, false
 }
@@ -18655,6 +18732,13 @@ func (m *ChannelMonitorHistoryMutation) AddField(name string, value ent.Value) e
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddPingLatencyMs(v)
+		return nil
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEstimatedCostUsd(v)
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitorHistory numeric field %s", name)
@@ -18730,6 +18814,9 @@ func (m *ChannelMonitorHistoryMutation) ResetField(name string) error {
 		return nil
 	case channelmonitorhistory.FieldQuota:
 		m.ResetQuota()
+		return nil
+	case channelmonitorhistory.FieldEstimatedCostUsd:
+		m.ResetEstimatedCostUsd()
 		return nil
 	case channelmonitorhistory.FieldCheckedAt:
 		m.ResetCheckedAt()

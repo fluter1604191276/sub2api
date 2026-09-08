@@ -220,4 +220,8 @@ var (
 		"CHANNEL_MONITOR_MODE_MISMATCH",
 		"channel monitor mode does not allow this operation",
 	)
+	ErrChannelMonitorDailyBudgetExhausted = infraerrors.Forbidden(
+		"CHANNEL_MONITOR_DAILY_BUDGET_EXHAUSTED",
+		"channel monitor daily budget is exhausted; active probes resume next day",
+	)
 )

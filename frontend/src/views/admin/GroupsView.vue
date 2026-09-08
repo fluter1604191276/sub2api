@@ -4588,6 +4588,29 @@
           v-if="smartSchedulerGroup"
           class="space-y-3 rounded-lg border border-gray-200 bg-white p-3 text-sm dark:border-dark-600 dark:bg-dark-900"
         >
+          <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div class="font-medium text-gray-900 dark:text-white">{{ t("admin.groups.smartScheduler.stickyPolicy.title") }}</div>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.smartScheduler.stickyPolicy.description") }}</p>
+              </div>
+              <div class="flex gap-2">
+                <button type="button" class="btn btn-secondary" :disabled="stickyPolicySaving" @click="applyStickyPolicyPreset('stability')">{{ t("admin.groups.smartScheduler.stickyPolicy.stabilityPreset") }}</button>
+                <button type="button" class="btn btn-secondary" :disabled="stickyPolicySaving" @click="applyStickyPolicyPreset('recommended')">{{ t("admin.groups.smartScheduler.stickyPolicy.recommended") }}</button>
+                <button type="button" class="btn btn-primary" :disabled="stickyPolicySaving" @click="saveStickyPolicy">{{ stickyPolicySaving ? t("common.saving") : t("common.save") }}</button>
+              </div>
+            </div>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.targetScore") }}<input v-model.number="stickyPolicy.target_score" class="input mt-1" type="number" min="0" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.reviewInterval") }}<input v-model.number="stickyPolicy.review_interval_seconds" class="input mt-1" type="number" min="15" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.qualityLead") }}<input v-model.number="stickyPolicy.quality_lead" class="input mt-1" type="number" min="0" max="50" step="0.5" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.maxEscapes") }}<input v-model.number="stickyPolicy.max_escapes" class="input mt-1" type="number" min="1" max="100" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.cooldown") }}<input v-model.number="stickyPolicy.switch_cooldown_seconds" class="input mt-1" type="number" min="0" max="3600" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.window") }}<input v-model.number="stickyPolicy.escape_window_seconds" class="input mt-1" type="number" min="60" max="86400" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.confirmations") }}<input v-model.number="stickyPolicy.elite_confirmations" class="input mt-1" type="number" min="1" max="5" /></label>
+            </div>
+          </div>
+
           <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div class="font-medium text-gray-900 dark:text-white">
@@ -4638,9 +4661,9 @@
                 v-model.number="recoveryProbeIntervalSeconds"
                 data-testid="recovery-probe-fixed-interval"
                 type="number"
-                min="60"
+                :min="recoveryProbeMode === 'high_frequency' ? 15 : 60"
                 max="86400"
-                step="60"
+                :step="recoveryProbeMode === 'high_frequency' ? 15 : 60"
                 class="input"
               />
             </div>
@@ -4680,15 +4703,26 @@
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ recoveryProbeSummary }}
             </p>
-            <button
-              type="button"
-              data-testid="recovery-probe-save"
-              class="btn btn-primary flex-shrink-0"
-              :disabled="recoveryProbeSaving || (recoveryProbeEnabled && !recoveryProbeModel.trim())"
-              @click="saveRecoveryProbeSettings"
-            >
-              {{ recoveryProbeSaving ? t("common.saving") : t("common.save") }}
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="recovery-probe-recommended"
+                class="btn btn-secondary flex-shrink-0"
+                :disabled="recoveryProbeSaving"
+                @click="applyRecommendedRecoveryProbeConfig"
+              >
+                {{ t("admin.groups.smartScheduler.recoveryProbe.recommended") }}
+              </button>
+              <button
+                type="button"
+                data-testid="recovery-probe-save"
+                class="btn btn-primary flex-shrink-0"
+                :disabled="recoveryProbeSaving || (recoveryProbeEnabled && !recoveryProbeModel.trim())"
+                @click="saveRecoveryProbeSettings"
+              >
+                {{ recoveryProbeSaving ? t("common.saving") : t("common.save") }}
+              </button>
+            </div>
           </div>
 
           <div
@@ -5838,8 +5872,10 @@ const poolErrorPolicySaving = ref(false);
 const smartSchedulerModel = ref("");
 const smartSchedulerEndpoint = ref("any");
 const smartSchedulerReqSeq = ref(0);
+const stickyPolicySaving = ref(false);
+const stickyPolicy = reactive({ target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
 const recoveryProbeEnabled = ref(false);
-const recoveryProbeMode = ref<"manual" | "smart">("manual");
+const recoveryProbeMode = ref<"manual" | "smart" | "high_frequency">("manual");
 const recoveryProbeModel = ref("");
 const recoveryProbeIntervalSeconds = ref(900);
 const recoveryProbeAttemptsPerRound = ref(1);
@@ -5868,6 +5904,7 @@ const smartSchedulerEndpointOptions = computed(() => [
 const recoveryProbeModeOptions = computed(() => [
   { value: "manual", label: t("admin.groups.smartScheduler.recoveryProbe.modes.manual") },
   { value: "smart", label: t("admin.groups.smartScheduler.recoveryProbe.modes.smart") },
+  { value: "high_frequency", label: t("admin.groups.smartScheduler.recoveryProbe.modes.highFrequency") },
 ]);
 
 const poolModeEnabledPolicyOptions = computed(() => [
@@ -7479,7 +7516,9 @@ const saveRecoveryProbeBilling = async () => {
 const setRecoveryProbeFormFromGroup = (group: AdminGroup) => {
   recoveryProbeEnabled.value = group.recovery_probe_enabled ?? false;
   recoveryProbeMode.value =
-    group.recovery_probe_mode === "smart" ? "smart" : "manual";
+    group.recovery_probe_mode === "smart" || group.recovery_probe_mode === "high_frequency"
+      ? group.recovery_probe_mode
+      : "manual";
   recoveryProbeModel.value = group.recovery_probe_model ?? "";
   recoveryProbeIntervalSeconds.value = normalizeRecoveryProbeInteger(
     group.recovery_probe_interval_seconds,
@@ -7493,6 +7532,14 @@ const setRecoveryProbeFormFromGroup = (group: AdminGroup) => {
     group.recovery_probe_backoff_cap_seconds,
     1800,
   );
+};
+
+const applyRecommendedRecoveryProbeConfig = () => {
+  recoveryProbeEnabled.value = false;
+  recoveryProbeMode.value = "smart";
+  recoveryProbeIntervalSeconds.value = 900;
+  recoveryProbeAttemptsPerRound.value = 1;
+  recoveryProbeBackoffCapSeconds.value = 1800;
 };
 
 const formatPolicyCodes = (codes: number[] | null | undefined): string =>
@@ -7640,10 +7687,25 @@ const handleSmartScheduler = async (group: AdminGroup) => {
   setRecoveryProbeFormFromGroup(group);
   setPoolErrorPolicyFormFromGroup(group);
   showSmartSchedulerModal.value = true;
+  try { Object.assign(stickyPolicy, await adminAPI.groups.getSmartStickyPolicy(group.id)); } catch { /* legacy defaults remain */ }
   await Promise.all([
     loadSmartSchedulerPreview(),
     loadRecoveryProbeBilling(),
   ]);
+};
+
+const applyStickyPolicyPreset = (preset: string) => {
+  Object.assign(stickyPolicy, preset === "stability"
+    ? { target_score: 80, review_interval_seconds: 15, switch_cooldown_seconds: 15, quality_lead: 2, max_escapes: 12, escape_window_seconds: 3600, elite_confirmations: 1 }
+    : { target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+};
+
+const saveStickyPolicy = async () => {
+  if (!smartSchedulerGroup.value || stickyPolicySaving.value) return;
+  stickyPolicySaving.value = true;
+  try { Object.assign(stickyPolicy, await adminAPI.groups.updateSmartStickyPolicy(smartSchedulerGroup.value.id, stickyPolicy)); appStore.showSuccess(t("admin.groups.smartScheduler.stickyPolicy.saved")); }
+  catch (error: any) { appStore.showError(error.response?.data?.detail || t("admin.groups.failedToUpdate")); }
+  finally { stickyPolicySaving.value = false; }
 };
 
 const closeSmartSchedulerModal = () => {

@@ -92,6 +92,9 @@ export default {
       syncAllModelsSuccess: '模型同步完成：成功 {success}，不支持 {unsupported}',
       syncAllModelsPartial: '模型同步完成：成功 {success}，失败 {failed}，不支持 {unsupported}',
       syncAllModelsFailed: '同步账号模型失败',
+      modelSync: {
+        title: '同步上游支持模型', summary: '检测到 {changed} 个账号有变化（共 {total} 个）', apply: '应用选中 ({count})', applying: '应用中...', applied: '已应用 {count} 个账号，冲突 {conflicts} 个', applyFailed: '应用模型映射失败'
+      },
       ungroupedGroup: '未分配分组',
       oauthType: 'OAuth',
       // Schedulable toggle

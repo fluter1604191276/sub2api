@@ -778,6 +778,10 @@ func (s *OpenAIGatewayService) logSmartStickySwitchApplied(ctx context.Context, 
 }
 
 func decideOpenAISmartStickyReview(ordering *SmartSchedulerOrdering, currentAccountID int64) openAISmartStickyReviewDecision {
+	return decideOpenAISmartStickyReviewWithPolicy(ordering, currentAccountID, RecommendedSmartStickyPolicy())
+}
+
+func decideOpenAISmartStickyReviewWithPolicy(ordering *SmartSchedulerOrdering, currentAccountID int64, policy SmartStickyPolicy) openAISmartStickyReviewDecision {
 	decision := openAISmartStickyReviewDecision{Reviewed: ordering != nil && ordering.Active}
 	if ordering == nil || !ordering.Active || currentAccountID <= 0 {
 		return decision
@@ -842,8 +846,12 @@ func decideOpenAISmartStickyReview(ordering *SmartSchedulerOrdering, currentAcco
 	}
 	if current.Score != nil && decision.ChallengerScore != nil {
 		decision.RequiredQualityLead = smartStickyRequiredQualityLead(current.Score)
+		if policy.QualityLead > 0 {
+			decision.RequiredQualityLead = policy.QualityLead
+		}
 		decision.QualityLead = *decision.ChallengerScore - *current.Score
-		if decision.QualityLead >= decision.RequiredQualityLead {
+		targetEscape := *current.Score < policy.TargetScore && *decision.ChallengerScore >= policy.TargetScore
+		if decision.QualityLead >= decision.RequiredQualityLead || targetEscape {
 			decision.Switch = true
 			decision.Reason = "better_quality"
 			decision.RequiresConfirmation = *current.Score >= smartStickyEliteMinScore
@@ -896,6 +904,7 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 	}
 	key := smartStickyReviewKeyWithContext(ctx, req)
 	now := time.Now()
+	policy := s.smartStickyPolicy(ctx, group.ID)
 	if !s.claimSmartStickyReview(key, now) {
 		return openAISmartStickyReviewDecision{}
 	}
@@ -919,12 +928,14 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 	if err != nil {
 		return openAISmartStickyReviewDecision{}
 	}
-	decision := decideOpenAISmartStickyReview(ordering, currentAccountID)
+	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, currentAccountID, policy)
 	decision = s.applySmartStickyReviewState(key, now, decision)
 	if decision.ConfirmationPending || decision.Cooldown {
-		interval = smartStickyWeakReviewInterval
+		interval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
 	} else if decision.Strong || decision.Switch {
-		interval = smartStickyStrongReviewInterval
+		interval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
+	} else if policy.ReviewIntervalSeconds > 0 {
+		interval = time.Duration(policy.ReviewIntervalSeconds) * time.Second
 	}
 	attrs := []any{
 		"group_id", group.ID,

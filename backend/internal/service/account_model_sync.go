@@ -59,6 +59,37 @@ type AccountModelSyncSummary struct {
 	Results     []AccountModelSyncResult `json:"results"`
 }
 
+// AccountModelSyncPreviewEntry describes a side-effect-free live upstream
+// model comparison for one account. Version is used for optimistic apply.
+type AccountModelSyncPreviewEntry struct {
+	AccountID      int64    `json:"account_id"`
+	AccountName    string   `json:"account_name"`
+	Status         string   `json:"status"`
+	Version        string   `json:"version"`
+	CurrentModels  []string `json:"current_models,omitempty"`
+	UpstreamModels []string `json:"upstream_models,omitempty"`
+	Added          []string `json:"added,omitempty"`
+	Removed        []string `json:"removed,omitempty"`
+	Error          string   `json:"error,omitempty"`
+}
+
+type AccountModelSyncPreview struct {
+	Total   int                            `json:"total"`
+	Changed int                            `json:"changed"`
+	Results []AccountModelSyncPreviewEntry `json:"results"`
+}
+
+type AccountModelSyncApplyItem struct {
+	AccountID int64  `json:"account_id" binding:"required"`
+	Version   string `json:"version" binding:"required"`
+}
+
+type AccountModelSyncApplyResult struct {
+	AccountID int64  `json:"account_id"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+}
+
 type modelDiscoveryError struct {
 	statusCode int
 	message    string
@@ -202,6 +233,131 @@ func (s *AccountTestService) SyncAllAccountModels(ctx context.Context) (*Account
 		}
 	}
 	return summary, nil
+}
+
+// PreviewAllAccountModelMappings fetches live upstream models without writing
+// snapshots or credentials. Existing exact identity mappings are compared;
+// wildcard and translated mappings are intentionally excluded from removal.
+func (s *AccountTestService) PreviewAllAccountModelMappings(ctx context.Context) (*AccountModelSyncPreview, error) {
+	accounts, err := s.listAllAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	preview := &AccountModelSyncPreview{Total: len(accounts), Results: make([]AccountModelSyncPreviewEntry, len(accounts))}
+	for i := range accounts {
+		account := &accounts[i]
+		entry := AccountModelSyncPreviewEntry{AccountID: account.ID, AccountName: account.Name, Version: account.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+		entry.CurrentModels = exactMappedModels(account.Credentials)
+		models, fetchErr := s.FetchUpstreamSupportedModels(ctx, account)
+		if fetchErr != nil {
+			entry.Status = accountModelsSyncFailed
+			entry.Error = "upstream model discovery failed"
+			preview.Results[i] = entry
+			continue
+		}
+		entry.Status = accountModelsSyncSuccess
+		entry.UpstreamModels = models
+		entry.Added, entry.Removed = modelSetDiff(entry.CurrentModels, models)
+		if len(entry.Added) > 0 || len(entry.Removed) > 0 {
+			preview.Changed++
+		}
+		preview.Results[i] = entry
+	}
+	return preview, nil
+}
+
+// ApplyAccountModelMappings applies only selected accounts whose version still
+// matches preview. Credentials are merged against the latest row, so secrets
+// and non-model settings cannot be overwritten by stale preview data.
+func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, items []AccountModelSyncApplyItem) []AccountModelSyncApplyResult {
+	results := make([]AccountModelSyncApplyResult, 0, len(items))
+	for _, item := range items {
+		result := AccountModelSyncApplyResult{AccountID: item.AccountID}
+		account, err := s.accountRepo.GetByID(ctx, item.AccountID)
+		if err != nil {
+			result.Status, result.Error = "failed", "account not found"
+			results = append(results, result)
+			continue
+		}
+		version := account.UpdatedAt.UTC().Format(time.RFC3339Nano)
+		if item.Version == "" || item.Version != version {
+			result.Status, result.Error = "conflict", "account changed after preview"
+			results = append(results, result)
+			continue
+		}
+		models, err := s.FetchUpstreamSupportedModels(ctx, account)
+		if err != nil || len(models) == 0 {
+			result.Status, result.Error = "failed", "upstream model discovery failed"
+			results = append(results, result)
+			continue
+		}
+		credentials := shallowCopyMap(account.Credentials)
+		mapping := map[string]any{}
+		if raw, ok := credentials["model_mapping"].(map[string]any); ok {
+			for k, v := range raw {
+				ks, vs := strings.TrimSpace(k), strings.TrimSpace(fmt.Sprint(v))
+				if ks != "" && vs != "" && ks != vs {
+					mapping[ks] = v
+				}
+			}
+		} else if raw, ok := credentials["model_mapping"].(map[string]string); ok {
+			for k, v := range raw {
+				ks, vs := strings.TrimSpace(k), strings.TrimSpace(v)
+				if ks != "" && vs != "" && ks != vs {
+					mapping[ks] = v
+				}
+			}
+		}
+		for _, model := range models {
+			mapping[model] = model
+		}
+		credentials["model_mapping"] = mapping
+		if err := persistAccountCredentials(ctx, s.accountRepo, account, credentials); err != nil {
+			result.Status, result.Error = "failed", "failed to persist model mapping"
+		} else {
+			result.Status = "applied"
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func exactMappedModels(credentials map[string]any) []string {
+	result := []string{}
+	raw, ok := credentials["model_mapping"].(map[string]any)
+	if !ok {
+		return result
+	}
+	for key, value := range raw {
+		if strings.TrimSpace(key) != "" && key == strings.TrimSpace(fmt.Sprint(value)) && !strings.Contains(key, "*") {
+			result = append(result, key)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func modelSetDiff(current, upstream []string) (added, removed []string) {
+	cur, next := map[string]struct{}{}, map[string]struct{}{}
+	for _, m := range current {
+		cur[m] = struct{}{}
+	}
+	for _, m := range upstream {
+		next[m] = struct{}{}
+	}
+	for m := range next {
+		if _, ok := cur[m]; !ok {
+			added = append(added, m)
+		}
+	}
+	for m := range cur {
+		if _, ok := next[m]; !ok {
+			removed = append(removed, m)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return
 }
 
 func (s *AccountTestService) listAllAccounts(ctx context.Context) ([]Account, error) {

@@ -15,6 +15,11 @@ import (
 const (
 	GroupRecoveryProbeModeManual = "manual"
 	GroupRecoveryProbeModeSmart  = "smart"
+	// GroupRecoveryProbeModeHighFrequency continuously benchmarks every active,
+	// schedulable account with short, repeated streaming probes. Repository and
+	// billing guards still deduplicate physical accounts and reserve the entire
+	// round before any request is sent.
+	GroupRecoveryProbeModeHighFrequency = "high_frequency"
 
 	GroupRecoveryProbeStatusPending  = "pending"
 	GroupRecoveryProbeStatusProbing  = "probing"
@@ -27,12 +32,15 @@ const (
 	GroupRecoveryProbeErrorTransient = "transient"
 	GroupRecoveryProbeErrorPermanent = "permanent"
 
-	GroupRecoveryProbeDefaultIntervalSeconds   = 15 * 60
-	GroupRecoveryProbeDefaultBackoffCapSeconds = 30 * 60
-	GroupRecoveryProbeIdleThresholdSeconds     = 60 * 60
-	GroupRecoveryProbeMinIntervalSeconds       = 60
-	GroupRecoveryProbeMaxIntervalSeconds       = 24 * 60 * 60
-	GroupRecoveryProbeMaxAttemptsPerRound      = 5
+	GroupRecoveryProbeDefaultIntervalSeconds         = 15 * 60
+	GroupRecoveryProbeDefaultBackoffCapSeconds       = 30 * 60
+	GroupRecoveryProbeIdleThresholdSeconds           = 60 * 60
+	GroupRecoveryProbeMinIntervalSeconds             = 60
+	GroupRecoveryProbeMaxIntervalSeconds             = 24 * 60 * 60
+	GroupRecoveryProbeMaxAttemptsPerRound            = 5
+	GroupRecoveryProbeHighFrequencyIntervalSeconds   = 15
+	GroupRecoveryProbeHighFrequencyAttemptsPerRound  = 5
+	GroupRecoveryProbeHighFrequencyBackoffCapSeconds = 5 * 60
 	// Healthy accounts only need periodic recovery confirmation. A shorter
 	// interval is still used for the first warm-up success.
 	GroupRecoveryProbeSmartEligibleMinIntervalSeconds = 60 * 60
@@ -60,21 +68,33 @@ func NormalizeGroupRecoveryProbeConfig(cfg GroupRecoveryProbeConfig) (GroupRecov
 	if cfg.Mode == "" {
 		cfg.Mode = GroupRecoveryProbeModeSmart
 	}
-	if cfg.Mode != GroupRecoveryProbeModeManual && cfg.Mode != GroupRecoveryProbeModeSmart {
-		return cfg, fmt.Errorf("recovery_probe_mode must be manual or smart")
+	if cfg.Mode != GroupRecoveryProbeModeManual && cfg.Mode != GroupRecoveryProbeModeSmart && cfg.Mode != GroupRecoveryProbeModeHighFrequency {
+		return cfg, fmt.Errorf("recovery_probe_mode must be manual, smart, or high_frequency")
 	}
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	if cfg.Enabled && cfg.Model == "" {
 		return cfg, fmt.Errorf("recovery_probe_model is required when recovery probes are enabled")
 	}
 	if cfg.IntervalSeconds == 0 {
-		cfg.IntervalSeconds = GroupRecoveryProbeDefaultIntervalSeconds
+		if cfg.Mode == GroupRecoveryProbeModeHighFrequency {
+			cfg.IntervalSeconds = GroupRecoveryProbeHighFrequencyIntervalSeconds
+		} else {
+			cfg.IntervalSeconds = GroupRecoveryProbeDefaultIntervalSeconds
+		}
 	}
-	if cfg.IntervalSeconds < GroupRecoveryProbeMinIntervalSeconds || cfg.IntervalSeconds > GroupRecoveryProbeMaxIntervalSeconds {
-		return cfg, fmt.Errorf("recovery_probe_interval_seconds must be between %d and %d", GroupRecoveryProbeMinIntervalSeconds, GroupRecoveryProbeMaxIntervalSeconds)
+	minInterval := GroupRecoveryProbeMinIntervalSeconds
+	if cfg.Mode == GroupRecoveryProbeModeHighFrequency {
+		minInterval = GroupRecoveryProbeHighFrequencyIntervalSeconds
+	}
+	if cfg.IntervalSeconds < minInterval || cfg.IntervalSeconds > GroupRecoveryProbeMaxIntervalSeconds {
+		return cfg, fmt.Errorf("recovery_probe_interval_seconds must be between %d and %d", minInterval, GroupRecoveryProbeMaxIntervalSeconds)
 	}
 	if cfg.AttemptsPerRound == 0 {
-		cfg.AttemptsPerRound = 1
+		if cfg.Mode == GroupRecoveryProbeModeHighFrequency {
+			cfg.AttemptsPerRound = GroupRecoveryProbeHighFrequencyAttemptsPerRound
+		} else {
+			cfg.AttemptsPerRound = 1
+		}
 	}
 	if cfg.AttemptsPerRound < 1 || cfg.AttemptsPerRound > GroupRecoveryProbeMaxAttemptsPerRound {
 		return cfg, fmt.Errorf("recovery_probe_attempts_per_round must be between 1 and %d", GroupRecoveryProbeMaxAttemptsPerRound)
@@ -86,7 +106,11 @@ func NormalizeGroupRecoveryProbeConfig(cfg GroupRecoveryProbeConfig) (GroupRecov
 		return cfg, fmt.Errorf("recovery_probe_idle_threshold_seconds must be %d", GroupRecoveryProbeIdleThresholdSeconds)
 	}
 	if cfg.BackoffCapSeconds == 0 {
-		cfg.BackoffCapSeconds = GroupRecoveryProbeDefaultBackoffCapSeconds
+		if cfg.Mode == GroupRecoveryProbeModeHighFrequency {
+			cfg.BackoffCapSeconds = GroupRecoveryProbeHighFrequencyBackoffCapSeconds
+		} else {
+			cfg.BackoffCapSeconds = GroupRecoveryProbeDefaultBackoffCapSeconds
+		}
 	}
 	if cfg.BackoffCapSeconds < GroupRecoveryProbeMinIntervalSeconds || cfg.BackoffCapSeconds > GroupRecoveryProbeMaxIntervalSeconds {
 		return cfg, fmt.Errorf("recovery_probe_backoff_cap_seconds must be between %d and %d", GroupRecoveryProbeMinIntervalSeconds, GroupRecoveryProbeMaxIntervalSeconds)

@@ -31,6 +31,11 @@ type GroupHandler struct {
 	recoveryProbeBilling *service.GroupRecoveryProbeBillingService
 }
 
+type smartStickyPolicyAdmin interface {
+	GetSmartStickyPolicy(context.Context, int64) (service.SmartStickyPolicy, error)
+	UpdateSmartStickyPolicy(context.Context, int64, service.SmartStickyPolicy) (service.SmartStickyPolicy, error)
+}
+
 // GetLiveCapability 返回当前服务端是否具备生成 Live attestation 的运行环境。
 func (h *GroupHandler) GetLiveCapability(c *gin.Context) {
 	err := liveattestation.NewProvider().Check(c.Request.Context())
@@ -547,6 +552,51 @@ func (h *GroupHandler) GetByID(c *gin.Context) {
 	}
 
 	response.Success(c, dto.GroupFromServiceAdmin(group))
+}
+
+// GetSmartStickyPolicy returns the group's sticky quality escape policy.
+func (h *GroupHandler) GetSmartStickyPolicy(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	policyService, ok := h.adminService.(smartStickyPolicyAdmin)
+	if !ok {
+		response.Error(c, http.StatusNotImplemented, "Smart sticky policy unavailable")
+		return
+	}
+	policy, err := policyService.GetSmartStickyPolicy(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, policy)
+}
+
+// UpdateSmartStickyPolicy updates or restores a group's sticky quality escape policy.
+func (h *GroupHandler) UpdateSmartStickyPolicy(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var policy service.SmartStickyPolicy
+	if err := c.ShouldBindJSON(&policy); err != nil {
+		response.BadRequest(c, "Invalid smart sticky policy")
+		return
+	}
+	policyService, ok := h.adminService.(smartStickyPolicyAdmin)
+	if !ok {
+		response.Error(c, http.StatusNotImplemented, "Smart sticky policy unavailable")
+		return
+	}
+	updated, err := policyService.UpdateSmartStickyPolicy(c.Request.Context(), id, policy)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, updated)
 }
 
 // GetModelsListCandidates handles getting candidate model IDs for custom /v1/models list.

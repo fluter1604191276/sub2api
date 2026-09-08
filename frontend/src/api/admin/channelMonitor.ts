@@ -23,6 +23,13 @@ export type APIMode = 'chat_completions' | 'responses'
  */
 export type CheckMode = 'probe' | 'quota' | 'quota_probe'
 
+export interface ChannelMonitorBudgetStatus {
+  today_estimated_cost_usd: number
+  daily_budget_usd: number
+  exhausted: boolean
+  resets_at: string
+}
+
 /** 配额快照中的单个用量窗口（与后端 domain.MonitorQuotaTier 一致）。 */
 export interface MonitorQuotaTier {
   /** 5h | 7d | 7d-sonnet | 7d-fable | 30d | daily | weekly | total */
@@ -332,6 +339,11 @@ export async function bulkUpdateInterval(
   return data
 }
 
+export async function getBudgetStatus(): Promise<ChannelMonitorBudgetStatus> {
+  const { data } = await apiClient.get<ChannelMonitorBudgetStatus>('/admin/channel-monitors/budget')
+  return data
+}
+
 /**
  * Delete a channel monitor
  */
@@ -368,7 +380,8 @@ export const channelMonitorAPI = {
   create,
   duplicate,
   update,
-  bulkUpdateInterval,
+	bulkUpdateInterval,
+	getBudgetStatus,
   del,
   runNow,
   listHistory,

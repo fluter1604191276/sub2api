@@ -93,7 +93,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 			AND a.status = 'active'
 			AND a.schedulable = TRUE
 			AND a.deleted_at IS NULL
-			AND NOT EXISTS (
+			AND (g.recovery_probe_mode = 'high_frequency' OR NOT EXISTS (
 				SELECT 1
 				FROM usage_logs ul
 							WHERE ul.account_id = a.id
@@ -102,7 +102,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 							AND ul.request_type <> 6
 						AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 					AND ul.created_at >= $1::timestamptz - make_interval(secs => g.recovery_probe_idle_threshold_seconds)
-				)
+				))
 		ON CONFLICT DO NOTHING
 	`, now.UTC()); err != nil {
 		return nil, fmt.Errorf("seed group recovery probe states: %w", err)
@@ -140,6 +140,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 			SELECT p.id AS physical_id, p.account_id, p.model_key,
 				MIN(s.next_probe_at) AS due_at,
 				MIN(g.recovery_probe_idle_threshold_seconds) AS idle_threshold_seconds,
+				BOOL_OR(g.recovery_probe_mode = 'high_frequency') AS high_frequency,
 				COUNT(DISTINCT g.id) AS beneficiary_group_count
 			FROM group_recovery_probe_physical_states p
 			JOIN group_recovery_probe_states s ON s.physical_state_id = p.id
@@ -172,7 +173,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 			WHERE a.status = 'active' AND a.schedulable = TRUE AND a.deleted_at IS NULL
 				AND membership.due_at <= $1::timestamptz
 				AND (p.status <> 'probing' OR p.updated_at <= $1::timestamptz - INTERVAL '`+groupRecoveryProbeStaleClaimInterval+`')
-				AND NOT EXISTS (
+				AND (membership.high_frequency OR NOT EXISTS (
 					SELECT 1 FROM usage_logs ul
 							WHERE ul.account_id = p.account_id
 								AND LOWER(BTRIM(COALESCE(NULLIF(BTRIM(ul.requested_model), ''), ul.model))) = p.model_key
@@ -180,7 +181,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 							AND ul.request_type <> 6
 						AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 						AND ul.created_at >= $1::timestamptz - make_interval(secs => membership.idle_threshold_seconds)
-				)
+				))
 			ORDER BY membership.due_at ASC, p.id ASC
 			FOR UPDATE OF p SKIP LOCKED
 			LIMIT $2

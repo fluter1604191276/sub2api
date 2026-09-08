@@ -158,6 +158,30 @@ func TestNormalizeGroupRecoveryProbeConfig_DefaultsDisabled(t *testing.T) {
 	require.Equal(t, GroupRecoveryProbeDefaultBackoffCapSeconds, cfg.BackoffCapSeconds)
 }
 
+func TestNormalizeGroupRecoveryProbeConfig_HighFrequencyDefaults(t *testing.T) {
+	cfg, err := NormalizeGroupRecoveryProbeConfig(GroupRecoveryProbeConfig{
+		Enabled: true,
+		Mode:    GroupRecoveryProbeModeHighFrequency,
+		Model:   "gpt-test",
+	})
+	require.NoError(t, err)
+	require.Equal(t, GroupRecoveryProbeModeHighFrequency, cfg.Mode)
+	require.Equal(t, GroupRecoveryProbeHighFrequencyIntervalSeconds, cfg.IntervalSeconds)
+	require.Equal(t, GroupRecoveryProbeHighFrequencyAttemptsPerRound, cfg.AttemptsPerRound)
+	require.Equal(t, GroupRecoveryProbeHighFrequencyBackoffCapSeconds, cfg.BackoffCapSeconds)
+}
+
+func TestNormalizeGroupRecoveryProbeConfig_HighFrequencyAllows15Seconds(t *testing.T) {
+	cfg, err := NormalizeGroupRecoveryProbeConfig(GroupRecoveryProbeConfig{
+		Mode:              GroupRecoveryProbeModeHighFrequency,
+		IntervalSeconds:   15,
+		AttemptsPerRound:  5,
+		BackoffCapSeconds: 60,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 15, cfg.IntervalSeconds)
+}
+
 func TestNormalizeGroupRecoveryProbeConfig_EnabledRequiresModel(t *testing.T) {
 	_, err := NormalizeGroupRecoveryProbeConfig(GroupRecoveryProbeConfig{Enabled: true})
 	require.ErrorContains(t, err, "recovery_probe_model")

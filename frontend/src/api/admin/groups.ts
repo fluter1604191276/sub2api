@@ -26,6 +26,27 @@ export interface LiveCapability {
   reason?: string
 }
 
+export interface SmartStickyPolicy {
+  preset?: string
+  target_score: number
+  review_interval_seconds: number
+  switch_cooldown_seconds: number
+  quality_lead: number
+  max_escapes: number
+  escape_window_seconds: number
+  elite_confirmations: number
+}
+
+export async function getSmartStickyPolicy(id: number): Promise<SmartStickyPolicy> {
+  const { data } = await apiClient.get<SmartStickyPolicy>(`/admin/groups/${id}/smart-scheduler/policy`)
+  return data
+}
+
+export async function updateSmartStickyPolicy(id: number, policy: Partial<SmartStickyPolicy> & { preset?: string }): Promise<SmartStickyPolicy> {
+  const { data } = await apiClient.put<SmartStickyPolicy>(`/admin/groups/${id}/smart-scheduler/policy`, policy)
+  return data
+}
+
 /**
  * List all groups with pagination
  * @param page - Page number (default: 1)
@@ -535,6 +556,8 @@ export const groupsAPI = {
   getById,
   getModelsListCandidates,
   getSmartSchedulerPreview,
+  getSmartStickyPolicy,
+  updateSmartStickyPolicy,
   getRecoveryProbeBilling,
   updateRecoveryProbeBilling,
   create,

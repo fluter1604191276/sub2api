@@ -563,6 +563,7 @@ export default {
       deleteSuccess: 'Monitor deleted',
       loadError: 'Failed to load monitors',
       selectMonitor: 'Select monitor',
+      budget: { today: 'Today probe estimate', exhausted: 'Daily cap reached; active probes paused' },
       bulkInterval: {
         open: 'Batch interval',
         title: 'Set probe interval in bulk',

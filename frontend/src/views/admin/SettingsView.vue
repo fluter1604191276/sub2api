@@ -7078,6 +7078,12 @@
                 </p>
               </div>
 
+              <div v-if="form.channel_monitor_mode === 'v1'">
+                <label class="input-label">{{ t('admin.settings.features.channelMonitor.dailyBudget') }}</label>
+                <input v-model.number="form.channel_monitor_daily_budget_usd" type="number" min="0" step="0.01" class="input" />
+                <p class="mt-1 text-xs text-gray-400">{{ t('admin.settings.features.channelMonitor.dailyBudgetHint') }}</p>
+              </div>
+
               <div v-if="form.channel_monitor_mode === 'v2'" class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
                   <p class="text-sm font-medium text-gray-900 dark:text-white">
@@ -9768,6 +9774,7 @@ const form = reactive<SettingsForm>({
   channel_monitor_enabled: true,
   channel_monitor_mode: 'v1' as 'v1' | 'v2',
   channel_monitor_default_interval_seconds: 60,
+  channel_monitor_daily_budget_usd: 0,
   channel_monitor_hide_throughput: false,
   channel_monitor_show_quota: false,
   // Available Channels feature switch
@@ -11426,6 +11433,7 @@ async function saveSettings() {
       channel_monitor_mode: form.channel_monitor_mode === 'v1' ? 'v1' : 'v2',
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
+      channel_monitor_daily_budget_usd: Math.max(0, Number(form.channel_monitor_daily_budget_usd) || 0),
       channel_monitor_hide_throughput: Boolean(form.channel_monitor_hide_throughput),
       channel_monitor_show_quota: Boolean(form.channel_monitor_show_quota),
       // Available Channels feature switch

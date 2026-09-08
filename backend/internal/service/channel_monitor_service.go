@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	appTimezone "github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -85,7 +86,12 @@ type ChannelMonitorService struct {
 	// quotaFetcher 由 wire 通过 SetQuotaFetcher 注入（accountUsage/CN 服务在本服务
 	// 之后构造，构造参数注入会破坏既有依赖顺序）。nil 时 fail-closed：
 	// 配额模式的检测产出「未配置」错误快照，Create/Update 关联账号直接报错。
-	quotaFetcher *ChannelMonitorQuotaFetcher
+	quotaFetcher   *ChannelMonitorQuotaFetcher
+	billingService *BillingService
+}
+
+type channelMonitorBudgetRepository interface {
+	TodayEstimatedCost(ctx context.Context, dayStart time.Time) (float64, error)
 }
 
 const maxChannelMonitorNameRunes = 100
@@ -654,6 +660,15 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if !rt.ActiveProbesAllowed() {
 		return nil, ErrChannelMonitorActiveProbesRetired
 	}
+	if rt.DailyBudgetUSD > 0 {
+		status, err := s.BudgetStatus(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if status.Exhausted {
+			return nil, ErrChannelMonitorDailyBudgetExhausted
+		}
+	}
 	m, err := s.Get(ctx, id) // 已解密 APIKey
 	if err != nil {
 		return nil, err
@@ -716,15 +731,21 @@ func attachQuotaSnapshot(results []*CheckResult, snapshot *domain.MonitorQuotaSn
 func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *ChannelMonitor, results []*CheckResult) {
 	rows := make([]*ChannelMonitorHistoryRow, 0, len(results))
 	for _, r := range results {
+		if s.billingService != nil && defaultCheckMode(m.CheckMode) != MonitorCheckModeQuota {
+			if cost, err := s.billingService.CalculateCost(r.Model, r.Usage, 1); err == nil {
+				r.EstimatedCostUSD = cost.TotalCost
+			}
+		}
 		rows = append(rows, &ChannelMonitorHistoryRow{
-			MonitorID:     m.ID,
-			Model:         r.Model,
-			Status:        r.Status,
-			LatencyMs:     r.LatencyMs,
-			PingLatencyMs: r.PingLatencyMs,
-			Message:       r.Message,
-			CheckedAt:     r.CheckedAt,
-			Quota:         r.Quota,
+			MonitorID:        m.ID,
+			Model:            r.Model,
+			Status:           r.Status,
+			LatencyMs:        r.LatencyMs,
+			PingLatencyMs:    r.PingLatencyMs,
+			Message:          r.Message,
+			CheckedAt:        r.CheckedAt,
+			Quota:            r.Quota,
+			EstimatedCostUSD: r.EstimatedCostUSD,
 		})
 	}
 	if err := s.repo.InsertHistoryBatch(ctx, rows); err != nil {
@@ -735,6 +756,30 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 		slog.Error("channel_monitor: mark checked failed",
 			"monitor_id", m.ID, "error", err)
 	}
+}
+
+func (s *ChannelMonitorService) SetBillingService(billing *BillingService) {
+	s.billingService = billing
+}
+
+func (s *ChannelMonitorService) BudgetStatus(ctx context.Context) (*ChannelMonitorBudgetStatus, error) {
+	now := appTimezone.Now()
+	today := appTimezone.StartOfDay(now)
+	status := &ChannelMonitorBudgetStatus{
+		DailyBudgetUSD: s.probeRuntime(ctx).DailyBudgetUSD,
+		ResetsAt:       today.AddDate(0, 0, 1),
+	}
+	repo, ok := s.repo.(channelMonitorBudgetRepository)
+	if !ok {
+		return status, nil
+	}
+	cost, err := repo.TodayEstimatedCost(ctx, today)
+	if err != nil {
+		return nil, fmt.Errorf("get channel monitor daily cost: %w", err)
+	}
+	status.TodayEstimatedCostUSD = cost
+	status.Exhausted = status.DailyBudgetUSD > 0 && cost >= status.DailyBudgetUSD
+	return status, nil
 }
 
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。

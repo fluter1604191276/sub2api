@@ -280,6 +280,16 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 	response.Paginated(c, out, total, page, pageSize)
 }
 
+// BudgetStatus GET /api/v1/admin/channel-monitors/budget
+func (h *ChannelMonitorHandler) BudgetStatus(c *gin.Context) {
+	status, err := h.monitorService.BudgetStatus(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, status)
+}
+
 // batchSummaryFor 批量聚合 latest + 7d 可用率，避免每行 2 次 SQL（消除 N+1）。
 func (h *ChannelMonitorHandler) batchSummaryFor(c *gin.Context, items []*service.ChannelMonitor) map[int64]service.MonitorStatusSummary {
 	ids := make([]int64, 0, len(items))

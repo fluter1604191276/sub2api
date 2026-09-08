@@ -71,6 +71,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
+	res.Usage = extractMonitorUsage([]byte(rawBody))
 
 	if err != nil {
 		res.Status = MonitorStatusError
@@ -105,6 +106,50 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	}
 
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
+}
+
+// extractMonitorUsage normalizes the final usage object from JSON or SSE
+// responses. SSE providers may repeat cumulative usage; field-wise maxima avoid
+// charging duplicated completion events.
+func extractMonitorUsage(body []byte) UsageTokens {
+	var usage UsageTokens
+	consume := func(payload []byte) {
+		paths := []string{"usage", "response.usage", "usageMetadata"}
+		for _, path := range paths {
+			u := gjson.GetBytes(payload, path)
+			if !u.Exists() {
+				continue
+			}
+			usage.InputTokens = max(usage.InputTokens, int(firstMonitorUsageInt(u, "prompt_tokens", "input_tokens", "promptTokenCount")))
+			usage.OutputTokens = max(usage.OutputTokens, int(firstMonitorUsageInt(u, "completion_tokens", "output_tokens", "candidatesTokenCount")))
+			usage.CacheReadTokens = max(usage.CacheReadTokens, int(firstMonitorUsageInt(u, "cache_read_input_tokens", "prompt_tokens_details.cached_tokens", "input_tokens_details.cached_tokens", "cachedContentTokenCount")))
+			usage.CacheCreationTokens = max(usage.CacheCreationTokens, int(firstMonitorUsageInt(u, "cache_creation_input_tokens")))
+		}
+	}
+	if !looksLikeSSE(body) {
+		consume(body)
+		return usage
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload != "" && payload != "[DONE]" && gjson.Valid(payload) {
+			consume([]byte(payload))
+		}
+	}
+	return usage
+}
+
+func firstMonitorUsageInt(root gjson.Result, paths ...string) int64 {
+	for _, path := range paths {
+		if value := root.Get(path); value.Exists() {
+			return value.Int()
+		}
+	}
+	return 0
 }
 
 // finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。

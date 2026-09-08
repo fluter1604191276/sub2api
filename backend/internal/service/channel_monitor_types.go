@@ -141,7 +141,9 @@ type CheckResult struct {
 	Message       string
 	CheckedAt     time.Time
 	// Quota 配额模式附带快照（quota 模式唯一数据；quota_probe 挂在主模型行）。
-	Quota *domain.MonitorQuotaSnapshot
+	Quota            *domain.MonitorQuotaSnapshot
+	Usage            UsageTokens
+	EstimatedCostUSD float64
 }
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
@@ -199,14 +201,24 @@ type ModelDetail struct {
 
 // ChannelMonitorHistoryRow 历史记录入库行（service 层向 repository 提交的数据）。
 type ChannelMonitorHistoryRow struct {
-	MonitorID     int64
-	Model         string
-	Status        string
-	LatencyMs     *int
-	PingLatencyMs *int
-	Message       string
-	CheckedAt     time.Time
-	Quota         *domain.MonitorQuotaSnapshot
+	MonitorID        int64
+	Model            string
+	Status           string
+	LatencyMs        *int
+	PingLatencyMs    *int
+	Message          string
+	CheckedAt        time.Time
+	Quota            *domain.MonitorQuotaSnapshot
+	EstimatedCostUSD float64
+}
+
+// ChannelMonitorBudgetStatus is an isolated operational budget view. It uses
+// probe-history estimates only and never reads or mutates user billing data.
+type ChannelMonitorBudgetStatus struct {
+	TodayEstimatedCostUSD float64   `json:"today_estimated_cost_usd"`
+	DailyBudgetUSD        float64   `json:"daily_budget_usd"`
+	Exhausted             bool      `json:"exhausted"`
+	ResetsAt              time.Time `json:"resets_at"`
 }
 
 // ChannelMonitorHistoryEntry 历史记录查询返回行（含 ent 主键 ID）。

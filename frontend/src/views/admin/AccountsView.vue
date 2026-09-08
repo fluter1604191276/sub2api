@@ -558,6 +558,7 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <AccountModelSyncDialog :show="showModelSyncDialog" :entries="modelSyncEntries" @close="showModelSyncDialog = false" @applied="handleModelSyncApplied" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
@@ -603,6 +604,7 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
+import AccountModelSyncDialog from '@/components/admin/account/AccountModelSyncDialog.vue'
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/utils/format'
@@ -621,6 +623,8 @@ const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountModelOptions = ref<SelectOption[]>([])
 const syncingAllModels = ref(false)
+const showModelSyncDialog = ref(false)
+const modelSyncEntries = ref<Awaited<ReturnType<typeof adminAPI.accounts.previewAllModelMappings>>['results']>([])
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
 type AccountBulkEditTarget =
@@ -1707,23 +1711,20 @@ const handleSyncAllModels = async () => {
   closeAccountToolsDropdown()
   syncingAllModels.value = true
   try {
-    const summary = await adminAPI.accounts.syncAllModels()
-    await loadAccountModelOptions()
-    await reload()
-    const messageKey = summary.failed > 0
-      ? 'admin.accounts.syncAllModelsPartial'
-      : 'admin.accounts.syncAllModelsSuccess'
-    appStore.showSuccess(t(messageKey, {
-      success: summary.success,
-      failed: summary.failed,
-      unsupported: summary.unsupported
-    }))
+    const preview = await adminAPI.accounts.previewAllModelMappings()
+    modelSyncEntries.value = preview.results
+    showModelSyncDialog.value = true
   } catch (error) {
     console.error('Failed to sync all account models:', error)
     appStore.showError(t('admin.accounts.syncAllModelsFailed'))
   } finally {
     syncingAllModels.value = false
   }
+}
+
+const handleModelSyncApplied = async () => {
+  await loadAccountModelOptions()
+  await reload()
 }
 
 const syncPendingListChanges = async () => {

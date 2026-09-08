@@ -92,6 +92,9 @@ export default {
       syncAllModelsSuccess: 'Model sync completed: {success} succeeded, {unsupported} unsupported',
       syncAllModelsPartial: 'Model sync completed: {success} succeeded, {failed} failed, {unsupported} unsupported',
       syncAllModelsFailed: 'Failed to sync account models',
+      modelSync: {
+        title: 'Sync upstream supported models', summary: '{changed} accounts changed ({total} total)', apply: 'Apply selected ({count})', applying: 'Applying...', applied: 'Applied {count} accounts, {conflicts} conflicts', applyFailed: 'Failed to apply model mappings'
+      },
       ungroupedGroup: 'Ungrouped',
       oauthType: 'OAuth',
       setupToken: 'Setup Token',

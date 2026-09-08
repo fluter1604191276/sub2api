@@ -833,6 +833,20 @@ export default {
         disableAction: '关闭智能调度',
         toggleHint: '关闭后请求使用原调度；评分异常时会自动回退。',
         toggleSuccess: '智能调度设置已更新',
+        stickyPolicy: {
+          title: '粘性逃逸策略',
+          description: '按分组控制质量目标与逃逸频率。稳定性预设优先寻找 80 分以上账号，并保留可用兜底。',
+          targetScore: '目标分数',
+          reviewInterval: '复查间隔（秒）',
+          qualityLead: '质量领先分数',
+          maxEscapes: '时间窗最多逃逸',
+          cooldown: '切换冷却（秒）',
+          window: '逃逸时间窗（秒）',
+          confirmations: '高分账号确认次数',
+          stabilityPreset: '高稳定性预设',
+          recommended: '恢复推荐默认',
+          saved: '粘性逃逸策略已保存'
+        },
         recoveryProbe: {
           title: '恢复探针',
           description: '默认关闭。开启后对隔离或长时间空闲账号发起轻量测试，idle threshold 固定为 1h。',
@@ -841,8 +855,10 @@ export default {
           mode: '探针模式',
           modes: {
             manual: '固定间隔',
-            smart: '智能回退'
+            smart: '智能回退',
+            highFrequency: '高频流式评测'
           },
+          recommended: '恢复推荐配置',
           testModel: '测试模型',
           testModelPlaceholder: '开启探针时必填，例如 claude-sonnet-4-6',
           fixedInterval: '固定间隔（秒）',

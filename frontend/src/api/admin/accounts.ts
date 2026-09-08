@@ -600,6 +600,28 @@ export async function syncAllModels(): Promise<AccountModelSyncSummary> {
   return data
 }
 
+export interface AccountModelSyncPreviewEntry {
+  account_id: number
+  account_name: string
+  status: string
+  version: string
+  current_models?: string[]
+  upstream_models?: string[]
+  added?: string[]
+  removed?: string[]
+  error?: string
+}
+export interface AccountModelSyncPreview { total: number; changed: number; results: AccountModelSyncPreviewEntry[] }
+export interface AccountModelSyncApplyResult { account_id: number; status: string; error?: string }
+export async function previewAllModelMappings(): Promise<AccountModelSyncPreview> {
+  const { data } = await apiClient.post<AccountModelSyncPreview>('/admin/accounts/sync/models/preview', undefined, { timeout: 10 * 60 * 1000 })
+  return data
+}
+export async function applyModelMappings(items: Array<{ account_id: number; version: string }>): Promise<{ results: AccountModelSyncApplyResult[] }> {
+  const { data } = await apiClient.post<{ results: AccountModelSyncApplyResult[] }>('/admin/accounts/sync/models/apply', { items }, { timeout: 10 * 60 * 1000 })
+  return data
+}
+
 export interface SyncUpstreamModelsResult {
   models: string[]
 }
@@ -1078,6 +1100,8 @@ export const accountsAPI = {
   getAvailableModels,
   listSyncedModels,
   syncAllModels,
+  previewAllModelMappings,
+  applyModelMappings,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,

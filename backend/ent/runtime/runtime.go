@@ -799,8 +799,12 @@ func init() {
 	channelmonitorhistory.DefaultMessage = channelmonitorhistoryDescMessage.Default.(string)
 	// channelmonitorhistory.MessageValidator is a validator for the "message" field. It is called by the builders before save.
 	channelmonitorhistory.MessageValidator = channelmonitorhistoryDescMessage.Validators[0].(func(string) error)
+	// channelmonitorhistoryDescEstimatedCostUsd is the schema descriptor for estimated_cost_usd field.
+	channelmonitorhistoryDescEstimatedCostUsd := channelmonitorhistoryFields[7].Descriptor()
+	// channelmonitorhistory.DefaultEstimatedCostUsd holds the default value on creation for the estimated_cost_usd field.
+	channelmonitorhistory.DefaultEstimatedCostUsd = channelmonitorhistoryDescEstimatedCostUsd.Default.(float64)
 	// channelmonitorhistoryDescCheckedAt is the schema descriptor for checked_at field.
-	channelmonitorhistoryDescCheckedAt := channelmonitorhistoryFields[7].Descriptor()
+	channelmonitorhistoryDescCheckedAt := channelmonitorhistoryFields[8].Descriptor()
 	// channelmonitorhistory.DefaultCheckedAt holds the default value on creation for the checked_at field.
 	channelmonitorhistory.DefaultCheckedAt = channelmonitorhistoryDescCheckedAt.Default.(func() time.Time)
 	channelmonitorrequesttemplateMixin := schema.ChannelMonitorRequestTemplate{}.Mixin()

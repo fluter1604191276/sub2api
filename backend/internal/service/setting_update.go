@@ -416,6 +416,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if v := clampChannelMonitorInterval(settings.ChannelMonitorDefaultIntervalSeconds); v > 0 {
 		updates[SettingKeyChannelMonitorDefaultIntervalSeconds] = strconv.Itoa(v)
 	}
+	if settings.ChannelMonitorDailyBudgetUSD < 0 || math.IsNaN(settings.ChannelMonitorDailyBudgetUSD) || math.IsInf(settings.ChannelMonitorDailyBudgetUSD, 0) {
+		return nil, infraerrors.BadRequest("INVALID_CHANNEL_MONITOR_DAILY_BUDGET", "channel monitor daily budget must be a non-negative finite number")
+	}
+	updates[SettingKeyChannelMonitorDailyBudgetUSD] = strconv.FormatFloat(settings.ChannelMonitorDailyBudgetUSD, 'f', -1, 64)
 	updates[SettingKeyChannelMonitorHideThroughput] = strconv.FormatBool(settings.ChannelMonitorHideThroughput)
 	updates[SettingKeyChannelMonitorShowQuota] = strconv.FormatBool(settings.ChannelMonitorShowQuota)
 

@@ -308,12 +308,27 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 		if row.Quota != nil {
 			c = c.SetQuota(row.Quota)
 		}
+		c = c.SetEstimatedCostUsd(row.EstimatedCostUSD)
 		bulk = append(bulk, c)
 	}
 	if _, err := client.ChannelMonitorHistory.CreateBulk(bulk...).Save(ctx); err != nil {
 		return fmt.Errorf("insert history bulk: %w", err)
 	}
 	return nil
+}
+
+// TodayEstimatedCost sums only the monitor-owned probe ledger. It deliberately
+// does not touch usage_logs, user balances, API-key quota, or account quota.
+func (r *channelMonitorRepository) TodayEstimatedCost(ctx context.Context, dayStart time.Time) (float64, error) {
+	var total float64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(estimated_cost_usd), 0)
+		FROM channel_monitor_histories
+		WHERE checked_at >= $1`, dayStart.UTC()).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("sum today's channel monitor estimated cost: %w", err)
+	}
+	return total, nil
 }
 
 // DeleteHistoryBefore 物理删 checked_at < before 的明细，分批 channelMonitorPruneBatchSize 行一批，

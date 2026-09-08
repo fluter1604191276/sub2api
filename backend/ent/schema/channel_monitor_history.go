@@ -49,6 +49,9 @@ func (ChannelMonitorHistory) Fields() []ent.Field {
 		// 归一化配额快照（domain.MonitorQuotaSnapshot，JSONB）；探活模式为 NULL。
 		field.JSON("quota", &domain.MonitorQuotaSnapshot{}).
 			Optional(),
+		field.Float("estimated_cost_usd").
+			Default(0).
+			Comment("Estimated standard model cost of this active probe; quota-only checks remain zero"),
 		field.Time("checked_at").
 			Default(time.Now),
 	}
