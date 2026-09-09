@@ -14,11 +14,11 @@ production baseline block, and create the next line from that new revision.
 Role: production
 SSH alias: fluterapi-prod
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.1.183-full-custom-20260909-budget-r2
-Digest (local image ID): sha256:321eb362242d996a2941d3296323ba85c6a1679b2f49a0f7abd20c11156e0c08
-Revision: 7a5709b8fdb7ec240b4acd500fdbe7c1bfd873aa
-Source snapshot: a68e698e9f4e3519cac7da7c3b3cf9aa611dafa05a1fda368d53bd340019611f
-Manifest: /www/sub2api-builds/release-manifests/20260909-budget-r2.json
+Image: fluter/sub2api:fluter-0.1.183-probe-budget-fix-20260909-r1
+Digest (local image ID): sha256:935a1734a9875e92cb500609b5f76ab4b12b270600d397193f6726af6e820945
+Revision: 6f71a42f5d36cfce69f6b1798b81a19f546c04cf
+Source snapshot: 86033da24f23daccbf6d24d51632b1063be0d772be3afea97b2781551bb6c87c
+Manifest: /www/sub2api-builds/release-manifests/20260909-probe-budget-fix-r1.json
 Switched: 2026-09-09 Asia/Shanghai; post-switch health and auth-boundary checks passed
 Rechecked: 2026-09-09T04:15:48Z; production role, running/healthy, image labels match manifest
 ```
@@ -31,9 +31,9 @@ for live verification.
 ## Production-Derived Development Line
 
 ```text
-Base image: fluter/sub2api:fluter-0.1.183-full-custom-20260909-budget-r2
-Base digest: sha256:321eb362242d996a2941d3296323ba85c6a1679b2f49a0f7abd20c11156e0c08
-Base revision: 7a5709b8fdb7ec240b4acd500fdbe7c1bfd873aa
+Base image: fluter/sub2api:fluter-0.1.183-probe-budget-fix-20260909-r1
+Base digest: sha256:935a1734a9875e92cb500609b5f76ab4b12b270600d397193f6726af6e820945
+Base revision: 6f71a42f5d36cfce69f6b1798b81a19f546c04cf
 Branch: create the next line from the live revision after this switch
 Worktree: create a new production-derived worktree; do not reuse the previous candidate path
 ```
