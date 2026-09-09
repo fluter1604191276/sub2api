@@ -273,7 +273,10 @@ IMAGE_CAPABILITY_MARKERS = {
         "model_plaza",
         "available_channels",
     ),
-    "v1-streaming-probe": ("stream=true", "stream-only"),
+    # Go does not retain the JSON field spelling or comments used by the
+    # probe implementation as stable binary strings. These two runtime
+    # markers prove the final image contains the channel-monitor SSE path.
+    "v1-streaming-probe": ("sub2api-channel-monitor/", "text/event-stream; charset=utf-8"),
     "channel-monitor-bulk-interval": ("batch-interval",),
     "channel-monitor-budget": ("daily budget", "estimated_cost_usd"),
     "smart-probe-modes": ("high_frequency", "sticky_policy"),
