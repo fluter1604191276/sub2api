@@ -13,24 +13,34 @@ next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
 ## Current Production Baseline
 
-These values are the last verified post-rollback facts and must be rechecked before the next production operation:
+These values were read from the live node and original manifest on 2026-09-09.
+Recheck before the next production operation:
 
 ~~~text
 SSH alias: fluterapi-prod
 Role marker: production
 Production directory: /www/sub2api
-Current image: fluter/sub2api:fluter-0.1.183-full-custom-20260905-generic-400-failover-r2
-Current image digest: sha256:325ffd47738eb8e2d1aff5440f28dd19fd352c9b06a64f339eb19ff220cbc458
-Current image revision: afc912e2d6d11293b155e69c3e76d2683212e34a
-Current source snapshot: 56e4486c227d867351e4fa97f3a5a8c1eaac18284e9a2c0ce29c6189f88661dc
-Previous production digest: sha256:3c5a393bc801008e88a846f90d4e927f2ce4335b0b1b0f90dead659e2bb60ffa
-Pre-switch database/archive backup: /www/sub2api/backups/sub2api-backup-20260905T182550Z.tar.gz
-Pre-switch Compose backup: /www/sub2api/backups/docker-compose-before-switch-20260905T184624Z.yml
-Pre-switch Caddy backup: /www/sub2api/backups/caddy-before-switch-20260905T184502Z
-Post-switch verification: 2026-09-06; container healthy, public health endpoints 200, admin boundary 401
+Current image: fluter/sub2api:fluter-0.1.183-full-custom-20260909-budget-r2
+Current image digest (local image ID): sha256:321eb362242d996a2941d3296323ba85c6a1679b2f49a0f7abd20c11156e0c08
+Current image revision: 7a5709b8fdb7ec240b4acd500fdbe7c1bfd873aa
+Current source snapshot: a68e698e9f4e3519cac7da7c3b3cf9aa611dafa05a1fda368d53bd340019611f
+Previous image: fluter/sub2api:fluter-0.1.183-full-custom-20260908-astra-r1
+Previous production digest: sha256:d3303a7ab530c7f53c81c861f3f2cdc50c8adfc4fd6e48df7321a5f34ddc0bde
+Previous revision: 3be658745bc28c252ee4b0357c8d98f75fcefa88
+Original manifest: /www/sub2api-builds/release-manifests/20260909-budget-r2.json
+Pre-switch database/archive backup: /www/sub2api/backups/sub2api-backup-20260909T014645Z.tar.gz
+Pre-switch image record: /www/sub2api/backups/image-before-switch-20260909T014645Z.txt
+Compose/env: retained within the pre-switch full archive
+Caddy: no configuration change in this release; no new separate snapshot claimed
+Post-switch verification record: 2026-09-09; container healthy, public endpoints 200, admin boundary 403
+Live recheck: 2026-09-09T04:15:48Z; production role, running/healthy, revision and snapshot match manifest
 ~~~
 
-The digest above is a recorded incident-review value. The next operator must query the running container and update the manifest; this document is not a substitute for live verification.
+The digest above is Docker's local image ID, not a registry RepoDigest. Verify
+the live container against the immutable original manifest. Generate a new
+manifest for a new build; never rewrite the old manifest to match newer docs.
+Backup paths are dated recovery evidence; check retention/moved archives before
+assuming any historical path still exists.
 
 The next development worktree must be created from the live revision recorded
 above. The main checkout, old version-specific release worktrees, and legacy
@@ -60,12 +70,12 @@ Dirty worktrees are not automatically forbidden for local experimentation, but a
 Read-only preflight:
 
 ~~~bash
-cd /Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-from-production-20260830
+# Run in the verified checkout discovered via NEW-SESSION-HANDOFF.md.
 git status --short --branch
 git rev-parse HEAD
 ssh fluterapi-prod 'test "$(cat /etc/fluterapi-node-role)" = production'
 ssh fluterapi-prod 'cd /www/sub2api && docker compose ps'
-ssh fluterapi-prod 'docker inspect sub2api --format "{{.Config.Image}} {{.Id}}"'
+ssh fluterapi-prod 'docker inspect sub2api --format "{{.Config.Image}} {{.Image}}"'
 ssh fluterapi-prod 'df -h / /www'
 ~~~
 

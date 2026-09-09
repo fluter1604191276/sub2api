@@ -29,17 +29,16 @@ That check requires the current HEAD to be the production commit or a
 descendant of it. It blocks unrelated historical lines before any build can
 start.
 
-For the current incident-recovered line, the production-derived worktree is:
+Read NEW-SESSION-HANDOFF.md to discover the current checkout and SSH endpoint.
+Use create-production-derived-worktree.sh and follow its printed path; it
+derives the destination from Git common dir, not from the enclosing directory.
+Old public-deploy and version-specific worktrees are historical evidence.
+After a production switch, reconcile any ongoing work with the new live
+revision before continuing the next application change.
 
-```text
-/Users/fluter_claw/Documents/study_project/sub2api/.worktrees/public-from-production-20260830
-```
-
-The older `public-deploy` worktree remains preserved for investigation and
-uncommitted model-plaza work. It is not a release input. After an upstream
-upgrade or every production switch, repeat the live query and create a new
-production-derived line with `create-production-derived-worktree.sh`; do not
-keep extending an old version-named worktree.
+Documentation-only follow-ups can use a reviewed descendant of production
+without rebuilding the runtime image. Carry their reviewed guidance into the
+next production-derived branch; do not change the deployed revision record.
 
 See `ops/public-deploy/docs/RELEASE-LINES.md` for the active candidate and
 historical-line registry.
@@ -88,8 +87,11 @@ filters or rewrites that tool.
 
 Stage reviewed paths explicitly. Never use broad staging or commit shortcuts.
 Use Lore-protocol commits with a reason, constraint, rejected alternative,
-confidence, scope risk, directive, tested evidence, and known gaps. Push only
-the named feature branch; do not push or force-push `main`.
+confidence, scope risk, directive, tested evidence, and known gaps. Push to the
+user-authorized remote and branch. This project confirmed
+`fluter1604191276/sub2api:main` on 2026-09-09; inspect the remote URL and use a
+normal fast-forward push. Do not force-push. Existing task authorization need
+not be requested again; it does not authorize unrelated destinations or deployment.
 
 Write the body with real newline characters (for example, via a temporary
 message file or multiple `-m` paragraphs), not escaped `\\n` text. Verify the
@@ -116,6 +118,7 @@ recovery probe, quality/cache telemetry, pricing, model sync, error handling,
 and Responses tools. Source-only evidence or `/health` is insufficient. Run
 the verifier with the manifest and image.
 
-Do not switch production in this procedure. A production switch is a separate
-explicit operation requiring the role-marker check, backup, rollback pair, and
-post-switch capability smoke tests from `RELEASE-CHECKLIST.md`.
+For a prepare-only request, finish candidate verification and report readiness.
+When the user has already authorized the production switch, continue through
+the role-marker check, backup, rollback pair, and post-switch capability smoke
+tests in RELEASE-CHECKLIST.md without asking for the same authorization again.

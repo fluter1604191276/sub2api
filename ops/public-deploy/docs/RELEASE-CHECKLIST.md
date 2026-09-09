@@ -57,6 +57,11 @@ Do not run docker compose down for a normal image switch. Do not restart Postgre
 - [ ] Responses tool fixtures do not silently lose required tools; unsupported route behavior is explicit.
 - [ ] Billing and usage records remain within expected boundaries.
 - [ ] Observe before declaring the release complete.
+- [ ] Preserve the exact source revision in a persistent detached worktree or recoverable Git bundle.
+- [ ] Copy the original manifest to the local evidence archive and compare SHA-256 with the remote original.
+- [ ] Update RELEASE-BASELINE.md and RELEASE-LINES.md from live container labels, retaining old history.
+- [ ] Keep documentation commits separate from the deployed image identity; do not rewrite old manifests.
+- [ ] Confirm the workspace AGENTS.md and skill still lead a new session to the current handoff entry.
 
 ## Automatic Rollback Trigger
 
