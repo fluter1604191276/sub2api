@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func TestChannelMonitorReserveDailyBudgetUnlimitedUsesCalendarDateAndAccumulates
 	t.Cleanup(func() { _ = db.Close() })
 
 	day := time.Date(2026, time.September, 9, 0, 0, 0, 0, time.FixedZone("CST", 8*60*60))
-	mock.ExpectQuery(`(?s)INSERT INTO channel_monitor_daily_budget_ledger.*\$3 = 0.*RETURNING estimated_cost_usd`).
+	mock.ExpectQuery(`(?s)INSERT INTO channel_monitor_daily_budget_ledger.*\$3::double precision = 0.*RETURNING estimated_cost_usd`).
 		WithArgs("2026-09-09", 0.125, 0.0).
 		WillReturnRows(sqlmock.NewRows([]string{"estimated_cost_usd"}).AddRow(0.375))
 
@@ -90,5 +91,29 @@ func TestChannelMonitorRecordAndReadUnpricedProbeCount(t *testing.T) {
 	count, err := repo.UnpricedProbeCount(context.Background(), day)
 	require.NoError(t, err)
 	require.Equal(t, int64(2), count)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestChannelMonitorBudgetRejectsInvalidAmountsBeforeSQL(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &channelMonitorRepository{db: db}
+	ctx := context.Background()
+	day := time.Now()
+	for _, invalid := range []float64{-1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		admitted, err := repo.ReserveDailyBudget(ctx, day, invalid, 1)
+		require.Error(t, err)
+		require.False(t, admitted)
+		admitted, err = repo.ReserveDailyBudget(ctx, day, 0.1, invalid)
+		require.Error(t, err)
+		require.False(t, admitted)
+		require.Error(t, repo.SettleDailyBudget(ctx, day, invalid, 0.1))
+		require.Error(t, repo.SettleDailyBudget(ctx, day, 0.1, invalid))
+	}
+	admitted, err := repo.ReserveDailyBudget(ctx, day, 0, 1)
+	require.Error(t, err)
+	require.False(t, admitted)
+	require.Error(t, repo.SettleDailyBudget(ctx, day, 0, 0.1))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

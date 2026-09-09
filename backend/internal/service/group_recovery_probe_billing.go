@@ -225,8 +225,8 @@ func normalizeGroupRecoveryProbeBillingSettings(settings *GroupRecoveryProbeBill
 	if settings.PerAttemptLimitUSD <= 0 {
 		settings.PerAttemptLimitUSD = groupRecoveryProbeDefaultPerAttemptLimitUSD
 	}
-	settings.DailyBudgetUSD = roundProbeCost(settings.DailyBudgetUSD)
-	settings.PerAttemptLimitUSD = roundProbeCost(settings.PerAttemptLimitUSD)
+	settings.DailyBudgetUSD = QuantizeUsageBillingAmount(settings.DailyBudgetUSD)
+	settings.PerAttemptLimitUSD = QuantizeUsageBillingAmount(settings.PerAttemptLimitUSD)
 }
 
 func (s *GroupRecoveryProbeBillingService) GetStatus(ctx context.Context, groupID int64) (*GroupRecoveryProbeBillingStatus, error) {
@@ -291,7 +291,7 @@ func (s *GroupRecoveryProbeBillingService) Reserve(ctx context.Context, groupID 
 	if err != nil {
 		return nil, err
 	}
-	amount := settings.PerAttemptLimitUSD * float64(attempts)
+	amount := QuantizeUsageBillingAmount(settings.PerAttemptLimitUSD * float64(attempts))
 	s.reservationMu.Lock()
 	defer s.reservationMu.Unlock()
 	if groupRecoveryProbeBudgetCost(summary)+s.reservedUSD+amount > settings.DailyBudgetUSD+1e-12 {
@@ -376,8 +376,8 @@ func (s *GroupRecoveryProbeBillingService) Settle(ctx context.Context, audit Gro
 	if accountStatsCost != nil {
 		accountCostBase = *accountStatsCost
 	}
-	settledCost := roundProbeCost(accountCostBase * accountMultiplier)
-	if settledCost <= 0 {
+	settledCost := QuantizeUsageBillingAmount(accountCostBase * accountMultiplier)
+	if settledCost <= 0 || math.IsNaN(settledCost) || math.IsInf(settledCost, 0) {
 		return s.auditRepo.UpdateAuditSettlement(ctx, audit.ID, GroupRecoveryProbeAuditSettlement{
 			Status:     GroupRecoveryProbeSettlementUnavailable,
 			CostStatus: GroupRecoveryProbeCostStatusUnavailable,
@@ -441,7 +441,7 @@ func (s *GroupRecoveryProbeBillingService) Settle(ctx context.Context, audit Gro
 	}
 	settlementResult, err := atomicRepo.SettleProbe(ctx, &GroupRecoveryProbeAtomicSettlementCommand{
 		AuditID:        audit.ID,
-		ReservationUSD: roundProbeCost(reservationAmount),
+		ReservationUSD: QuantizeUsageBillingAmount(reservationAmount),
 		DailyBudgetUSD: settings.DailyBudgetUSD,
 		BudgetSince:    timezone.Today(),
 		SettledCostUSD: settledCost,

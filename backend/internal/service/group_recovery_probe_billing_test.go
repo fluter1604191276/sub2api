@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strconv"
 	"sync"
 	"testing"
@@ -217,6 +218,26 @@ func TestGroupRecoveryProbeBillingBudgetIncludesUnsettledEstimatedCost(t *testin
 	require.ErrorIs(t, err, ErrGroupRecoveryProbeBudgetExceeded)
 }
 
+func TestGroupRecoveryProbeBillingReserveUsesQuantizedBudgetAmount(t *testing.T) {
+	settings := GroupRecoveryProbeBillingSettings{
+		Enabled: true, OwnerUserID: 7, APIKeyID: 11,
+		DailyBudgetUSD: 0.00007813, PerAttemptLimitUSD: 0.000078125,
+	}
+	encoded, err := json.Marshal(settings)
+	require.NoError(t, err)
+	svc := &GroupRecoveryProbeBillingService{
+		settingRepo: &recoveryProbeBillingSettingRepoStub{values: map[string]string{
+			SettingKeyGroupRecoveryProbeBilling: string(encoded),
+		}},
+		auditRepo: &recoveryProbeBillingAuditRepoStub{},
+	}
+
+	reservation, err := svc.Reserve(context.Background(), 3, 1)
+	require.NoError(t, err)
+	require.Equal(t, 0.00007813, reservation.amount)
+	reservation.Release()
+}
+
 func TestGroupRecoveryProbeBillingSettleChargesCostOnceAndWritesProbeUsage(t *testing.T) {
 	rate := 0.5
 	owner := &User{ID: 7, Role: RoleAdmin}
@@ -270,6 +291,85 @@ func TestGroupRecoveryProbeBillingSettleChargesCostOnceAndWritesProbeUsage(t *te
 	require.Len(t, balanceCache.userIDs, 1)
 	require.Equal(t, owner.ID, balanceCache.userIDs[0])
 	require.Empty(t, auditRepo.settlements)
+}
+
+func TestGroupRecoveryProbeBillingSettleQuantizesAllSettlementAmounts(t *testing.T) {
+	cases := []struct {
+		name string
+		cost float64
+	}{
+		{name: "actual production cost 0.0005718750", cost: 0.0005718750},
+		{name: "actual production cost 0.0006481250", cost: 0.0006481250},
+		{name: "just below half", cost: 0.000078124},
+		{name: "half", cost: 0.000078125},
+		{name: "just above half", cost: 0.000078126},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, atomicRepo := newProbeBillingSettlementTestService(t, tc.cost)
+			audit := probeBillingSettlementAudit(100 + int64(len(tc.name)))
+			reservation := &GroupRecoveryProbeBillingReservation{Settings: GroupRecoveryProbeBillingSettings{
+				Enabled: true, OwnerUserID: 7, APIKeyID: 11,
+				DailyBudgetUSD: 1, PerAttemptLimitUSD: 1,
+			}, amount: tc.cost}
+
+			require.NoError(t, svc.Settle(context.Background(), audit, reservation))
+			require.Len(t, atomicRepo.commands, 1)
+			command := atomicRepo.commands[0]
+			want := QuantizeUsageBillingAmount(tc.cost)
+			require.Equal(t, want, command.SettledCostUSD)
+			require.Equal(t, want, command.BillingCommand.BalanceCost)
+			require.Equal(t, want, command.BillingCommand.AccountQuotaCost)
+			require.Equal(t, want, command.UsageLog.ActualCost)
+			require.Equal(t, want, command.ReservationUSD)
+
+			require.NoError(t, svc.Settle(context.Background(), audit, reservation))
+			require.Len(t, atomicRepo.commands, 2)
+			require.Equal(t, command.SettledCostUSD, atomicRepo.commands[1].SettledCostUSD)
+		})
+	}
+}
+
+func TestGroupRecoveryProbeBillingQuantizeHandlesNonFiniteAndZeroCosts(t *testing.T) {
+	for _, cost := range []float64{0, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(strconv.FormatFloat(cost, 'g', -1, 64), func(t *testing.T) {
+			got := QuantizeUsageBillingAmount(cost)
+			if math.IsNaN(cost) {
+				require.True(t, math.IsNaN(got))
+			} else {
+				require.Equal(t, cost, got)
+			}
+		})
+	}
+}
+
+func newProbeBillingSettlementTestService(t *testing.T, cost float64) (*GroupRecoveryProbeBillingService, *recoveryProbeAtomicSettlementRepoStub) {
+	t.Helper()
+	owner := &User{ID: 7, Role: RoleAdmin}
+	apiKey := &APIKey{ID: 11, UserID: owner.ID, Name: "probe ledger", User: owner}
+	billingSvc := NewBillingService(&config.Config{}, nil)
+	breakdown, err := billingSvc.CalculateCost("gpt-5.6-sol", UsageTokens{InputTokens: 100, OutputTokens: 10}, 1)
+	require.NoError(t, err)
+	rate := cost / breakdown.TotalCost
+	account := &Account{ID: 19, Type: AccountTypeAPIKey, RateMultiplier: &rate}
+	atomicRepo := &recoveryProbeAtomicSettlementRepoStub{applied: make(map[int64]bool)}
+	return &GroupRecoveryProbeBillingService{
+		apiKeyRepo:  &recoveryProbeBillingAPIKeyRepoStub{keys: map[int64]*APIKey{apiKey.ID: apiKey}},
+		accountRepo: &recoveryProbeBillingAccountRepoStub{accounts: map[int64]*Account{account.ID: account}},
+		auditRepo:   &recoveryProbeBillingAuditRepoStub{},
+		atomicRepo:  atomicRepo,
+		billingSvc:  billingSvc,
+	}, atomicRepo
+}
+
+func probeBillingSettlementAudit(id int64) GroupRecoveryProbeAudit {
+	startedAt := time.Date(2026, 8, 11, 1, 0, 0, 0, time.UTC)
+	return GroupRecoveryProbeAudit{
+		ID: id, GroupID: 3, AccountID: 19, Model: "gpt-5.6-sol",
+		Status: GroupRecoveryProbeStatusFailed, StartedAt: startedAt, FinishedAt: startedAt.Add(2 * time.Second),
+		UsageTokens: UsageTokens{InputTokens: 100, OutputTokens: 10},
+	}
 }
 
 func TestGroupRecoveryProbeBillingSettleWithoutTokensDoesNotCharge(t *testing.T) {

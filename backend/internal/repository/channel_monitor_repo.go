@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -321,16 +322,22 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 // ReserveDailyBudget atomically creates/increments the application-date ledger
 // only if the reservation remains within the configured cap.
 func (r *channelMonitorRepository) ReserveDailyBudget(ctx context.Context, day time.Time, reservation, dailyLimit float64) (bool, error) {
+	if reservation <= 0 || math.IsNaN(reservation) || math.IsInf(reservation, 0) ||
+		dailyLimit < 0 || math.IsNaN(dailyLimit) || math.IsInf(dailyLimit, 0) {
+		return false, errors.New("reserve channel monitor budget: invalid amount or limit")
+	}
 	var admitted float64
+	// Explicit casts keep comparison literals from inferring integer parameters
+	// before PostgreSQL resolves the ledger's double-precision INSERT column.
 	err := r.db.QueryRowContext(ctx, `
 		INSERT INTO channel_monitor_daily_budget_ledger (budget_date, estimated_cost_usd, updated_at)
-		SELECT $1::date, $2, NOW()
-		WHERE $2 > 0 AND ($3 = 0 OR $2 <= $3)
+		SELECT $1::date, $2::double precision, NOW()
+		WHERE $2::double precision > 0 AND ($3::double precision = 0 OR $2::double precision <= $3::double precision)
 		ON CONFLICT (budget_date) DO UPDATE
 		SET estimated_cost_usd = channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd,
 		    updated_at = NOW()
-		WHERE $3 = 0 OR (channel_monitor_daily_budget_ledger.unpriced_probes = 0
-		    AND channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd <= $3)
+		WHERE $3::double precision = 0 OR (channel_monitor_daily_budget_ledger.unpriced_probes = 0
+		    AND channel_monitor_daily_budget_ledger.estimated_cost_usd + EXCLUDED.estimated_cost_usd <= $3::double precision)
 		RETURNING estimated_cost_usd`, day.Format("2006-01-02"), reservation, dailyLimit).Scan(&admitted)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -344,9 +351,13 @@ func (r *channelMonitorRepository) ReserveDailyBudget(ctx context.Context, day t
 // SettleDailyBudget replaces one conservative reservation with known standard-
 // price usage. Callers deliberately skip this when usage or pricing is unknown.
 func (r *channelMonitorRepository) SettleDailyBudget(ctx context.Context, day time.Time, reservation, actualCost float64) error {
+	if reservation <= 0 || math.IsNaN(reservation) || math.IsInf(reservation, 0) ||
+		actualCost < 0 || math.IsNaN(actualCost) || math.IsInf(actualCost, 0) {
+		return errors.New("settle channel monitor budget: invalid amount")
+	}
 	result, err := r.db.ExecContext(ctx, `
 		UPDATE channel_monitor_daily_budget_ledger
-		SET estimated_cost_usd = GREATEST(estimated_cost_usd - $2 + $3, 0), updated_at = NOW()
+		SET estimated_cost_usd = GREATEST(estimated_cost_usd - $2::double precision + $3::double precision, 0), updated_at = NOW()
 		WHERE budget_date = $1::date`, day.Format("2006-01-02"), reservation, actualCost)
 	if err != nil {
 		return fmt.Errorf("settle channel monitor budget: %w", err)
