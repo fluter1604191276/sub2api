@@ -14,11 +14,13 @@ production baseline block, and create the next line from that new revision.
 Role: production
 SSH alias: fluterapi-prod
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.1.183-full-custom-20260905-generic-400-failover-r2
-Digest: sha256:325ffd47738eb8e2d1aff5440f28dd19fd352c9b06a64f339eb19ff220cbc458
-Revision: afc912e2d6d11293b155e69c3e76d2683212e34a
-Source snapshot: 56e4486c227d867351e4fa97f3a5a8c1eaac18284e9a2c0ce29c6189f88661dc
-Switched: 2026-09-06 Asia/Shanghai; post-switch health and auth-boundary checks passed
+Image: fluter/sub2api:fluter-0.1.183-full-custom-20260909-budget-r2
+Digest (local image ID): sha256:321eb362242d996a2941d3296323ba85c6a1679b2f49a0f7abd20c11156e0c08
+Revision: 7a5709b8fdb7ec240b4acd500fdbe7c1bfd873aa
+Source snapshot: a68e698e9f4e3519cac7da7c3b3cf9aa611dafa05a1fda368d53bd340019611f
+Manifest: /www/sub2api-builds/release-manifests/20260909-budget-r2.json
+Switched: 2026-09-09 Asia/Shanghai; post-switch health and auth-boundary checks passed
+Rechecked: 2026-09-09T04:15:48Z; production role, running/healthy, image labels match manifest
 ```
 
 The baseline is the image currently serving production. The next development
@@ -29,9 +31,9 @@ for live verification.
 ## Production-Derived Development Line
 
 ```text
-Base image: fluter/sub2api:fluter-0.1.183-full-custom-20260905-generic-400-failover-r2
-Base digest: sha256:325ffd47738eb8e2d1aff5440f28dd19fd352c9b06a64f339eb19ff220cbc458
-Base revision: afc912e2d6d11293b155e69c3e76d2683212e34a
+Base image: fluter/sub2api:fluter-0.1.183-full-custom-20260909-budget-r2
+Base digest: sha256:321eb362242d996a2941d3296323ba85c6a1679b2f49a0f7abd20c11156e0c08
+Base revision: 7a5709b8fdb7ec240b4acd500fdbe7c1bfd873aa
 Branch: create the next line from the live revision after this switch
 Worktree: create a new production-derived worktree; do not reuse the previous candidate path
 ```
@@ -49,6 +51,21 @@ branch + Git commit + source snapshot hash + image digest + release manifest
 ```
 
 The readable image tag is not sufficient identity.
+
+## Handoff Locations
+
+Verified on the primary Mac on 2026-09-09:
+
+- Project container (not a Git root): /Users/fluter_claw/Documents/study_project/sub2api
+- Git common directory: project/.git under that container; its primary checkout is historical.
+- Preserved exact production source: .worktrees/production-7a5709b8f (detached and worktree-locked).
+- Persistent operations documents: .worktrees/ops-handoff-20260909, branch docs/sub2api-handoff-20260909.
+- Original manifest: .release-evidence/20260909-budget-r2/release-manifest.json.
+
+These paths are local discovery hints. Other devices use their own checkout
+paths. Read NEW-SESSION-HANDOFF.md before selecting a development base.
+Documentation commits on the release remote may be ahead of the running
+revision. They do not represent a new deployed image.
 
 ## Historical Or Non-Release Sources
 
