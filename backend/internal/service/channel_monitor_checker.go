@@ -58,6 +58,8 @@ type CheckOptions struct {
 //
 // opts 承载模板 / 监控快照带来的自定义配置。nil 等同于 "off + 无 extra headers"。
 func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model string, opts *CheckOptions) *CheckResult {
+	correlation := &monitorBillingCorrelation{}
+	ctx = context.WithValue(ctx, monitorBillingCorrelationKey{}, correlation)
 	res := &CheckResult{
 		Model:     model,
 		Status:    MonitorStatusError,
@@ -69,6 +71,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	start := time.Now()
 	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
+	res.BillingRequestID = correlation.requestID
 	latency := time.Since(start)
 	latencyMs := int(latency / time.Millisecond)
 	res.LatencyMs = &latencyMs
@@ -934,6 +937,12 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if capture, ok := ctx.Value(monitorBillingCorrelationKey{}).(*monitorBillingCorrelation); ok {
+		id := strings.TrimSpace(resp.Header.Get("X-Client-Request-ID"))
+		if len(id) > 0 && len(id) <= 128 {
+			capture.requestID = "client:" + id
+		}
+	}
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, monitorResponseMaxBytes))
 	if err != nil {
@@ -951,6 +960,9 @@ func joinURL(base, path string) string {
 	}
 	return base + path
 }
+
+type monitorBillingCorrelationKey struct{}
+type monitorBillingCorrelation struct{ requestID string }
 
 // extractOrigin 从一个 endpoint URL 中提取 scheme://host[:port] 部分。
 func extractOrigin(endpoint string) (string, error) {

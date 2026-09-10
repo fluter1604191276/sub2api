@@ -292,31 +292,31 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	if len(rows) == 0 {
 		return nil
 	}
-	client := clientFromContext(ctx, r.client)
-	bulk := make([]*dbent.ChannelMonitorHistoryCreate, 0, len(rows))
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	for _, row := range rows {
-		c := client.ChannelMonitorHistory.Create().
-			SetMonitorID(row.MonitorID).
-			SetModel(row.Model).
-			SetStatus(channelmonitorhistory.Status(row.Status)).
-			SetMessage(row.Message).
-			SetCheckedAt(row.CheckedAt)
-		if row.LatencyMs != nil {
-			c = c.SetLatencyMs(*row.LatencyMs)
-		}
-		if row.PingLatencyMs != nil {
-			c = c.SetPingLatencyMs(*row.PingLatencyMs)
-		}
+		var quota any
 		if row.Quota != nil {
-			c = c.SetQuota(row.Quota)
+			payload, err := json.Marshal(row.Quota)
+			if err != nil {
+				return err
+			}
+			quota = string(payload)
 		}
-		c = c.SetEstimatedCostUsd(row.EstimatedCostUSD)
-		bulk = append(bulk, c)
+		_, err := tx.ExecContext(ctx, `INSERT INTO channel_monitor_histories
+            (monitor_id, model, status, message, checked_at, latency_ms, ping_latency_ms,
+             quota, estimated_cost_usd, billing_request_id, billing_api_key_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,NULLIF($10,''),NULLIF($11,0))`,
+			row.MonitorID, row.Model, row.Status, row.Message, row.CheckedAt, row.LatencyMs,
+			row.PingLatencyMs, quota, row.EstimatedCostUSD, row.BillingRequestID, row.BillingAPIKeyID)
+		if err != nil {
+			return fmt.Errorf("insert probe history and cost evidence: %w", err)
+		}
 	}
-	if _, err := client.ChannelMonitorHistory.CreateBulk(bulk...).Save(ctx); err != nil {
-		return fmt.Errorf("insert history bulk: %w", err)
-	}
-	return nil
+	return tx.Commit()
 }
 
 // ReserveDailyBudget atomically creates/increments the application-date ledger

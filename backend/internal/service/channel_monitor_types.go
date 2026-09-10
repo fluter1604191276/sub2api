@@ -134,7 +134,9 @@ type ChannelMonitorUpdateParams struct {
 
 // CheckResult 单个模型一次检测的结果。
 type CheckResult struct {
-	Model string
+	BillingRequestID string
+	BillingAPIKeyID  int64
+	Model            string
 	// PricingModel is the upstream-resolved model used only for cost attribution.
 	// Model remains the configured monitor series key.
 	PricingModel  string
@@ -206,6 +208,8 @@ type ModelDetail struct {
 
 // ChannelMonitorHistoryRow 历史记录入库行（service 层向 repository 提交的数据）。
 type ChannelMonitorHistoryRow struct {
+	BillingRequestID string
+	BillingAPIKeyID  int64
 	MonitorID        int64
 	Model            string
 	Status           string

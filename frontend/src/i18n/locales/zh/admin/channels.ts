@@ -563,7 +563,7 @@ export default {
       deleteSuccess: '监控删除成功',
       loadError: '加载监控列表失败',
       selectMonitor: '选择监控',
-      bills: { title: '探针日账单', today: '今日已知用量估值（USD 基础价）', until: '北京时间 00:00 至 {time}', budget: '预算占用（含未结算预占，非实际花费）', range: '账单范围', days: '最近 {n} 天', date: '日期（北京时间）', cost: '已知用量估值（USD 基础价）', actual: '上游实际扣款', checks: '记录数', unknown: '费用待核记录', status: '状态', unverified: '未核实', partial: '历史部分记录', ongoing: '当日累计', ended: '已结束', empty: '暂无账单记录', error: '账单加载失败，请重试' },
+      bills: { title: '探针日账单', today: '今日已核算成本（USD，账号倍率）', until: '北京时间 00:00 至 {time}', budget: '预算占用（含未结算预占，非实际花费）', range: '账单范围', days: '最近 {n} 天', date: '日期（北京时间）', cost: '基础价估值（USD）', actual: '账号倍率成本（USD）', checks: '记录数', unknown: '费用待核记录', status: '状态', unverified: '待核', partial: '历史部分记录', ongoing: '当日累计', ended: '已结束', empty: '暂无账单记录', error: '账单加载失败，请重试' },
       budget: { today: '今日预算占用（含预留）', exhausted: '已达到每日上限，主动探测已暂停', incomplete: '今日存在无法估价的探测；启用日上限后将暂停付费探测至次日' },
       bulkInterval: {
         open: '批量设置间隔',

@@ -2,8 +2,9 @@
   <div class="space-y-2">
     <div class="flex flex-wrap items-center gap-3">
       <span>{{ t('admin.channelMonitor.bills.today') }}:
-        <strong>{{ today ? money(today.base_cost_usd) : '--' }}</strong>
+        <strong>{{ today?.account_cost_usd != null ? money(today.account_cost_usd) : '--' }}</strong>
       </span>
+      <span v-if="today">{{ t('admin.channelMonitor.bills.unknown') }}: {{ Math.max(0, today.checks - today.costed_checks) }}</span>
       <button type="button" class="btn btn-secondary btn-sm" @click="show = true">
         <Icon name="clock" size="sm" />{{ t('admin.channelMonitor.bills.title') }}
       </button>
@@ -29,9 +30,9 @@
           <tbody><tr v-for="row in bill?.days ?? []" :key="row.date" class="border-b">
             <td class="whitespace-nowrap p-2">{{ row.date }}</td>
             <td class="p-2 tabular-nums">{{ money(row.base_cost_usd) }}</td>
-            <td class="p-2">{{ t('admin.channelMonitor.bills.unverified') }}</td>
+            <td class="p-2">{{ row.account_cost_usd != null ? money(row.account_cost_usd) : t('admin.channelMonitor.bills.unverified') }}</td>
             <td class="p-2 tabular-nums">{{ row.checks }}</td>
-            <td class="p-2 tabular-nums">{{ row.unknown_cost_checks }}</td>
+            <td class="p-2 tabular-nums">{{ Math.max(0, row.checks - row.costed_checks) }}</td>
             <td class="p-2">{{ t(`admin.channelMonitor.bills.${row.historical_partial ? 'partial' : row.date === todayDate ? 'ongoing' : 'ended'}`) }}</td>
           </tr></tbody>
         </table>

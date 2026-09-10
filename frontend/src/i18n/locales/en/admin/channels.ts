@@ -563,7 +563,7 @@ export default {
       deleteSuccess: 'Monitor deleted',
       loadError: 'Failed to load monitors',
       selectMonitor: 'Select monitor',
-      bills: { title: 'Daily probe bills', today: 'Today known usage (USD base-price estimate)', until: 'Beijing time 00:00 to {time}', budget: 'Budget occupied (includes reservations, not spending)', range: 'Billing period', days: 'Last {n} days', date: 'Date (Beijing)', cost: 'Known usage (USD base estimate)', actual: 'Supplier debit', checks: 'Records', unknown: 'Unpriced records', status: 'Status', unverified: 'Unverified', partial: 'Partial historical records', ongoing: 'In progress', ended: 'Ended', empty: 'No billing records', error: 'Could not load bills. Please retry.' },
+      bills: { title: 'Daily probe bills', today: 'Today accounted cost (USD, account rate)', until: 'Beijing time 00:00 to {time}', budget: 'Budget occupied (includes reservations, not spending)', range: 'Billing period', days: 'Last {n} days', date: 'Date (Beijing)', cost: 'Base-price estimate (USD)', actual: 'Account-rate cost (USD)', checks: 'Records', unknown: 'Pending cost records', status: 'Status', unverified: 'Pending', partial: 'Partial historical records', ongoing: 'In progress', ended: 'Ended', empty: 'No billing records', error: 'Could not load bills. Please retry.' },
       budget: { today: 'Today budget occupied (including reservations)', exhausted: 'Daily cap reached; active probes paused', incomplete: 'Some probes could not be priced today; enabling a daily cap pauses paid probes until tomorrow' },
       bulkInterval: {
         open: 'Batch interval',

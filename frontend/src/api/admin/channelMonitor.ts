@@ -32,6 +32,8 @@ export interface ChannelMonitorBudgetStatus {
 }
 
 export interface ChannelMonitorDailyBill {
+  account_cost_usd: number | null
+  costed_checks: number
   date: string
   base_cost_usd: number
   checks: number

@@ -7,12 +7,14 @@ import (
 )
 
 type ChannelMonitorDailyBill struct {
-	Date              string  `json:"date"`
-	BaseCostUSD       float64 `json:"base_cost_usd"`
-	Checks            int64   `json:"checks"`
-	UnknownCostChecks int64   `json:"unknown_cost_checks"`
-	FailedChecks      int64   `json:"failed_checks"`
-	HistoricalPartial bool    `json:"historical_partial"`
+	Date              string   `json:"date"`
+	BaseCostUSD       float64  `json:"base_cost_usd"`
+	AccountCostUSD    *float64 `json:"account_cost_usd"`
+	CostedChecks      int64    `json:"costed_checks"`
+	Checks            int64    `json:"checks"`
+	UnknownCostChecks int64    `json:"unknown_cost_checks"`
+	FailedChecks      int64    `json:"failed_checks"`
+	HistoricalPartial bool     `json:"historical_partial"`
 }
 
 type ChannelMonitorBills struct {

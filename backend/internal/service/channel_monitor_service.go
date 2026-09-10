@@ -751,11 +751,18 @@ func (s *ChannelMonitorService) persistCheckResults(ctx context.Context, m *Chan
 			CheckedAt:        r.CheckedAt,
 			Quota:            r.Quota,
 			EstimatedCostUSD: r.EstimatedCostUSD,
+			BillingRequestID: r.BillingRequestID,
+			BillingAPIKeyID:  r.BillingAPIKeyID,
 		})
 	}
 	if err := s.repo.InsertHistoryBatch(ctx, rows); err != nil {
 		slog.Error("channel_monitor: insert history failed",
 			"monitor_id", m.ID, "name", m.Name, "error", err)
+	}
+	if repo, ok := s.repo.(interface{ ReconcileMonitorCosts(context.Context) error }); ok {
+		if err := repo.ReconcileMonitorCosts(ctx); err != nil {
+			slog.Error("channel_monitor: reconcile cost snapshots failed", "error", err)
+		}
 	}
 	if err := s.repo.MarkChecked(ctx, m.ID, time.Now()); err != nil {
 		slog.Error("channel_monitor: mark checked failed",
@@ -857,6 +864,17 @@ func (s *ChannelMonitorService) BudgetStatus(ctx context.Context) (*ChannelMonit
 // runChecksConcurrent 对 primary + extra 模型并发执行检测。
 // errgroup 仅用于等待，不传播错误（每个 model 失败都已打包进 CheckResult）。
 func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *ChannelMonitor) []*CheckResult {
+	// Resolve key ownership without logging or persisting the credential. A
+	// response header alone is never sufficient to attribute a local usage row.
+	var billingKeyID int64
+	if repo, ok := s.repo.(interface {
+		MonitorBillingKeyID(context.Context, string) (int64, error)
+	}); ok {
+		id, err := repo.MonitorBillingKeyID(ctx, m.APIKey)
+		if err == nil {
+			billingKeyID = id
+		}
+	}
 	models := append([]string{m.PrimaryModel}, m.ExtraModels...)
 	results := make([]*CheckResult, len(models))
 
@@ -877,6 +895,7 @@ func (s *ChannelMonitorService) runChecksConcurrent(ctx context.Context, m *Chan
 		i, model := i, model
 		eg.Go(func() error {
 			r := runCheckForModel(ctx, m.Provider, m.Endpoint, m.APIKey, model, opts)
+			r.BillingAPIKeyID = billingKeyID
 			r.PingLatencyMs = pingMs
 			mu.Lock()
 			results[i] = r

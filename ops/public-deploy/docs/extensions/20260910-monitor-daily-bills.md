@@ -10,8 +10,19 @@ This change has not been deployed.
 - Calendar dates always use Asia/Shanghai, independently of app/server timezone.
 - Today represents completed persisted checks since local midnight; its as-of
   timestamp is returned. In-flight reservations are not spending.
-- Numeric amounts remain explicitly USD base-price usage estimates, NOT supplier
-  debits. There is no reliable request-ID/cost linkage in the existing checker.
+- Account cost uses the smart-probe formula: gateway usage snapshot
+  `COALESCE(account_stats_cost,total_cost) * COALESCE(account_rate_multiplier,1)`,
+  rounded to 8 decimal places. This is configured procurement cost, not a
+  supplier-invoice reconciliation. Base-price estimates remain a separate column.
+- New checks capture the response X-Client-Request-ID and resolve the configured
+  monitor credential to a local API-key ID in memory. Reconciliation requires
+  both to match a unique, time-bounded usage log with the fixed monitor user-agent.
+  All 13 production monitors used the site's own gateway at implementation time.
+  External endpoints without corresponding local usage remain pending.
+- Cost snapshots retain account ID, usage-log ID, cost base, rate and amount.
+  Repeated reconciliation cannot double count or reprice settled records.
+  Reconciliation occurs after checks (last 30 days) and on bill retrieval;
+  delayed usage is retried without extra upstream calls or balance/quota writes.
 - Missing usage/pricing is counted as unknown, not free. Pure quota checks are
   zero-cost. Historical zero estimates conservatively remain unknown.
 - Historical backfill is partial because old history may have been purged.
@@ -33,14 +44,22 @@ not appear as cost and network failures do not masquerade as zero cost.
 
 ## Remaining Work
 
-2026-09-10 validation: disposable PostgreSQL test passed; two Vue component
-tests passed; targeted ESLint and git diff --check passed. Full-project Go
-test compilation and vue-tsc did not produce a completed result under local
-memory pressure and were interrupted. These are NOT passed checks. Browser
-layout verification and image construction have not been completed. Do not
-release until these gates are completed.
+2026-09-10 validation (supersedes the earlier interrupted run): disposable
+PostgreSQL tests passed; two Vue component tests passed; targeted ESLint,
+frontend typecheck and git diff --check passed. Targeted Go service/repository
+bill tests passed, including transaction rollback. Browser layout verification
+and image construction have not been completed. Do not release until remaining
+release gates are completed.
 
-Actual per-day procurement cost requires trustworthy correlation with billed
-requests, or supplier bill reconciliation, not a static current account multiplier.
-The current UI marks supplier debit unverified. This implementation must not be
-represented as completing actual-cost reconciliation.
+Historical checks without correlation IDs cannot be reliably repriced. Direct
+external monitors, if added later, require a separately verified account binding
+and pricing scope. They must not silently default to 1x cost. Supplier invoice
+verification remains separate from the account-rate cost implemented here.
+
+Migration 235 adds nullable correlation columns and a durable cost-record table;
+history insertion and cost-record capture share a database transaction. Existing
+production images ignore the added columns. No production migration was run.
+
+`test-monitor-account-cost.py` passed on isolated PostgreSQL: custom cost base,
+rate snapshot, zero multiplier, API-key mismatch isolation, delayed records,
+idempotency and retention. Vue component tests and targeted ESLint passed.

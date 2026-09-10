@@ -14,10 +14,14 @@ func TestMonitorDailyBillsDoesNotReadReservations(t *testing.T) {
 	defer db.Close()
 	repo := &channelMonitorRepository{db: db}
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.FixedZone("CST", 28800))
-	mock.ExpectQuery(`FROM channel_monitor_daily_bills WHERE bill_date`).
-		WithArgs("2026-09-10", "2026-09-10").
-		WillReturnRows(sqlmock.NewRows([]string{"date", "cost", "checks", "unknown", "failed", "partial"}).
-			AddRow("2026-09-10", 0.25, 3, 1, 1, true))
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`WITH candidates AS`).WithArgs(now, now).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	mock.ExpectQuery(`FROM channel_monitor_daily_bills b`).
+		WithArgs("2026-09-10", "2026-09-10", now).
+		WillReturnRows(sqlmock.NewRows([]string{"date", "cost", "checks", "unknown", "failed", "partial", "account_cost", "costed"}).
+			AddRow("2026-09-10", 0.25, 3, 1, 1, true, 0.025, 1))
 	rows, err := repo.DailyBills(context.Background(), now, now)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
