@@ -35,6 +35,7 @@ export interface SmartStickyPolicy {
   max_escapes: number
   escape_window_seconds: number
   elite_confirmations: number
+  primary_min_score: number
 }
 
 export async function getSmartStickyPolicy(id: number): Promise<SmartStickyPolicy> {

@@ -901,7 +901,8 @@ func decideOpenAISmartStickyReviewWithPolicy(ordering *SmartSchedulerOrdering, c
 		return decision
 	}
 	if current.Pool != "primary" && decision.ChallengerPool == "primary" &&
-		(current.Score == nil || *current.Score < smartStickyStrongMinScore) {
+		(current.Score == nil || *current.Score < smartStickyStrongMinScore ||
+			(policy.PrimaryMinScore > 0 && *current.Score < policy.PrimaryMinScore)) {
 		decision.Switch = true
 		decision.Reason = "primary_over_warm"
 		return decision

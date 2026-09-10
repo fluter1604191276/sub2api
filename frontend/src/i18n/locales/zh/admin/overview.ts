@@ -843,6 +843,7 @@ export default {
           cooldown: '切换冷却（秒）',
           window: '逃逸时间窗（秒）',
           confirmations: '高分账号确认次数',
+          primaryMinScore: '主候选最低分',
           stabilityPreset: '高稳定性预设',
           recommended: '恢复推荐默认',
           saved: '粘性逃逸策略已保存'

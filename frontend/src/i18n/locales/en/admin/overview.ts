@@ -850,6 +850,7 @@ export default {
           cooldown: 'Switch cooldown (seconds)',
           window: 'Escape window (seconds)',
           confirmations: 'High-score confirmations',
+          primaryMinScore: 'Minimum primary score',
           stabilityPreset: 'High stability preset',
           recommended: 'Restore recommended',
           saved: 'Sticky escape policy saved'

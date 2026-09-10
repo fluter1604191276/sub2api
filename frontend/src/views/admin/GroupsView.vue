@@ -4608,6 +4608,7 @@
               <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.cooldown") }}<input v-model.number="stickyPolicy.switch_cooldown_seconds" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="0" max="3600" /></label>
               <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.window") }}<input v-model.number="stickyPolicy.escape_window_seconds" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="60" max="86400" /></label>
               <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.confirmations") }}<input v-model.number="stickyPolicy.elite_confirmations" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="1" max="5" /></label>
+              <label class="input-label">{{ t("admin.groups.smartScheduler.stickyPolicy.primaryMinScore") }}<input v-model.number="stickyPolicy.primary_min_score" @input="stickyPolicy.preset = 'custom'" class="input mt-1" type="number" min="0" max="100" step="1" /></label>
             </div>
           </div>
 
@@ -5873,7 +5874,7 @@ const smartSchedulerModel = ref("");
 const smartSchedulerEndpoint = ref("any");
 const smartSchedulerReqSeq = ref(0);
 const stickyPolicySaving = ref(false);
-const stickyPolicy = reactive({ preset: 'recommended', target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+const stickyPolicy = reactive({ preset: 'recommended', target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2, primary_min_score: 0 });
 const recoveryProbeEnabled = ref(false);
 const recoveryProbeMode = ref<"manual" | "smart" | "high_frequency">("manual");
 const recoveryProbeModel = ref("");
@@ -7697,14 +7698,14 @@ const handleSmartScheduler = async (group: AdminGroup) => {
 const applyStickyPolicyPreset = (preset: string) => {
   stickyPolicy.preset = preset;
   Object.assign(stickyPolicy, preset === "stability"
-    ? { target_score: 80, review_interval_seconds: 15, switch_cooldown_seconds: 15, quality_lead: 2, max_escapes: 12, escape_window_seconds: 3600, elite_confirmations: 1 }
-    : { target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2 });
+    ? { target_score: 80, review_interval_seconds: 15, switch_cooldown_seconds: 15, quality_lead: 2, max_escapes: 12, escape_window_seconds: 3600, elite_confirmations: 1, primary_min_score: 0 }
+    : { target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2, primary_min_score: 0 });
 };
 
 const saveStickyPolicy = async () => {
   if (!smartSchedulerGroup.value || stickyPolicySaving.value) return;
   stickyPolicySaving.value = true;
-  try { Object.assign(stickyPolicy, await adminAPI.groups.updateSmartStickyPolicy(smartSchedulerGroup.value.id, stickyPolicy)); appStore.showSuccess(t("admin.groups.smartScheduler.stickyPolicy.saved")); }
+  try { Object.assign(stickyPolicy, await adminAPI.groups.updateSmartStickyPolicy(smartSchedulerGroup.value.id, stickyPolicy)); appStore.showSuccess(t("admin.groups.smartScheduler.stickyPolicy.saved")); await loadSmartSchedulerPreview(); }
   catch (error: any) { appStore.showError(error.response?.data?.detail || t("admin.groups.failedToUpdate")); }
   finally { stickyPolicySaving.value = false; }
 };

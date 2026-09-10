@@ -378,10 +378,18 @@ func (s *SmartSchedulerPreviewService) OrderCandidates(
 	if s == nil || s.dashboardService == nil {
 		return nil, fmt.Errorf("smart scheduler statistics service is unavailable")
 	}
+	primaryMinScore := 0.0
+	if policyReader, ok := s.adminService.(interface {
+		GetSmartStickyPolicy(context.Context, int64) (SmartStickyPolicy, error)
+	}); ok {
+		if policy, err := policyReader.GetSmartStickyPolicy(ctx, group.ID); err == nil {
+			primaryMinScore = policy.PrimaryMinScore
+		}
+	}
 
 	requestedModel = strings.TrimSpace(requestedModel)
 	endpoint = normalizeSmartSchedulerEndpoint(endpoint)
-	cacheKey := smartSchedulerOrderingCacheKey(group.ID, requestedModel, endpoint, accounts)
+	cacheKey := smartSchedulerOrderingCacheKey(group.ID, requestedModel, endpoint, accounts, primaryMinScore)
 	if cached := s.loadCachedOrdering(cacheKey, now); cached != nil {
 		if smartSchedulerStableOrderingRequested(ctx) {
 			return cached, nil
@@ -470,6 +478,7 @@ func (s *SmartSchedulerPreviewService) OrderCandidates(
 		items[i].ConfidenceLabel = smartSchedulerConfidenceLabel(items[i].Confidence)
 	}
 	applySmartSchedulerConfidenceAdjustment(items)
+	applySmartSchedulerPrimaryMinScore(items, primaryMinScore)
 	explorationRate := applySmartSchedulerExplorationPreview(items)
 	sortSmartSchedulerItems(items)
 	s.applySmartSchedulerHysteresis(cacheKey, items, now)
@@ -636,7 +645,7 @@ func (s *SmartSchedulerPreviewService) smartSchedulerRandomFloat() float64 {
 	return rand.Float64()
 }
 
-func smartSchedulerOrderingCacheKey(groupID int64, requestedModel, endpoint string, accounts []*Account) string {
+func smartSchedulerOrderingCacheKey(groupID int64, requestedModel, endpoint string, accounts []*Account, primaryMinScore ...float64) string {
 	accountIDs := make([]int64, 0, len(accounts))
 	for _, account := range accounts {
 		if account != nil {
@@ -644,7 +653,11 @@ func smartSchedulerOrderingCacheKey(groupID int64, requestedModel, endpoint stri
 		}
 	}
 	sort.Slice(accountIDs, func(i, j int) bool { return accountIDs[i] < accountIDs[j] })
-	return fmt.Sprintf("%d|%s|%s|%v", groupID, strings.ToLower(requestedModel), endpoint, accountIDs)
+	threshold := 0.0
+	if len(primaryMinScore) > 0 {
+		threshold = primaryMinScore[0]
+	}
+	return fmt.Sprintf("%d|%s|%s|%.4f|%v", groupID, strings.ToLower(requestedModel), endpoint, threshold, accountIDs)
 }
 
 func (s *SmartSchedulerPreviewService) loadCachedOrdering(key string, now time.Time) *SmartSchedulerOrdering {
@@ -713,6 +726,7 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 	if err != nil {
 		return nil, fmt.Errorf("get group: %w", err)
 	}
+	primaryMinScore := 0.0
 	requestedModel = strings.TrimSpace(requestedModel)
 	endpoint = normalizeSmartSchedulerEndpoint(endpoint)
 	accounts, err := s.adminService.ListAccountsForSchedulerScoreFilter(ctx, "", "", "", "", groupID, "")
@@ -774,6 +788,13 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 	} else if len(loadRequests) > 0 {
 		warnings = append(warnings, "实时负载服务不可用，本次评分已剔除负载因子")
 	}
+	if policyReader, ok := s.adminService.(interface {
+		GetSmartStickyPolicy(context.Context, int64) (SmartStickyPolicy, error)
+	}); ok {
+		if policy, err := policyReader.GetSmartStickyPolicy(ctx, group.ID); err == nil {
+			primaryMinScore = policy.PrimaryMinScore
+		}
+	}
 	recoveryProbeStates := make(map[int64]GroupRecoveryProbeState)
 	if probeModel, ok := smartSchedulerRecoveryProbeModel(group); ok && s.recoveryProbe != nil {
 		states, stateErr := s.recoveryProbe.ListStates(ctx, group.ID, accountIDs, probeModel)
@@ -802,6 +823,7 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		items[i].ConfidenceLabel = smartSchedulerConfidenceLabel(items[i].Confidence)
 	}
 	applySmartSchedulerConfidenceAdjustment(items)
+	applySmartSchedulerPrimaryMinScore(items, primaryMinScore)
 	explorationRate := applySmartSchedulerExplorationPreview(items)
 	sortSmartSchedulerItems(items)
 	for i := range items {
@@ -1453,6 +1475,19 @@ func applySmartSchedulerConfidenceAdjustment(items []SmartSchedulerPreviewItem) 
 		}
 		adjusted = math.Round(math.Max(0, math.Min(100, adjusted))*100) / 100
 		items[i].Score = &adjusted
+	}
+}
+
+func applySmartSchedulerPrimaryMinScore(items []SmartSchedulerPreviewItem, minimum float64) {
+	if minimum <= 0 {
+		return
+	}
+	for i := range items {
+		if items[i].Pool == "primary" && items[i].Score != nil && *items[i].Score < minimum {
+			items[i].Pool = "warm"
+			items[i].Decision = "observe"
+			items[i].Reason = "质量分低于主候选门槛"
+		}
 	}
 }
 
