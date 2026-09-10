@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -785,14 +786,18 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
-	return r.updateCredentials(ctx, id, credentials, nil)
+	return r.updateCredentials(ctx, id, credentials, nil, nil)
 }
 
 func (r *accountRepository) UpdateCredentialsIfUnchanged(ctx context.Context, id int64, credentials map[string]any, expected time.Time) error {
-	return r.updateCredentials(ctx, id, credentials, &expected)
+	return r.updateCredentials(ctx, id, credentials, &expected, nil)
 }
 
-func (r *accountRepository) updateCredentials(ctx context.Context, id int64, credentials map[string]any, expected *time.Time) error {
+func (r *accountRepository) UpdateModelMappingIfUnchanged(ctx context.Context, id int64, credentials, snapshot map[string]any, expected time.Time) error {
+	return r.updateCredentials(ctx, id, credentials, &expected, snapshot)
+}
+
+func (r *accountRepository) updateCredentials(ctx context.Context, id int64, credentials map[string]any, expected *time.Time, snapshot map[string]any) error {
 	payload, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
 		return err
@@ -821,11 +826,21 @@ func (r *accountRepository) updateCredentials(ctx context.Context, id int64, cre
 		versionCondition = " AND updated_at = $3"
 		args = append(args, *expected)
 	}
+	extraPrefix, extraSuffix := "", ""
+	if snapshot != nil {
+		encoded, err := json.Marshal(normalizeJSONMap(snapshot))
+		if err != nil {
+			return err
+		}
+		args = append(args, string(encoded))
+		extraPrefix = "COALESCE("
+		extraSuffix = fmt.Sprintf(", '{}'::jsonb) || $%d::jsonb", len(args))
+	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET
 			credentials = $1::jsonb,
-			extra = CASE
+			extra = `+extraPrefix+`CASE
 				-- 凭证整体未变化 ⇒ Ollama 组身份必然未变化；顶层 DISTINCT 守卫防止
 				-- 非 Ollama 账号的无变化持久化误清探测快照或重写 NULL extra。
 				WHEN platform IN ('openai', 'anthropic')
@@ -849,7 +864,7 @@ func (r *accountRepository) updateCredentials(ctx context.Context, id int64, cre
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
-			END,
+			END`+extraSuffix+`,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
 	`+versionCondition, args...)

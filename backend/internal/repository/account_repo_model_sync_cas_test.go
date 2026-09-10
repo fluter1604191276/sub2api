@@ -34,8 +34,8 @@ func TestAccountModelSyncCredentialsAreConditionalAndAtomic(t *testing.T) {
 			repo := newAccountRepositoryWithSQL(client, db, nil)
 			expected := time.Date(2026, 9, 9, 0, 0, 0, 123000, time.UTC)
 			mock.ExpectBegin()
-			mock.ExpectExec(`(?s)`+regexp.QuoteMeta("UPDATE accounts")+`.*`+regexp.QuoteMeta("WHERE id = $2 AND deleted_at IS NULL")+`.*`+regexp.QuoteMeta("AND updated_at = $3")).
-				WithArgs(`{"model_mapping":{"model-b":"model-b"}}`, int64(17), expected).
+			mock.ExpectExec(`(?s)`+regexp.QuoteMeta("UPDATE accounts")+`.*`+regexp.QuoteMeta("extra = COALESCE(CASE")+`.*`+regexp.QuoteMeta("END, '{}'::jsonb) || $4::jsonb")+`.*`+regexp.QuoteMeta("WHERE id = $2 AND deleted_at IS NULL")+`.*`+regexp.QuoteMeta("AND updated_at = $3")).
+				WithArgs(`{"model_mapping":{"model-b":"model-b"}}`, int64(17), expected, `{"available_models":["model-b"]}`).
 				WillReturnResult(sqlmock.NewResult(0, test.rows))
 			if test.rows > 0 {
 				outbox := mock.ExpectExec(regexp.QuoteMeta("INSERT INTO scheduler_outbox")).
@@ -51,7 +51,7 @@ func TestAccountModelSyncCredentialsAreConditionalAndAtomic(t *testing.T) {
 			} else {
 				mock.ExpectCommit()
 			}
-			err = repo.UpdateCredentialsIfUnchanged(context.Background(), 17, map[string]any{"model_mapping": map[string]string{"model-b": "model-b"}}, expected)
+			err = repo.UpdateModelMappingIfUnchanged(context.Background(), 17, map[string]any{"model_mapping": map[string]string{"model-b": "model-b"}}, map[string]any{"available_models": []string{"model-b"}}, expected)
 			if test.wantErr != nil {
 				require.ErrorContains(t, err, test.wantErr.Error())
 			} else {

@@ -97,7 +97,7 @@ type AccountModelSyncApplyResult struct {
 var ErrAccountModelSyncConflict = errors.New("account changed after model preview")
 
 type accountModelSyncCredentialWriter interface {
-	UpdateCredentialsIfUnchanged(context.Context, int64, map[string]any, time.Time) error
+	UpdateModelMappingIfUnchanged(context.Context, int64, map[string]any, map[string]any, time.Time) error
 }
 
 type accountModelSyncExtraWriter interface {
@@ -328,7 +328,7 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 		}
 		mode := item.Mode
 		if mode == "" {
-			mode = "add"
+			mode = "sync"
 		}
 		if mode != "add" && mode != "sync" {
 			result.Status, result.Error = "failed", "invalid synchronization mode"
@@ -337,21 +337,10 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 		}
 		credentials := shallowCopyMap(account.Credentials)
 		mapping := map[string]any{}
-		upstream := make(map[string]struct{}, len(models))
-		for _, model := range models {
-			upstream[model] = struct{}{}
-		}
 		if raw, ok := credentials["model_mapping"].(map[string]any); ok {
 			for k, v := range raw {
 				ks, vs := strings.TrimSpace(k), strings.TrimSpace(fmt.Sprint(v))
 				if ks != "" && vs != "" && (ks != vs || strings.Contains(ks, "*") || mode != "sync") {
-					// In sync mode, remove stale automatically generated whitelist
-					// entries, while retaining aliases and wildcard rules.
-					if mode == "sync" && ks == vs && !strings.Contains(ks, "*") {
-						if _, ok := upstream[ks]; !ok {
-							continue
-						}
-					}
 					mapping[ks] = v
 				}
 			}
@@ -375,17 +364,13 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 			results = append(results, result)
 			continue
 		}
-		if err := writer.UpdateCredentialsIfUnchanged(ctx, account.ID, credentials, account.UpdatedAt); errors.Is(err, ErrAccountModelSyncConflict) {
+		snapshot := map[string]any{AccountAvailableModelsExtraKey: models, accountModelsSyncedAtKey: time.Now().UTC().Format(time.RFC3339), accountModelsSyncStatusKey: accountModelsSyncSuccess, accountModelsSyncErrorKey: ""}
+		if err := writer.UpdateModelMappingIfUnchanged(ctx, account.ID, credentials, snapshot, account.UpdatedAt); errors.Is(err, ErrAccountModelSyncConflict) {
 			result.Status, result.Error = "conflict", "account changed after preview"
 		} else if err != nil {
 			result.Status, result.Error = "failed", "failed to persist model mapping"
 		} else {
 			result.Status = "applied"
-			if extraWriter, ok := s.accountRepo.(accountModelSyncExtraWriter); ok {
-				if err := extraWriter.UpdateExtra(ctx, account.ID, map[string]any{AccountAvailableModelsExtraKey: models, accountModelsSyncedAtKey: time.Now().UTC().Format(time.RFC3339), accountModelsSyncStatusKey: accountModelsSyncSuccess, accountModelsSyncErrorKey: ""}); err != nil {
-					result.Status, result.Error = "failed", "failed to persist model snapshot"
-				}
-			}
 		}
 		results = append(results, result)
 	}

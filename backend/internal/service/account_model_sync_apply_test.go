@@ -12,9 +12,10 @@ type conditionalModelSyncRepo struct {
 	*modelSyncAccountRepo
 	writeErr error
 	written  map[string]any
+	snapshot map[string]any
 }
 
-func (r *conditionalModelSyncRepo) UpdateCredentialsIfUnchanged(_ context.Context, id int64, credentials map[string]any, version time.Time) error {
+func (r *conditionalModelSyncRepo) UpdateModelMappingIfUnchanged(_ context.Context, id int64, credentials, snapshot map[string]any, version time.Time) error {
 	if r.writeErr != nil {
 		return r.writeErr
 	}
@@ -22,6 +23,7 @@ func (r *conditionalModelSyncRepo) UpdateCredentialsIfUnchanged(_ context.Contex
 		return ErrAccountModelSyncConflict
 	}
 	r.written = credentials
+	r.snapshot = snapshot
 	return nil
 }
 
@@ -35,6 +37,7 @@ func TestApplyAccountModelMappingsUsesPreviewAndPreservesManualMappings(t *testi
 	require.Equal(t, "applied", result[0].Status)
 	require.Equal(t, map[string]any{"alias": "upstream", "*": "*", "new": "manual-target", "added": "added"}, r.written["model_mapping"])
 	require.Equal(t, "test-key", r.written["api_key"])
+	require.Equal(t, []string{"added", "new"}, r.snapshot[AccountAvailableModelsExtraKey])
 	require.Contains(t, a.Credentials["model_mapping"], "old")
 }
 
@@ -71,4 +74,22 @@ func TestApplyAccountModelMappingsRejectsStaleOrEmptySelection(t *testing.T) {
 	require.Equal(t, "conflict", result[0].Status)
 	require.Equal(t, "failed", result[1].Status)
 	require.Nil(t, r.written)
+}
+
+func TestApplyAccountModelMappingsDefaultSyncAndExplicitAdd(t *testing.T) {
+	for _, mode := range []string{"", "add"} {
+		t.Run(mode, func(t *testing.T) {
+			a := newModelSyncAccount(1, nil)
+			a.UpdatedAt = time.Now().UTC()
+			a.Credentials["model_mapping"] = map[string]string{"old": "old", "alias": "target"}
+			r := &conditionalModelSyncRepo{modelSyncAccountRepo: &modelSyncAccountRepo{accounts: map[int64]*Account{1: a}}}
+			s := &AccountTestService{accountRepo: r}
+			result := s.ApplyAccountModelMappings(context.Background(), []AccountModelSyncApplyItem{{AccountID: 1, Version: a.UpdatedAt.Format(time.RFC3339Nano), Models: []string{"new"}, Mode: mode}})
+			require.Equal(t, "applied", result[0].Status)
+			mapping := r.written["model_mapping"].(map[string]any)
+			require.Equal(t, "target", mapping["alias"])
+			_, retained := mapping["old"]
+			require.Equal(t, mode == "add", retained)
+		})
+	}
 }

@@ -17,8 +17,10 @@ Compatibility: Default 0 preserves prior pools. Changing only this threshold ret
 existing sticky review timing, cooldown and escape budgets. It does not guarantee
 an immediate switch or replay a partially delivered stream.
 
-Release blockers inherited from model synchronization commits: omitted apply mode
-now defaults to add instead of the previous sync behavior; mapping and discovered
-model snapshot writes are separate and can partially succeed; the batch UI mode
-and removal preview need final consistency review. Candidate image construction
-does not approve deployment while these issues remain unresolved.
+The r1 candidate was blocked by model synchronization atomicity and mode
+consistency defects. The follow-up uses a single conditional SQL update for
+credentials plus snapshot, in the existing outbox transaction; restores omitted
+mode to sync; freezes mode during a batch; and excludes removals in add previews.
+SQL-mock tests cover successful commit, version conflict and outbox rollback.
+Frontend tests cover add-only selection and locking. See the model-sync extension
+record for details. Deployment still requires image-level release verification.
