@@ -803,6 +803,7 @@ func registerChannelMonitorRoutes(admin *gin.RouterGroup, h *handler.Handlers, s
 	{
 		monitors.GET("", h.Admin.ChannelMonitor.List)
 		monitors.GET("/budget", h.Admin.ChannelMonitor.BudgetStatus)
+		monitors.GET("/bills", h.Admin.ChannelMonitor.DailyBills)
 		monitors.POST("", h.Admin.ChannelMonitor.Create)
 		monitors.POST("/batch-interval", h.Admin.ChannelMonitor.BulkUpdateInterval)
 		monitors.GET("/:id", h.Admin.ChannelMonitor.Get)

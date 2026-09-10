@@ -18,10 +18,14 @@
           }}
         </p>
         <div v-if="adminMonitorTab === 'legacy'" class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          <MonitorDailyBills :budget="budgetStatus" />
+          <details class="mt-2">
+          <summary>{{ t('admin.channelMonitor.bills.budget') }}</summary>
           {{ t('admin.channelMonitor.budget.today') }}: ${{ budgetStatus.today_estimated_cost_usd.toFixed(4) }}
           <span v-if="budgetStatus.daily_budget_usd > 0"> / ${{ budgetStatus.daily_budget_usd.toFixed(2) }}</span>
           <span v-if="budgetStatus.unpriced_probes" class="ml-2 text-amber-600">{{ t('admin.channelMonitor.budget.incomplete') }}</span>
           <span v-else-if="budgetStatus.exhausted" class="ml-2 text-red-600">{{ t('admin.channelMonitor.budget.exhausted') }}</span>
+          </details>
         </div>
         <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
           <div
@@ -220,6 +224,7 @@ import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultD
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import MonitorBulkIntervalDialog from '@/components/admin/monitor/MonitorBulkIntervalDialog.vue'
+import MonitorDailyBills from '@/components/admin/monitor/MonitorDailyBills.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'

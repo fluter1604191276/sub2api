@@ -31,6 +31,27 @@ export interface ChannelMonitorBudgetStatus {
   resets_at: string
 }
 
+export interface ChannelMonitorDailyBill {
+  date: string
+  base_cost_usd: number
+  checks: number
+  unknown_cost_checks: number
+  failed_checks: number
+  historical_partial: boolean
+}
+
+export interface ChannelMonitorBills {
+  timezone: string
+  as_of: string
+  period_start: string
+  days: ChannelMonitorDailyBill[]
+}
+
+export async function getDailyBills(days = 30): Promise<ChannelMonitorBills> {
+  const { data } = await apiClient.get<ChannelMonitorBills>('/admin/channel-monitors/bills', { params: { days } })
+  return data
+}
+
 /** 配额快照中的单个用量窗口（与后端 domain.MonitorQuotaTier 一致）。 */
 export interface MonitorQuotaTier {
   /** 5h | 7d | 7d-sonnet | 7d-fable | 30d | daily | weekly | total */
@@ -383,6 +404,7 @@ export const channelMonitorAPI = {
   update,
 	bulkUpdateInterval,
 	getBudgetStatus,
+  getDailyBills,
   del,
   runNow,
   listHistory,

@@ -280,6 +280,20 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 	response.Paginated(c, out, total, page, pageSize)
 }
 
+func (h *ChannelMonitorHandler) DailyBills(c *gin.Context) {
+	days, err := strconv.Atoi(c.DefaultQuery("days", "30"))
+	if err != nil || days < 1 || days > 365 {
+		response.BadRequest(c, "days must be between 1 and 365")
+		return
+	}
+	result, err := h.monitorService.DailyBills(c.Request.Context(), days)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // BudgetStatus GET /api/v1/admin/channel-monitors/budget
 func (h *ChannelMonitorHandler) BudgetStatus(c *gin.Context) {
 	status, err := h.monitorService.BudgetStatus(c.Request.Context())
