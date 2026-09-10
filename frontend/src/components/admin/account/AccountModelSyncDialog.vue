@@ -1,11 +1,18 @@
 <template>
   <BaseDialog :show="show" :title="t('admin.accounts.modelSync.title')" width="extra-wide" @close="handleClose">
     <div class="space-y-3">
-      <div class="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300">
+      <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
         <span>{{ t('admin.accounts.modelSync.summary', { changed: changedCount, total: entries.length }) }}</span>
+        <div class="flex flex-wrap items-center gap-3">
+          <span class="font-medium">{{ t('admin.accounts.modelSync.modeLabel') }}</span>
+          <label class="inline-flex items-center gap-1"><input v-model="mode" type="radio" value="sync" /> {{ t('admin.accounts.modelSync.modeSync') }}</label>
+          <label class="inline-flex items-center gap-1"><input v-model="mode" type="radio" value="add" /> {{ t('admin.accounts.modelSync.modeAdd') }}</label>
+        </div>
+        <div class="flex justify-end">
         <button class="btn btn-primary btn-sm" :disabled="applying || selected.size === 0" @click="apply">
           {{ applying ? t('admin.accounts.modelSync.applying') : t('admin.accounts.modelSync.apply', { count: selected.size }) }}
         </button>
+        </div>
       </div>
       <div class="max-h-[60vh] overflow-auto divide-y divide-gray-200 dark:divide-dark-700">
         <div v-for="entry in entries" :key="entry.account_id" class="py-3">
@@ -33,7 +40,7 @@ import type { AccountModelSyncPreviewEntry } from '@/api/admin/accounts'
 import { useAppStore } from '@/stores/app'
 const props = defineProps<{ show: boolean; entries: AccountModelSyncPreviewEntry[] }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'applied'): void }>()
-const { t } = useI18n(); const appStore = useAppStore(); const selected = ref(new Set<number>()); const applying = ref(false)
+const { t } = useI18n(); const appStore = useAppStore(); const selected = ref(new Set<number>()); const applying = ref(false); const mode = ref<'sync' | 'add'>('sync')
 const resultStates = ref(new Map<number, string>())
 const changedCount = computed(() => props.entries.filter(e => e.status === 'upstream' && ((e.added?.length ?? 0) > 0 || (e.removed?.length ?? 0) > 0)).length)
 watch(() => props.show, open => { if (open) { resultStates.value = new Map(); selected.value = new Set(props.entries.filter(e => e.status === 'upstream' && ((e.added?.length ?? 0) > 0 || (e.removed?.length ?? 0) > 0)).map(e => e.account_id)) } }, { immediate: true })
@@ -46,7 +53,7 @@ const apply = async () => {
   try {
     const pending = props.entries.filter(e => selected.value.has(e.account_id) && entryState(e.account_id) !== 'applied')
     for (let i = 0; i < pending.length; i += 200) {
-      const batch = pending.slice(i, i + 200).map(e => ({ account_id: e.account_id, version: e.version, models: e.upstream_models || [] }))
+      const batch = pending.slice(i, i + 200).map(e => ({ account_id: e.account_id, version: e.version, models: e.upstream_models || [], mode: mode.value }))
       const result = await adminAPI.accounts.applyModelMappings(batch)
       for (const row of result.results) { resultStates.value.set(row.account_id, row.status); if (row.status === 'applied') applied++; else if (row.status === 'conflict') conflicts++; else failed++ }
     }

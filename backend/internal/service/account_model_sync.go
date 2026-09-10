@@ -83,6 +83,9 @@ type AccountModelSyncApplyItem struct {
 	AccountID int64    `json:"account_id" binding:"required"`
 	Version   string   `json:"version" binding:"required"`
 	Models    []string `json:"models" binding:"required,min=1"`
+	// Mode controls automatic identity mappings only. Manual aliases and
+	// wildcards are always preserved.
+	Mode string `json:"mode,omitempty"`
 }
 
 type AccountModelSyncApplyResult struct {
@@ -321,10 +324,21 @@ func (s *AccountTestService) ApplyAccountModelMappings(ctx context.Context, item
 		}
 		credentials := shallowCopyMap(account.Credentials)
 		mapping := map[string]any{}
+		upstream := make(map[string]struct{}, len(models))
+		for _, model := range models {
+			upstream[model] = struct{}{}
+		}
 		if raw, ok := credentials["model_mapping"].(map[string]any); ok {
 			for k, v := range raw {
 				ks, vs := strings.TrimSpace(k), strings.TrimSpace(fmt.Sprint(v))
-				if ks != "" && vs != "" && (ks != vs || strings.Contains(ks, "*")) {
+				if ks != "" && vs != "" && (ks != vs || strings.Contains(ks, "*") || item.Mode != "sync") {
+					// In sync mode, remove stale automatically generated whitelist
+					// entries, while retaining aliases and wildcard rules.
+					if item.Mode == "sync" && ks == vs && !strings.Contains(ks, "*") {
+						if _, ok := upstream[ks]; !ok {
+							continue
+						}
+					}
 					mapping[ks] = v
 				}
 			}

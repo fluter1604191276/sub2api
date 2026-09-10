@@ -31,11 +31,22 @@ func TestApplyAccountModelMappingsUsesPreviewAndPreservesManualMappings(t *testi
 	a.Credentials["model_mapping"] = map[string]any{"old": "old", "alias": "upstream", "*": "*", "new": "manual-target"}
 	r := &conditionalModelSyncRepo{modelSyncAccountRepo: &modelSyncAccountRepo{accounts: map[int64]*Account{1: a}}}
 	s := &AccountTestService{accountRepo: r}
-	result := s.ApplyAccountModelMappings(context.Background(), []AccountModelSyncApplyItem{{AccountID: 1, Version: a.UpdatedAt.Format(time.RFC3339Nano), Models: []string{"new", "added"}}})
+	result := s.ApplyAccountModelMappings(context.Background(), []AccountModelSyncApplyItem{{AccountID: 1, Version: a.UpdatedAt.Format(time.RFC3339Nano), Models: []string{"new", "added"}, Mode: "sync"}})
 	require.Equal(t, "applied", result[0].Status)
 	require.Equal(t, map[string]any{"alias": "upstream", "*": "*", "new": "manual-target", "added": "added"}, r.written["model_mapping"])
 	require.Equal(t, "test-key", r.written["api_key"])
 	require.Contains(t, a.Credentials["model_mapping"], "old")
+}
+
+func TestApplyAccountModelMappingsSyncRemovesStaleAutomaticEntries(t *testing.T) {
+	a := newModelSyncAccount(2, nil)
+	a.UpdatedAt = time.Now().UTC()
+	a.Credentials["model_mapping"] = map[string]any{"old": "old", "alias": "upstream", "*": "*"}
+	r := &conditionalModelSyncRepo{modelSyncAccountRepo: &modelSyncAccountRepo{accounts: map[int64]*Account{2: a}}}
+	s := &AccountTestService{accountRepo: r}
+	result := s.ApplyAccountModelMappings(context.Background(), []AccountModelSyncApplyItem{{AccountID: 2, Version: a.UpdatedAt.Format(time.RFC3339Nano), Models: []string{"new"}, Mode: "sync"}})
+	require.Equal(t, "applied", result[0].Status)
+	require.Equal(t, map[string]any{"alias": "upstream", "*": "*", "new": "new"}, r.written["model_mapping"])
 }
 
 func TestApplyAccountModelMappingsReportsConcurrentConflict(t *testing.T) {
