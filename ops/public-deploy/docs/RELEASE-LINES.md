@@ -8,7 +8,20 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline
+## Production Baseline (2026-09-10)
+
+Current image: `fluter/sub2api:fluter-0.1.183-smart-primary-score-20260910-r2`.
+Current revision: `12e3171f263d5bbe93f471c677883e6129377917`.
+Current image ID: `sha256:74cbfd94fd61a0cbf9c30326063337a0084623a0aeaebc1d6f558a5053908d0c`.
+Exact local source: `.worktrees/production-12e3171f2` (detached, preserved).
+Evidence: `.release-evidence/20260910-smart-primary-score-r2`.
+See RELEASE-BASELINE.md for remote manifest and rollback paths.
+
+The next development line must derive from this live-verified revision, not
+the historical line below. Documentation commits after this revision do not
+change the deployed image identity.
+
+## Historical Production Baseline (2026-09-09)
 
 ```text
 Role: production
@@ -28,7 +41,7 @@ line must be created from its `Revision`, and this block must be updated after
 every verified production switch. It is a reference record, not a substitute
 for live verification.
 
-## Production-Derived Development Line
+## Historical Production-Derived Development Line
 
 ```text
 Base image: fluter/sub2api:fluter-0.1.183-probe-budget-fix-20260909-r1
