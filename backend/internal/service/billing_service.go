@@ -499,6 +499,14 @@ func (s *BillingService) initFallbackPricing() {
 		CacheReadPricePerToken: 2.8e-9, // $0.0028 per MTok (cache hit)
 		SupportsCacheBreakdown: false,
 	}
+	// V4.1 Flash: KBQ observed billing, with the site's USD/RMB purchasing
+	// power convention kept at 1:1. Do not infer this price for other aliases.
+	s.fallbackPrices["deepseek-v4.1-flash"] = &ModelPricing{
+		InputPricePerToken:     2e-6,     // 2 RMB per MTok
+		OutputPricePerToken:    10e-6,    // 10 RMB per MTok
+		CacheReadPricePerToken: 0.041e-6, // 0.041 RMB per MTok
+		SupportsCacheBreakdown: true,
+	}
 
 	// ---- 智谱 GLM（Z.AI）----
 	// Source: https://docs.z.ai/guides/overview/pricing (USD per 1M tokens)
@@ -816,6 +824,9 @@ func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 
 	// DeepSeek V4 系列：仅匹配已知 V4 Pro/Flash 与官方兼容别名
 	// （deepseek-chat / deepseek-reasoner → V4 Flash），未知 deepseek-* 型号不回退，避免误计价。
+	if strings.Contains(modelLower, "deepseek-v4.1-flash") || strings.Contains(modelLower, "deepseek-v4-1-flash") {
+		return s.fallbackPrices["deepseek-v4.1-flash"]
+	}
 	if strings.Contains(modelLower, "deepseek-v4-flash") {
 		return s.fallbackPrices["deepseek-v4-flash"]
 	}

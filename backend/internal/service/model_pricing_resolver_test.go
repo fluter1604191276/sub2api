@@ -212,8 +212,8 @@ func TestGetRequestTierPrice_NilPerRequestPrice(t *testing.T) {
 // ===========================================================================
 
 // helper: creates a resolver wired to a ChannelService that returns the given
-// channel (active, groupID=100, platform=anthropic) with the specified pricing.
-func newResolverWithChannel(t *testing.T, pricing []ChannelModelPricing) *ModelPricingResolver {
+// channel (active, groupID=100) with the specified platform and pricing.
+func newResolverWithChannelPlatform(t *testing.T, platform string, pricing []ChannelModelPricing) *ModelPricingResolver {
 	t.Helper()
 	const groupID = 100
 	repo := &mockChannelRepository{
@@ -227,12 +227,16 @@ func newResolverWithChannel(t *testing.T, pricing []ChannelModelPricing) *ModelP
 			}}, nil
 		},
 		getGroupPlatformsFn: func(_ context.Context, _ []int64) (map[int64]string, error) {
-			return map[int64]string{groupID: "anthropic"}, nil
+			return map[int64]string{groupID: platform}, nil
 		},
 	}
 	cs := NewChannelService(repo, nil, nil, nil, nil)
 	bs := newTestBillingServiceForResolver()
 	return NewModelPricingResolver(cs, bs)
+}
+
+func newResolverWithChannel(t *testing.T, pricing []ChannelModelPricing) *ModelPricingResolver {
+	return newResolverWithChannelPlatform(t, "anthropic", pricing)
 }
 
 // groupIDPtr returns a pointer to groupID 100 (the test constant).
@@ -265,6 +269,69 @@ func TestResolve_WithChannelOverride_TokenFlat(t *testing.T) {
 	require.Zero(t, resolved.BasePricing.InputPricePerTokenPriority)
 	require.InDelta(t, 50e-6, resolved.BasePricing.OutputPricePerToken, 1e-12)
 	require.Zero(t, resolved.BasePricing.OutputPricePerTokenPriority)
+}
+
+func TestResolve_WithChannelOverride_NormalizedOpenAIVariant(t *testing.T) {
+	r := newResolverWithChannelPlatform(t, "openai", []ChannelModelPricing{{
+		Platform:    "openai",
+		Models:      []string{"gpt-5.6-luna"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(40e-6),
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gpt-5.6-luna-high",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.NotNil(t, resolved.BasePricing)
+	require.InDelta(t, 40e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+}
+
+func TestResolve_WithChannelOverride_ExactVariantWinsOverNormalizedBase(t *testing.T) {
+	r := newResolverWithChannelPlatform(t, "openai", []ChannelModelPricing{
+		{
+			Platform:    "openai",
+			Models:      []string{"gpt-5.6-luna-high"},
+			BillingMode: BillingModeToken,
+			InputPrice:  testPtrFloat64(90e-6),
+		},
+		{
+			Platform:    "openai",
+			Models:      []string{"gpt-5.6-luna"},
+			BillingMode: BillingModeToken,
+			InputPrice:  testPtrFloat64(40e-6),
+		},
+	})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gpt-5.6-luna-high",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.NotNil(t, resolved.BasePricing)
+	require.InDelta(t, 90e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+}
+
+func TestResolve_WithChannelOverride_DoesNotNormalizeUnrelatedModel(t *testing.T) {
+	r := newResolverWithChannelPlatform(t, "openai", []ChannelModelPricing{{
+		Platform:    "openai",
+		Models:      []string{"gpt-5.4"},
+		BillingMode: BillingModeToken,
+		InputPrice:  testPtrFloat64(90e-6),
+	}})
+
+	resolved := r.Resolve(context.Background(), PricingInput{
+		Model:   "gpt-5.6-luna-high",
+		GroupID: groupIDPtr(),
+	})
+
+	require.NotNil(t, resolved)
+	require.NotEqual(t, PricingSourceChannel, resolved.Source)
 }
 
 func TestResolve_WithChannelOverride_TokenPartialOverride(t *testing.T) {

@@ -502,6 +502,20 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 			expectedCacheRead: floatPtr(2.8e-9),
 		},
 		{
+			name:              "deepseek v4.1 flash uses observed upstream pricing",
+			model:             "deepseek-v4.1-flash",
+			expectedInput:     2e-6,
+			expectedOutput:    floatPtr(10e-6),
+			expectedCacheRead: floatPtr(0.041e-6),
+		},
+		{
+			name:              "deepseek v4-1 flash alias uses observed upstream pricing",
+			model:             "deepseek-v4-1-flash",
+			expectedInput:     2e-6,
+			expectedOutput:    floatPtr(10e-6),
+			expectedCacheRead: floatPtr(0.041e-6),
+		},
+		{
 			name:              "deepseek chat alias → flash",
 			model:             "deepseek-chat",
 			expectedInput:     1.4e-7,
