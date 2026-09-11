@@ -15,7 +15,7 @@ import GroupsView from '@/views/admin/GroupsView.vue'
 const {
   listGroups,
   getAllGroups,
-  getModelsListCandidates,
+  getModelAllowlistCandidates,
   getUsageSummary,
   getCapacitySummary,
   getBatchQualityStats,
@@ -34,7 +34,7 @@ const {
 } = vi.hoisted(() => ({
   listGroups: vi.fn(),
   getAllGroups: vi.fn(),
-  getModelsListCandidates: vi.fn(),
+  getModelAllowlistCandidates: vi.fn(),
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
   getBatchQualityStats: vi.fn(),
@@ -222,7 +222,7 @@ vi.mock('@/api/admin', () => ({
     groups: {
       list: listGroups,
       getAll: getAllGroups,
-      getModelsListCandidates,
+      getModelAllowlistCandidates,
       getUsageSummary,
       getCapacitySummary,
       getBatchQualityStats,
@@ -241,6 +241,10 @@ vi.mock('@/api/admin', () => ({
       getById: vi.fn(),
     },
   },
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ token: 'test-token', isSimpleMode: false }),
 }))
 
 vi.mock('@/api/keys', () => ({
@@ -563,7 +567,7 @@ describe('admin GroupsView smart scheduler preview', () => {
     for (const fn of [
       listGroups,
       getAllGroups,
-      getModelsListCandidates,
+      getModelAllowlistCandidates,
       getUsageSummary,
       getCapacitySummary,
       getBatchQualityStats,
@@ -591,7 +595,7 @@ describe('admin GroupsView smart scheduler preview', () => {
       pages: 1,
     })
     getAllGroups.mockResolvedValue([])
-    getModelsListCandidates.mockResolvedValue([])
+    getModelAllowlistCandidates.mockResolvedValue([])
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
     getBatchQualityStats.mockResolvedValue({ stats: {} })

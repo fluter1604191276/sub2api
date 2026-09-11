@@ -71,7 +71,7 @@ func TestOpenAIGenericUpstreamFailureClassification(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			body := []byte(tt.upstreamBody)
 			require.Equal(t, tt.wantGeneric, isOpenAIGenericUpstreamFailure(tt.statusCode, tt.upstreamMsg, body))
-			require.Equal(t, tt.wantFailover, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(tt.statusCode, tt.upstreamMsg, body))
+			require.Equal(t, tt.wantFailover, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, tt.statusCode, tt.upstreamMsg, body))
 		})
 	}
 }
@@ -80,7 +80,7 @@ func TestOpenAIGenericUpstreamFailureDoesNotTrustEchoedJSONFields(t *testing.T) 
 	body := []byte(`{"error":{"type":"invalid_request_error","message":"Invalid input"},"details":{"message":"Upstream request failed"}}`)
 
 	require.False(t, isOpenAIGenericUpstreamFailure(http.StatusBadRequest, "", body))
-	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "", body))
+	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(nil, http.StatusBadRequest, "", body))
 }
 
 func TestNewOpenAIGenericUpstreamFailureIsAccountScopedFailover(t *testing.T) {

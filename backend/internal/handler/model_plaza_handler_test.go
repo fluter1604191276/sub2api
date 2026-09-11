@@ -25,7 +25,7 @@ func plazaGroups() []service.PlazaGroup {
 
 func TestFilterPlazaVisibleGroups_AnonymousSeesOnlyNonExclusive(t *testing.T) {
 	// 匿名(allowedExclusive == nil):仅非专属分组;订阅型公开分组照常可见(橱窗语义)。
-	visible := filterPlazaVisibleGroups(plazaGroups(), nil)
+	visible := filterPlazaVisibleGroups(plazaGroups(), nil, false)
 	require.Len(t, visible, 2)
 	ids := []int64{visible[0].ID, visible[1].ID}
 	require.ElementsMatch(t, []int64{1, 3}, ids)
@@ -34,7 +34,7 @@ func TestFilterPlazaVisibleGroups_AnonymousSeesOnlyNonExclusive(t *testing.T) {
 func TestFilterPlazaVisibleGroups_AuthedSeesGrantedExclusive(t *testing.T) {
 	// 登录:非专属 + 授权的专属;未授权的专属仍不可见。
 	allowed := map[int64]struct{}{2: {}}
-	visible := filterPlazaVisibleGroups(plazaGroups(), allowed)
+	visible := filterPlazaVisibleGroups(plazaGroups(), allowed, false)
 	require.Len(t, visible, 3)
 	ids := make([]int64, 0, len(visible))
 	for _, g := range visible {
@@ -46,7 +46,7 @@ func TestFilterPlazaVisibleGroups_AuthedSeesGrantedExclusive(t *testing.T) {
 func TestFilterPlazaVisibleGroups_AuthedEmptySetSeesNoExclusive(t *testing.T) {
 	// 登录但无任何专属授权(空集合,非 nil):与匿名同样只见非专属,
 	// 但语义区分要保持——空集合不能被当作 nil 匿名分支。
-	visible := filterPlazaVisibleGroups(plazaGroups(), map[int64]struct{}{})
+	visible := filterPlazaVisibleGroups(plazaGroups(), map[int64]struct{}{}, false)
 	require.Len(t, visible, 2)
 }
 
@@ -244,4 +244,18 @@ func TestToModelPlazaGroupDTO_TimePricing(t *testing.T) {
 	weekdaysModel := decoded["models"].([]any)[1].(map[string]any)
 	weekdaysTP := weekdaysModel["time_pricing"].(map[string]any)
 	require.Equal(t, true, weekdaysTP["weekdays_only"])
+}
+
+func TestFilterPlazaVisibleGroups_SubscribedExclusiveGroup(t *testing.T) {
+	groups := []service.PlazaGroup{
+		{ID: 42, IsExclusive: true, SubscriptionType: "subscription"},
+		{ID: 43, IsExclusive: true, SubscriptionType: "subscription"},
+		{ID: 44, IsExclusive: true, SubscriptionType: "standard"},
+	}
+	require.Empty(t, filterPlazaVisibleGroups(groups, nil, false))
+	for _, restricted := range []bool{false, true} {
+		visible := filterPlazaVisibleGroups(groups, map[int64]struct{}{42: {}}, restricted)
+		require.Len(t, visible, 1)
+		require.Equal(t, int64(42), visible[0].ID)
+	}
 }

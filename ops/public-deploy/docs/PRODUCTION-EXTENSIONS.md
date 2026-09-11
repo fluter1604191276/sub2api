@@ -29,6 +29,7 @@ Every release manifest must record the status and evidence for each capability b
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
 | ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
+| official-024-compatibility | Official Sub2API v0.2.4 behavior retained alongside site-specific extensions | official compatibility record, backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
 
 ## Status Semantics
 

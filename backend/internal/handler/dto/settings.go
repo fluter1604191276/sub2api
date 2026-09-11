@@ -201,6 +201,7 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
+	OpenAITTFTMode                         string `json:"openai_ttft_mode"`
 	EnableFingerprintUnification           bool   `json:"enable_fingerprint_unification"`
 	EnableMetadataPassthrough              bool   `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       bool   `json:"enable_cch_signing"`
@@ -307,6 +308,7 @@ type SystemSettings struct {
 	ChannelMonitorDailyBudgetUSD         float64 `json:"channel_monitor_daily_budget_usd"`
 	ChannelMonitorHideThroughput         bool    `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool    `json:"channel_monitor_show_quota"`
+	ChannelMonitorHideUserRanking        bool    `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy (admin settings; empty account mapping falls back to these).
 	GrokDefaultTextModel           string `json:"grok_default_text_model"`
@@ -418,6 +420,7 @@ type PublicSettings struct {
 	ChannelMonitorDailyBudgetUSD         float64 `json:"channel_monitor_daily_budget_usd"`
 	ChannelMonitorHideThroughput         bool    `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool    `json:"channel_monitor_show_quota"`
+	ChannelMonitorHideUserRanking        bool    `json:"channel_monitor_hide_user_ranking"`
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 
@@ -448,6 +451,10 @@ type OverloadCooldownSettings struct {
 type RateLimit429CooldownSettings struct {
 	Enabled         bool `json:"enabled"`
 	CooldownSeconds int  `json:"cooldown_seconds"`
+}
+
+type OpenAIImagesOAuthUnavailableCooldownSettings struct {
+	CooldownMinutes int `json:"cooldown_minutes"`
 }
 
 // PanelRateLimitSettings 面板 API 限流配置 DTO

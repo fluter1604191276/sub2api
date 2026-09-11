@@ -111,27 +111,6 @@ func normalizeKnownOpenAICodexModel(model string) string {
 	}
 }
 
-// isOpenAIGPT6AstraModel only recognizes the published Astra identifier and
-// its dated snapshots. It intentionally does not treat the broader gpt-6-*
-// family as Astra, because a later OpenAI model may carry different pricing.
-func isOpenAIGPT6AstraModel(model string) bool {
-	normalized := canonicalizeOpenAIModelAliasSpelling(model)
-	if normalized == "gpt-6-astra" {
-		return true
-	}
-
-	snapshot, ok := strings.CutPrefix(normalized, "gpt-6-astra-")
-	if !ok || len(snapshot) != 8 {
-		return false
-	}
-	for _, character := range snapshot {
-		if character < '0' || character > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 // isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
 // （含大小写/路径/后缀变体）或已归一化的基名，两者均能正确识别。
 func isOpenAIGPT56Model(model string) bool {
@@ -148,6 +127,28 @@ func isOpenAIGPT56Model(model string) bool {
 		}
 	}
 	return false
+}
+
+// isOpenAIGPT6AstraModel reports the public GPT-6 alias, GPT-6 Astra, and
+// dated Astra snapshots. Other GPT-6 families stay excluded.
+func isOpenAIGPT6AstraModel(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	if normalized == "gpt-6" || normalized == "gpt-6-astra" {
+		return true
+	}
+	snapshot, ok := strings.CutPrefix(normalized, "gpt-6-astra-")
+	if !ok || (len(snapshot) != 8 && len(snapshot) != 10) {
+		return false
+	}
+	for _, character := range snapshot {
+		if character == '-' {
+			continue
+		}
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func appendUsageBillingModelCandidate(candidates []string, seen map[string]struct{}, model string) []string {

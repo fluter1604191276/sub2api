@@ -49,10 +49,13 @@ export function useTableLoader<T, P extends Record<string, any>>(options: TableL
     loading.value = true
 
     try {
+      // Snapshot reactive filters before the async request so later UI cleanup
+      // cannot mutate the parameters observed by the request implementation.
+      const requestParams = { ...toRaw(params) } as P
       const response = await fetchFn(
         pagination.page,
         pagination.page_size,
-        toRaw(params) as P,
+        requestParams,
         { signal: currentController.signal }
       )
 

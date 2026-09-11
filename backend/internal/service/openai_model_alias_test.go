@@ -6,6 +6,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNormalizeKnownOpenAICodexModelGPT6Astra(t *testing.T) {
+	for _, model := range []string{"gpt-6-astra", "openai/gpt-6-astra", "OPENAI/GPT-6_ASTRA", "gpt-6", "openai/gpt-6"} {
+		require.Equal(t, "gpt-6-astra", normalizeKnownOpenAICodexModel(model))
+	}
+}
+
 func TestNormalizeKnownOpenAICodexModel_BareGPT56RoutesToSol(t *testing.T) {
 	tests := map[string]string{
 		"gpt-5.6":            "gpt-5.6-sol",
@@ -50,11 +56,12 @@ func TestNormalizeKnownOpenAICodexModel_GPT6AstraAcceptsOnlyPublishedAliases(t *
 	for _, input := range []string{
 		"gpt-6-unknown",
 		"gpt-6-astra-preview",
-		"gpt-6-astra-2026-09-08",
 	} {
 		t.Run(input, func(t *testing.T) {
 			require.Empty(t, normalizeKnownOpenAICodexModel(input))
 			require.False(t, isOpenAIGPT6AstraModel(input))
 		})
 	}
+	require.Equal(t, "gpt-6-astra", normalizeKnownOpenAICodexModel("gpt-6-astra-2026-09-08"))
+	require.True(t, isOpenAIGPT6AstraModel("gpt-6-astra-2026-09-08"))
 }
