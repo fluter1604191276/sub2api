@@ -23,7 +23,7 @@
           </th>
           <th colspan="3" class="pz-bg pt-2 text-center">
             <div class="pz-title border-b pb-2 font-semibold">
-              {{ t('modelPlaza.table.paidPrice') }}
+              {{ t(priceView === 'standard' ? 'modelPlaza.table.standardPrice' : priceView === 'user' ? 'modelPlaza.table.userPrice' : 'modelPlaza.table.paidPrice') }}
               <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
             </div>
           </th>
@@ -284,7 +284,7 @@
               v-if="period"
               class="font-bold text-primary-600 dark:text-primary-400"
               :title="t('modelPlaza.table.timePricingRateHint', { rate: effectiveRate, multiplier: period.multiplier })"
-              >{{ periodRate(period) }}x</span
+              >{{ Number(periodRate(period).toPrecision(12)) }}x</span
             >
             <span
               v-else-if="usesIndependentImageRate(m)"
@@ -324,6 +324,7 @@ const props = defineProps<{
   rateMultiplier: number
   /** 用户专属倍率;与默认不同,实付价按此计算并划线展示原倍率。 */
   userRateMultiplier?: number | null
+  priceView?: 'user' | 'standard'
   /** 生图独立倍率:true 时图片计费模型的实付倍率取 imageRateMultiplier,不取分组/专属倍率。 */
   imageRateIndependent?: boolean
   imageRateMultiplier?: number | null
@@ -363,9 +364,10 @@ const sortedModels = computed(() => {
   })
 })
 
-const effectiveRate = computed(() => props.userRateMultiplier ?? props.rateMultiplier)
+const effectiveRate = computed(() => props.priceView === 'standard'
+  ? props.rateMultiplier : props.userRateMultiplier ?? props.rateMultiplier)
 const hasCustomRate = computed(
-  () => props.userRateMultiplier != null && props.userRateMultiplier !== props.rateMultiplier
+  () => props.priceView !== 'standard' && props.userRateMultiplier != null && props.userRateMultiplier !== props.rateMultiplier
 )
 
 function billingMode(m: PlazaModel): BillingMode {
@@ -400,9 +402,9 @@ const rows = computed<PlazaRow[]>(() =>
   })
 )
 
-/** 时段行的生效倍率 = 生效倍率 × 时段倍率(去掉浮点噪声)。 */
+/** Keep calculation precision; round only the rendered multiplier label. */
 function periodRate(period: PlazaTimePricingPeriod): number {
-  return Math.round(effectiveRate.value * period.multiplier * 1000) / 1000
+  return effectiveRate.value * period.multiplier
 }
 
 /** 实付价 = 渠道单价 × 生效倍率(时段行再乘时段倍率),按 $/1M token 展示。 */

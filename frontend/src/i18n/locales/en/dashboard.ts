@@ -581,6 +581,7 @@ export default {
     public: 'Public',
     exclusiveTooltip: 'Exclusive groups granted to you by an admin',
     publicTooltip: 'Groups open to all users',
+    viewGroupPricing: 'View pricing for this group',
     filters: {
       platform: 'Platform',
       allPlatforms: 'All platforms',
@@ -619,6 +620,7 @@ export default {
       imageOutputPrice: 'Image Output',
       perRequestPrice: 'Per Request',
       intervals: 'Tiered Pricing',
+      basePrice: 'Channel base price (before group multiplier)',
       unitPerMillion: '/ 1M tokens',
       unitPerRequest: '/ request'
     },
@@ -649,6 +651,9 @@ export default {
     loadFailed: 'Failed to load model plaza',
     noSearchResult: 'No matching models',
     anonymousHint: 'Sign in to see your exclusive groups and personal rates',
+    configuredAvailability: 'Shows configured channels; it is not a live account health signal',
+    rateUnavailable: 'Your personal price could not be confirmed; showing the site standard price',
+    priceView: 'Price basis',
     clearFilters: 'Clear filters',
     summary: {
       result: '{groups} groups and {models} models shown',
@@ -661,6 +666,8 @@ export default {
       rateLabel: 'Rate',
       modelLabel: 'Model',
       searchPlaceholder: 'Search models',
+      familyLabel: 'Model family',
+      otherFamily: 'Other',
       public: 'Public',
       exclusive: 'Exclusive',
       subscription: 'Subscription',
@@ -698,6 +705,8 @@ export default {
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
       paidPrice: 'Your Price (Discounted)',
+      standardPrice: 'Site Standard Price',
+      userPrice: 'My Price',
       officialPrice: 'Official Price',
       rate: 'Rate',
       unitPerMillion: '$ / 1M tokens',

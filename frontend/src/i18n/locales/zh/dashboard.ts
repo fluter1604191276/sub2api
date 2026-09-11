@@ -586,6 +586,7 @@ export default {
     public: '公开',
     exclusiveTooltip: '管理员授权给你的专属分组',
     publicTooltip: '对所有用户公开的分组',
+    viewGroupPricing: '查看该分组价格',
     filters: {
       platform: '平台',
       allPlatforms: '全部平台',
@@ -624,6 +625,7 @@ export default {
       imageOutputPrice: '图片输出',
       perRequestPrice: '每次请求',
       intervals: '阶梯定价',
+      basePrice: '渠道基础价（未乘分组倍率）',
       unitPerMillion: '/ 1M token',
       unitPerRequest: '/ 次'
     },
@@ -682,6 +684,9 @@ export default {
     loadFailed: '加载模型广场失败',
     noSearchResult: '没有匹配的模型',
     anonymousHint: '登录后可查看你的专属分组与专属倍率',
+    configuredAvailability: '展示已配置渠道，不代表账号当前健康可调度',
+    rateUnavailable: '用户专属价格暂时无法确认，当前显示本站标准价格',
+    priceView: '价格口径',
     clearFilters: '清除筛选',
     summary: {
       result: '当前显示 {groups} 个分组、{models} 个模型',
@@ -694,6 +699,8 @@ export default {
       rateLabel: '倍率',
       modelLabel: '模型',
       searchPlaceholder: '搜索模型名称',
+      familyLabel: '模型系列',
+      otherFamily: '其他',
       public: '公开',
       exclusive: '专属',
       subscription: '订阅',
@@ -730,6 +737,8 @@ export default {
       timePricingWeekdays: '工作日',
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
       paidPrice: '实付价格(折后)',
+      standardPrice: '本站标准价',
+      userPrice: '我的价格',
       officialPrice: '官方价格',
       rate: '折扣倍率',
       unitPerMillion: '$ / 1M token',

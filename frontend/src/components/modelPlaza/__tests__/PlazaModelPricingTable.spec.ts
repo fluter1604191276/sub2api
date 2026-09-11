@@ -44,6 +44,7 @@ function mountTable(
   rateMultiplier: number,
   userRateMultiplier?: number | null,
   extraProps?: {
+    priceView?: 'user' | 'standard'
     imageRateIndependent?: boolean
     imageRateMultiplier?: number | null
     peakWindow?: string
@@ -51,11 +52,45 @@ function mountTable(
   }
 ) {
   return mount(PlazaModelPricingTable, {
-    props: { models, rateMultiplier, userRateMultiplier: userRateMultiplier ?? null, ...extraProps }
+    props: { models, rateMultiplier, userRateMultiplier: userRateMultiplier ?? null, ...extraProps, ...(extraProps?.priceView ? { 'price-view': extraProps.priceView } : {}) }
   })
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('switches between site standard and user prices without modifying either price source', async () => {
+    const model = tokenModel()
+    const before = JSON.stringify(model)
+    const wrapper = mountTable([model], 0.5, 0.2, { priceView: 'standard' })
+    expect(wrapper.findAll('tbody td')[1].text()).toBe('$1.50')
+    expect(wrapper.text()).toContain('modelPlaza.table.standardPrice')
+    expect(wrapper.find('td .line-through').exists()).toBe(false)
+    await wrapper.setProps({ 'price-view': 'user' })
+    expect(wrapper.findAll('tbody td')[1].text()).toBe('$0.60')
+    expect(wrapper.findAll('tbody td')[4].text()).toBe('$3.00')
+    expect(wrapper.text()).toContain('modelPlaza.table.userPrice')
+    expect(JSON.stringify(model)).toBe(before)
+  })
+
+  it('retains independent image pricing in both views and missing prices as unknown', async () => {
+    const model = tokenModel({ pricing: { ...tokenModel().pricing!, billing_mode: 'image', per_request_price: 0.2 } })
+    const wrapper = mountTable([model], 0.5, 0.1, {
+      priceView: 'user', imageRateIndependent: true, imageRateMultiplier: 0.8
+    })
+    expect(wrapper.findAll('tbody td')[1].text()).toContain('$0.16')
+    await wrapper.setProps({ 'price-view': 'standard' })
+    expect(wrapper.findAll('tbody td')[1].text()).toContain('$0.16')
+    const missing = mountTable([tokenModel({ pricing: null })], 1)
+    expect(missing.findAll('tbody td')[1].text()).toBe('-')
+  })
+
+  it('does not round small time multipliers before calculating a displayed price', () => {
+    const model = tokenModel({
+      time_pricing: { timezone: 'Asia/Shanghai', periods: [{ start_time: '00:00', end_time: '08:00', multiplier: 0.555 }] }
+    })
+    const wrapper = mountTable([model], 0.027)
+    expect(wrapper.findAll('tbody tr')[1].findAll('td')[1].text()).toContain('$0.044955')
+  })
+
   it('倍率为 1 时展示渠道单价原值($/1M),价格保底 2 位小数', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()

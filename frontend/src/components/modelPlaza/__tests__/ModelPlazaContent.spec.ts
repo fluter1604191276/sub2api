@@ -63,18 +63,18 @@ const response: ModelPlazaResponse = {
   ],
 }
 
-function mountContent() {
+function mountContent(overrides: Record<string, unknown> = {}) {
   return mount(ModelPlazaContent, {
-    props: { response, loading: false },
+    props: { response, loading: false, ...overrides },
     global: {
       stubs: {
         CatalogSurfaceNav: true,
         Icon: true,
         PlatformIcon: true,
         PlazaGroupSection: {
-          props: ['group'],
+          props: ['group', 'priceView'],
           template:
-            '<section data-testid="plaza-group" :data-platform="group.platform">{{ group.name }}|{{ group.models.map((item) => item.name).join(",") }}</section>',
+            '<section data-testid="plaza-group" :data-platform="group.platform" :data-price-view="priceView">{{ group.name }}|{{ group.models.map((item) => item.name).join(",") }}</section>',
         },
       },
     },
@@ -82,6 +82,42 @@ function mountContent() {
 }
 
 describe('ModelPlazaContent protocol platform filtering', () => {
+  it('filters model families independently of request platform and does not mutate the response', async () => {
+    const catalog = { ...response, groups: [group({ models: [model('[special]kimi-k3', 'openai'), model('deepseek-v4-pro', 'openai')] })] }
+    const before = JSON.stringify(catalog)
+    const wrapper = mountContent({ response: catalog })
+    await wrapper.get('[data-testid="plaza-platform-openai"]').trigger('click')
+    await wrapper.get('[data-testid="plaza-family"]').setValue('kimi')
+    expect(wrapper.get('[data-testid="plaza-group"]').text()).toContain('kimi-k3')
+    expect(wrapper.get('[data-testid="plaza-group"]').text()).not.toContain('deepseek-v4-pro')
+    expect(wrapper.get('[data-testid="plaza-group"]').attributes('data-platform')).toBe('openai')
+    expect(JSON.stringify(catalog)).toBe(before)
+  })
+
+  it('focuses a group link and stays empty for an inaccessible group', async () => {
+    const wrapper = mountContent({ requestedGroupId: 2 })
+    expect(wrapper.findAll('[data-testid="plaza-group"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="plaza-group"]').text()).toContain('DeepSeek adaptive')
+    await wrapper.setProps({ requestedGroupId: 999 })
+    expect(wrapper.findAll('[data-testid="plaza-group"]')).toHaveLength(0)
+    await wrapper.setProps({ requestedGroupId: null })
+    expect(wrapper.findAll('[data-testid="plaza-group"]')).toHaveLength(2)
+  })
+
+  it('uses standard pricing when user rates could not be resolved', () => {
+    const wrapper = mountContent({ response: { ...response, catalog_metadata: { source: 'configured_channels', availability: 'configured_not_live', pricing_basis: 'before_group_multiplier', policy: 'presentation_only', generated_at: new Date().toISOString(), user_rate_resolution: 'unavailable_fallback_to_group' } } })
+    expect(wrapper.get('[data-testid="plaza-price-user"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[role="status"]').text()).toContain('modelPlaza.rateUnavailable')
+    expect(wrapper.get('[data-testid="plaza-group"]').attributes('data-price-view')).toBe('standard')
+  })
+
+  it('keeps the selected price view consistent with multiplier filtering', async () => {
+    const wrapper = mountContent({ response: { ...response, groups: [group({ rate_multiplier: 0.5, user_rate_multiplier: 0.2, models: [model('gpt-5.5', 'openai')] })], catalog_metadata: { source: 'configured_channels', availability: 'configured_not_live', pricing_basis: 'before_group_multiplier', policy: 'presentation_only', generated_at: new Date().toISOString(), user_rate_resolution: 'resolved' } } })
+    expect(wrapper.get('[data-testid="plaza-group"]').attributes('data-price-view')).toBe('user')
+    await wrapper.get('[data-testid="plaza-price-standard"]').trigger('click')
+    expect(wrapper.get('[data-testid="plaza-group"]').attributes('data-price-view')).toBe('standard')
+  })
+
   it('derives platform choices from groups instead of model supplier names', () => {
     const wrapper = mountContent()
 

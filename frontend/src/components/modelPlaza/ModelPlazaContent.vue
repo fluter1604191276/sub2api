@@ -52,11 +52,38 @@
         @update:search="searchQuery = $event"
       />
 
+      <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <label class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-400">
+          {{ t('modelPlaza.filters.familyLabel') }}
+          <select v-model="selectedFamily" data-testid="plaza-family" class="input w-40 text-sm">
+            <option value="all">{{ t('modelPlaza.filters.all') }}</option>
+            <option v-for="family in familyOptions" :key="family.value" :value="family.value">{{ family.label }}</option>
+          </select>
+        </label>
+        <div class="inline-flex border-b border-gray-200 dark:border-dark-700" role="group" :aria-label="t('modelPlaza.priceView')">
+          <button
+            v-for="view in (['standard', 'user'] as const)"
+            :key="view"
+            type="button"
+            :data-testid="`plaza-price-${view}`"
+            :aria-pressed="priceView === view"
+            :disabled="view === 'user' && !userPricesAvailable"
+            class="min-h-9 border-b-2 px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            :class="priceView === view ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-gray-500'"
+            @click="selectedPriceView = view"
+          >{{ t(view === 'standard' ? 'modelPlaza.table.standardPrice' : 'modelPlaza.table.userPrice') }}</button>
+        </div>
+      </div>
+      <p v-if="userRatesUnavailable" role="status" class="text-xs text-amber-700 dark:text-amber-300">
+        {{ t('modelPlaza.rateUnavailable') }}
+      </p>
+
       <div class="flex flex-wrap items-center justify-between gap-3 border-y border-gray-200 py-3 dark:border-dark-700">
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-dark-400">
           <span data-testid="plaza-result-summary">
             {{ t('modelPlaza.summary.result', { groups: filteredGroups.length, models: visibleModelCount }) }}
           </span>
+          <span v-if="response?.catalog_metadata?.availability === 'configured_not_live'">{{ t('modelPlaza.configuredAvailability') }}</span>
           <span v-if="searchActive" class="text-gray-400 dark:text-dark-500">
             {{ t('modelPlaza.summary.searching', { query: searchQuery.trim() }) }}
           </span>
@@ -74,7 +101,7 @@
 
       <!-- 分组分节的模型清单(默认按生效倍率升序) -->
       <div v-if="filteredGroups.length > 0" class="space-y-5">
-        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" />
+        <PlazaGroupSection v-for="g in filteredGroups" :key="g.id" :group="g" :price-view="priceView" />
       </div>
       <div
         v-else
@@ -98,6 +125,7 @@ import PlazaGroupSection from './PlazaGroupSection.vue'
 import type { ModelPlazaGroup, ModelPlazaResponse } from '@/api/modelPlaza'
 import { useAuthStore } from '@/stores/auth'
 import { sortGroupPlatforms } from '@/constants/platforms'
+import { CATALOG_MODEL_FAMILIES, catalogModelFamily, type CatalogModelFamily } from '@/utils/catalogModelFamily'
 
 const props = defineProps<{
   response: ModelPlazaResponse | null
@@ -105,6 +133,7 @@ const props = defineProps<{
   error?: boolean
   /** 后台内嵌形态(AppLayout 内):隐藏页头。 */
   embedded?: boolean
+  requestedGroupId?: number | null
 }>()
 
 const { t } = useI18n()
@@ -116,6 +145,30 @@ const selectedAccess = ref<'all' | 'public' | 'exclusive' | 'subscription'>('all
 const selectedGroupId = ref<number | 'all'>('all')
 const selectedRate = ref<number | 'all'>('all')
 const searchQuery = ref('')
+const selectedFamily = ref<CatalogModelFamily | 'all'>('all')
+const selectedPriceView = ref<'user' | 'standard' | null>(null)
+const userRatesUnavailable = computed(() =>
+  isAuthenticated.value && props.response?.catalog_metadata?.user_rate_resolution === 'unavailable_fallback_to_group')
+const userPricesAvailable = computed(() => isAuthenticated.value && (
+  props.response?.catalog_metadata?.user_rate_resolution === 'resolved' ||
+  // Older responses already contain effective rates but no status metadata.
+  (!!props.response && !props.response.catalog_metadata)
+))
+const priceView = computed(() => userPricesAvailable.value ? selectedPriceView.value ?? 'user' : 'standard')
+
+watch(() => props.requestedGroupId, (id) => {
+  clearFilters()
+  selectedGroupId.value = id ?? 'all'
+}, { immediate: true })
+
+const familyOptions = computed(() => {
+  const present = new Set((props.response?.groups ?? []).flatMap((g) => g.models.map((m) => catalogModelFamily(m.name))))
+  const options: { value: CatalogModelFamily; label: string }[] = CATALOG_MODEL_FAMILIES
+    .filter((family) => present.has(family.value))
+    .map(({ value, label }) => ({ value, label }))
+  if (present.has('other')) options.push({ value: 'other', label: t('modelPlaza.filters.otherFamily') })
+  return options
+})
 
 const searchActive = computed(() => searchQuery.value.trim() !== '')
 
@@ -127,7 +180,7 @@ const descriptionHtml = computed(() => {
 
 /** 生效倍率 = 用户专属倍率 ?? 分组默认倍率。 */
 function effectiveRate(g: ModelPlazaGroup): number {
-  return g.user_rate_multiplier ?? g.rate_multiplier
+  return priceView.value === 'standard' ? g.rate_multiplier : g.user_rate_multiplier ?? g.rate_multiplier
 }
 
 const platforms = computed(() =>
@@ -163,6 +216,7 @@ const filtersActive = computed(
     selectedAccess.value !== 'all' ||
     selectedGroupId.value !== 'all' ||
     selectedRate.value !== 'all' ||
+    selectedFamily.value !== 'all' ||
     searchActive.value
 )
 
@@ -186,9 +240,10 @@ const filteredGroups = computed(() => {
   }
   // 模型名搜索:分组内只留命中的模型,整组无命中则隐藏该分组。
   const q = searchQuery.value.trim().toLowerCase()
-  if (q) {
+  if (q || selectedFamily.value !== 'all') {
     groups = groups
-      .map((g) => ({ ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q)) }))
+      .map((g) => ({ ...g, models: g.models.filter((m) => m.name.toLowerCase().includes(q) &&
+        (selectedFamily.value === 'all' || catalogModelFamily(m.name) === selectedFamily.value)) }))
       .filter((g) => g.models.length > 0)
   }
   // 专属倍率会改变生效值,不能只依赖后端按默认倍率的排序。
@@ -207,6 +262,7 @@ function clearFilters() {
   selectedGroupId.value = 'all'
   selectedRate.value = 'all'
   searchQuery.value = ''
+  selectedFamily.value = 'all'
 }
 </script>
 

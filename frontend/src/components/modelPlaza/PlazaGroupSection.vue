@@ -12,7 +12,7 @@
           :platform="group.platform as GroupPlatform"
           :subscription-type="(group.subscription_type || 'standard') as SubscriptionType"
           :rate-multiplier="group.rate_multiplier"
-          :user-rate-multiplier="group.user_rate_multiplier ?? null"
+          :user-rate-multiplier="priceView === 'standard' ? null : group.user_rate_multiplier ?? null"
           :peak-rate-enabled="group.peak_rate_enabled"
           :peak-start="group.peak_start"
           :peak-end="group.peak_end"
@@ -61,6 +61,7 @@
         :platform="group.platform"
         :rate-multiplier="group.rate_multiplier"
         :user-rate-multiplier="group.user_rate_multiplier ?? null"
+        :price-view="priceView"
         :image-rate-independent="group.image_rate_independent"
         :image-rate-multiplier="group.image_rate_multiplier"
         :peak-window="peakWindow"
@@ -87,6 +88,7 @@ import { useAppStore } from '@/stores/app'
 
 const props = defineProps<{
   group: ModelPlazaGroup
+  priceView?: 'user' | 'standard'
 }>()
 
 const { t } = useI18n()

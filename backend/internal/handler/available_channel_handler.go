@@ -2,6 +2,7 @@ package handler
 
 import (
 	"sort"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -175,6 +176,7 @@ func (h *AvailableChannelHandler) List(c *gin.Context) {
 		})
 	}
 
+	setCatalogMetadataHeaders(c, newCatalogMetadata(time.Now(), catalogUserRateNotIncluded))
 	response.Success(c, out)
 }
 

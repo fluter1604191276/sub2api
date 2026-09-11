@@ -50,12 +50,26 @@ func TestFilterPlazaVisibleGroups_AuthedEmptySetSeesNoExclusive(t *testing.T) {
 	require.Len(t, visible, 2)
 }
 
+func TestFilterPlazaVisibleGroups_RestrictedUserSeesOnlyGrantedGroups(t *testing.T) {
+	allowed := map[int64]struct{}{2: {}}
+	visible := filterPlazaVisibleGroups(plazaGroups(), allowed, true)
+
+	require.Len(t, visible, 1)
+	require.Equal(t, int64(2), visible[0].ID)
+}
+
 func TestFilterPublicPlazaModelsRemovesHiddenModelsAndEmptyGroups(t *testing.T) {
+	visiblePrice := 2.5e-6
+	officialPrice := 1.25e-6
 	groups := []service.PlazaGroup{
 		{
 			ID: 1, Name: "mixed", Platform: service.PlatformComposite,
 			Models: []service.PlazaModel{
-				{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeToken}},
+				{
+					Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI,
+					Pricing:         &service.ChannelModelPricing{BillingMode: service.BillingModeToken, InputPrice: &visiblePrice},
+					OfficialPricing: &service.PlazaOfficialPricing{InputPrice: &officialPrice},
+				},
 				{Name: "gemini-3.1-flash-image", Platform: service.PlatformGemini, Pricing: &service.ChannelModelPricing{BillingMode: service.BillingModeImage}},
 			},
 		},
@@ -71,6 +85,10 @@ func TestFilterPublicPlazaModelsRemovesHiddenModelsAndEmptyGroups(t *testing.T) 
 	require.Equal(t, int64(1), filtered[0].ID)
 	require.Len(t, filtered[0].Models, 1)
 	require.Equal(t, "gpt-5.6-sol", filtered[0].Models[0].Name)
+	require.Same(t, groups[0].Models[0].Pricing, filtered[0].Models[0].Pricing)
+	require.Same(t, groups[0].Models[0].OfficialPricing, filtered[0].Models[0].OfficialPricing)
+	require.InDelta(t, visiblePrice, *filtered[0].Models[0].Pricing.InputPrice, 1e-12)
+	require.InDelta(t, officialPrice, *filtered[0].Models[0].OfficialPricing.InputPrice, 1e-12)
 	require.Len(t, groups[0].Models, 2, "catalog filtering must not mutate plaza service results")
 }
 

@@ -70,6 +70,34 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             del manifest["capabilities"][capability]
             self.assertIn(f"capability {capability} is missing", verify.validate_manifest_structure(manifest))
 
+    def test_official_024_compatibility_requires_authentic_version_evidence(self):
+        self.assertIn("official-024-compatibility", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("official-024-compatibility", manifest_generator.CAPABILITY_IDS)
+        self.assertIn(
+            verify.OFFICIAL_VERSION_FILE,
+            verify.CAPABILITY_FILES["official-024-compatibility"],
+        )
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertEqual(
+            verify.OFFICIAL_VERSION,
+            (repo_root / verify.OFFICIAL_VERSION_FILE).read_text(encoding="utf-8").strip(),
+        )
+
+        original_file_text = verify.file_text
+        try:
+            verify.file_text = lambda root, relative: (
+                "candidate-tag-only"
+                if relative == verify.OFFICIAL_VERSION_FILE
+                else original_file_text(root, relative)
+            )
+            errors = verify.validate_source_capabilities(repo_root)
+        finally:
+            verify.file_text = original_file_text
+        self.assertIn(
+            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.4'",
+            errors,
+        )
+
     def test_operational_release_files_require_live_production_baseline(self):
         repo_root = SCRIPT_DIR.parents[1]
         files = (
@@ -190,32 +218,126 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertEqual("present", results["scheduled-probe"]["status"])
         self.assertEqual("missing", results["quality-score"]["status"])
 
-    def test_image_capability_smoke_runs_inside_amd64_container(self):
+    def test_binary_marker_matcher_finds_markers_across_chunk_boundaries(self):
+        matched = verify.match_binary_markers(
+            (b"prefix smart_sched", b"uler suffix"),
+            ("smart_scheduler", "missing-marker"),
+        )
+        self.assertEqual({"smart_scheduler"}, matched)
+
+    def test_image_capability_smoke_streams_from_amd64_container(self):
         original_run = verify.subprocess.run
+        original_stream = verify.stream_container_markers
         calls = []
         try:
             def fake_run(args, **kwargs):
                 calls.append((args, kwargs))
-                return type(
-                    "Completed",
-                    (),
-                    {"stdout": "smart_scheduler\nsticky.smart_scheduler_switched\n"},
-                )()
+                return type("Completed", (), {"stdout": "container-id\n"})()
 
             verify.subprocess.run = fake_run
+            verify.stream_container_markers = lambda container, markers, timeout: {
+                "smart_scheduler",
+                "sticky.smart_scheduler_switched",
+            }
             results = verify.inspect_image_capabilities("example/image:test")
         finally:
             verify.subprocess.run = original_run
+            verify.stream_container_markers = original_stream
 
-        args, kwargs = calls[0]
-        self.assertEqual("docker", args[0])
-        self.assertIn("run", args)
-        self.assertIn("--rm", args)
-        self.assertIn("linux/amd64", args)
-        self.assertNotIn("cp", args)
-        self.assertEqual(120, kwargs["timeout"])
+        create_args, create_kwargs = calls[0]
+        cleanup_args, cleanup_kwargs = calls[-1]
+        self.assertEqual("docker", create_args[0])
+        self.assertIn("create", create_args)
+        self.assertIn("/bin/cat", create_args)
+        self.assertIn("linux/amd64", create_args)
+        self.assertNotIn("cp", create_args)
+        self.assertEqual(verify.IMAGE_INSPECTION_TIMEOUT_SECONDS, create_kwargs["timeout"])
+        self.assertEqual(["docker", "rm", "-f"], cleanup_args[:3])
+        self.assertEqual(verify.CONTAINER_CLEANUP_TIMEOUT_SECONDS, cleanup_kwargs["timeout"])
         self.assertEqual("present", results["scheduler"]["status"])
         self.assertEqual("missing", results["scheduled-probe"]["status"])
+
+    def test_image_capability_timeout_always_removes_container(self):
+        original_run = verify.subprocess.run
+        original_stream = verify.stream_container_markers
+        calls = []
+        try:
+            def fake_run(args, **kwargs):
+                calls.append((args, kwargs))
+                return type("Completed", (), {"stdout": "container-id\n"})()
+
+            def timeout(*args, **kwargs):
+                raise subprocess.TimeoutExpired(["docker", "start"], 120)
+
+            verify.subprocess.run = fake_run
+            verify.stream_container_markers = timeout
+            with self.assertRaises(subprocess.TimeoutExpired):
+                verify.inspect_image_capabilities("example/image:test")
+        finally:
+            verify.subprocess.run = original_run
+            verify.stream_container_markers = original_stream
+
+        self.assertEqual(["docker", "rm", "-f"], calls[-1][0][:3])
+
+    def test_container_stream_failure_is_rejected(self):
+        original_popen = verify.subprocess.Popen
+        try:
+            verify.subprocess.Popen = lambda command, **kwargs: original_popen(
+                ["/bin/sh", "-c", "printf partial-marker; exit 23"],
+                **kwargs,
+            )
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                verify.stream_container_markers("container-id", ("missing-marker",), 5)
+        finally:
+            verify.subprocess.Popen = original_popen
+        self.assertEqual(23, raised.exception.returncode)
+
+    def test_container_stream_timeout_kills_attach_process(self):
+        original_popen = verify.subprocess.Popen
+        processes = []
+        try:
+            def sleeping_popen(command, **kwargs):
+                process = original_popen(["/bin/sh", "-c", "exec sleep 10"], **kwargs)
+                processes.append(process)
+                return process
+
+            verify.subprocess.Popen = sleeping_popen
+            with self.assertRaises(subprocess.TimeoutExpired):
+                verify.stream_container_markers("container-id", ("missing-marker",), 0.05)
+        finally:
+            verify.subprocess.Popen = original_popen
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+        self.assertTrue(processes)
+        self.assertIsNotNone(processes[0].poll())
+
+    def test_official_024_image_smoke_requires_version_and_route_markers(self):
+        complete = verify.inspect_binary_capabilities(b"0.2.4 model-allowlist-candidates")
+        self.assertEqual("present", complete["official-024-compatibility"]["status"])
+
+        tag_only = verify.inspect_binary_capabilities(b"official-024-candidate")
+        self.assertEqual("missing", tag_only["official-024-compatibility"]["status"])
+
+    def test_public_catalog_contract_is_required_with_source_and_image_evidence(self):
+        capability = "public-catalog-contract"
+        self.assertIn(capability, verify.REQUIRED_CAPABILITIES)
+        self.assertIn(capability, manifest_generator.CAPABILITY_IDS)
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertTrue(
+            all((repo_root / relative).is_file() for relative in verify.CAPABILITY_FILES[capability])
+        )
+
+        complete = verify.inspect_binary_capabilities(
+            b"configured_not_live before_group_multiplier unavailable_fallback_to_group"
+        )
+        self.assertEqual("present", complete[capability]["status"])
+
+        incomplete = verify.inspect_binary_capabilities(
+            b"configured_not_live before_group_multiplier"
+        )
+        self.assertEqual("missing", incomplete[capability]["status"])
 
     def test_scheduler_source_requires_complete_routing_implementation(self):
         self.assertIn(

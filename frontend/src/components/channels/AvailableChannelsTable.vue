@@ -73,6 +73,15 @@
                     :user-rate-multiplier="userGroupRates[group.id] ?? null"
                     always-show-rate
                   />
+                  <RouterLink
+                    v-if="modelPlazaEnabled"
+                    :to="groupPricingRoute(group.id)"
+                    class="group-pricing-link"
+                    :title="t('availableChannels.viewGroupPricing')"
+                    :aria-label="t('availableChannels.viewGroupPricing')"
+                  >
+                    <Icon name="calculator" size="xs" />
+                  </RouterLink>
                   <span
                     v-if="hasPeakRate(group)"
                     class="peak-label"
@@ -102,6 +111,15 @@
                     :user-rate-multiplier="userGroupRates[group.id] ?? null"
                     always-show-rate
                   />
+                  <RouterLink
+                    v-if="modelPlazaEnabled"
+                    :to="groupPricingRoute(group.id)"
+                    class="group-pricing-link"
+                    :title="t('availableChannels.viewGroupPricing')"
+                    :aria-label="t('availableChannels.viewGroupPricing')"
+                  >
+                    <Icon name="calculator" size="xs" />
+                  </RouterLink>
                   <span
                     v-if="hasPeakRate(group)"
                     class="peak-label"
@@ -126,6 +144,7 @@
                 :no-pricing-label="noPricingLabel"
                 :show-platform="false"
                 :platform-hint="row.section.platform"
+                :pricing-heading="t('availableChannels.pricing.basePrice')"
               />
               <span v-if="row.models.length === 0" class="text-xs text-gray-400">
                 {{ noModelsLabel }}
@@ -171,6 +190,7 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const modelPlazaEnabled = computed(() => appStore.cachedPublicSettings?.model_plaza_enabled === true)
 const displayRows = computed(() => buildAvailableChannelDisplayRows(props.rows))
 const categoryBlocks = computed(() => {
   const blocks = new Map<AvailableChannelCategory, AvailableChannelDisplayRow[]>()
@@ -224,6 +244,13 @@ function exclusiveGroups(section: UserChannelPlatformSection): UserAvailableGrou
 
 function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
   return section.groups.filter((group) => !group.is_exclusive)
+}
+
+function groupPricingRoute(groupId: number) {
+  return {
+    path: '/model-plaza',
+    query: { embedded: '1', group: String(groupId) },
+  }
 }
 
 function hasPeakRate(group: UserAvailableGroup): boolean {
@@ -327,6 +354,10 @@ function peakRateTitle(group: UserAvailableGroup): string {
 
 .peak-label {
   @apply inline-flex items-center gap-1 rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300;
+}
+
+.group-pricing-link {
+  @apply inline-flex h-5 w-5 items-center justify-center rounded text-gray-400 transition-colors hover:bg-gray-100 hover:text-primary-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:bg-dark-700 dark:hover:text-primary-400;
 }
 
 .model-chip-list :deep(.relative) {

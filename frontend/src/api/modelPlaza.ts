@@ -82,6 +82,15 @@ export interface ModelPlazaResponse {
   /** 管理员配置的全局价格说明（Markdown）。 */
   description: string
   groups: ModelPlazaGroup[]
+  /** Additive contract; older backends do not provide metadata. */
+  catalog_metadata?: {
+    source: 'configured_channels'
+    availability: 'configured_not_live'
+    pricing_basis: 'before_group_multiplier'
+    policy: 'presentation_only'
+    generated_at: string
+    user_rate_resolution: 'not_requested' | 'resolved' | 'unavailable_fallback_to_group'
+  }
 }
 
 /** 获取模型广场数据。开关未启用时后端返回 404。 */

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -99,8 +100,9 @@ type modelPlazaGroup struct {
 
 // modelPlazaResponse 广场页响应。
 type modelPlazaResponse struct {
-	Description string            `json:"description"`
-	Groups      []modelPlazaGroup `json:"groups"`
+	Description     string            `json:"description"`
+	Groups          []modelPlazaGroup `json:"groups"`
+	CatalogMetadata *catalogMetadata  `json:"catalog_metadata,omitempty"`
 }
 
 // Get 返回模型广场数据。
@@ -132,6 +134,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	var allowedGroups map[int64]struct{}
 	var restrictPublicGroups bool
 	var userRates map[int64]float64
+	userRateResolution := catalogUserRateNotRequested
 	if authed {
 		allowedGroups, restrictPublicGroups, err = h.apiKeyService.GetUserGroupVisibility(c.Request.Context(), subject.UserID)
 		if err != nil {
@@ -144,6 +147,9 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 			// 专属倍率仅是展示增强，失败降级为分组默认倍率。
 			slog.Warn("model_plaza_user_rates_failed", "error", err, "user_id", subject.UserID)
 			userRates = nil
+			userRateResolution = catalogUserRateUnavailableFallback
+		} else {
+			userRateResolution = catalogUserRateResolved
 		}
 	}
 
@@ -158,8 +164,9 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		out = append(out, toModelPlazaGroupDTO(&visible[i], userRates))
 	}
 	response.Success(c, modelPlazaResponse{
-		Description: rt.Description,
-		Groups:      out,
+		Description:     rt.Description,
+		Groups:          out,
+		CatalogMetadata: newCatalogMetadata(time.Now(), userRateResolution),
 	})
 }
 

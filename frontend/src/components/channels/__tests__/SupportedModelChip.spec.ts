@@ -51,4 +51,39 @@ describe('SupportedModelChip', () => {
     expect(document.body.textContent).toContain('$20 / $75')
     wrapper.unmount()
   })
+
+  it('shows an optional base-price heading without applying a group rate', async () => {
+    const wrapper = mount(SupportedModelChip, {
+      attachTo: document.body,
+      props: {
+        model: {
+          name: 'shared-model',
+          platform: '',
+          pricing: {
+            billing_mode: 'token',
+            input_price: 10e-6,
+            output_price: 50e-6,
+            cache_write_price: null,
+            cache_read_price: null,
+            image_input_price: null,
+            image_output_price: null,
+            per_request_price: null,
+            intervals: []
+          }
+        },
+        pricingHeading: 'availableChannels.pricing.basePrice',
+        showPlatform: false
+      }
+    })
+
+    await wrapper.find('[tabindex="0"]').trigger('mouseenter')
+    await nextTick()
+
+    expect(document.body.textContent).toContain('availableChannels.pricing.basePrice')
+    expect(document.body.textContent).toContain('$10')
+    expect(document.body.textContent).toContain('$50')
+    expect(document.body.textContent).not.toContain('$12')
+    expect(document.body.textContent).not.toContain('$60')
+    wrapper.unmount()
+  })
 })

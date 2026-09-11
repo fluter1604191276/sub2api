@@ -1,8 +1,11 @@
 import { createPinia } from 'pinia'
 import { mount } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import AvailableChannelsTable from '../AvailableChannelsTable.vue'
 import type { UserAvailableChannel } from '@/api/channels'
+import { useAppStore } from '@/stores/app'
+import type { PublicSettings } from '@/types'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -23,11 +26,22 @@ const baseProps = {
   rows, loading: false, pricingKeyPrefix: 'availableChannels.pricing', noPricingLabel: 'No pricing', noModelsLabel: 'No models', emptyLabel: 'No channels', userGroupRates: { 1: 0.8 },
 }
 
-function mountTable(props = {}) {
-  return mount(AvailableChannelsTable, { props: { ...baseProps, ...props }, global: { plugins: [createPinia()], stubs: {
+const RouterLinkStub = defineComponent({
+  name: 'RouterLink',
+  props: { to: { type: Object, required: true } },
+  template: '<a data-router-link><slot /></a>',
+})
+
+function mountTable(props = {}, modelPlazaEnabled = false) {
+  const pinia = createPinia()
+  const appStore = useAppStore(pinia)
+  appStore.cachedPublicSettings = { model_plaza_enabled: modelPlazaEnabled } as PublicSettings
+
+  return mount(AvailableChannelsTable, { props: { ...baseProps, ...props }, global: { plugins: [pinia], stubs: {
     Icon: { props: ['name'], template: '<i :data-icon="name" />' }, PlatformIcon: { template: '<i data-platform-icon />' },
     GroupBadge: { props: ['name', 'platform', 'rateMultiplier', 'userRateMultiplier'], template: '<span data-group-badge>{{ name }}:{{ platform }}:{{ rateMultiplier }}:{{ userRateMultiplier }}</span>' },
-    SupportedModelChip: { props: ['model', 'noPricingLabel'], template: '<span data-model-chip>{{ model.name }}:{{ noPricingLabel }}</span>' },
+    SupportedModelChip: { props: ['model', 'noPricingLabel', 'pricingHeading'], template: '<span data-model-chip>{{ model.name }}:{{ noPricingLabel }}:{{ pricingHeading }}</span>' },
+    RouterLink: RouterLinkStub,
   } } })
 }
 
@@ -43,7 +57,24 @@ describe('AvailableChannelsTable', () => {
     expect(wrapper.findAll('[data-group-badge]')).toHaveLength(2)
     expect(wrapper.find('[data-icon="clock"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('×1.5')
-    expect(wrapper.find('[data-model-chip]').text()).toBe('claude-test:No pricing')
+    expect(wrapper.find('[data-model-chip]').text()).toBe('claude-test:No pricing:availableChannels.pricing.basePrice')
+  })
+
+  it('links each accessible group to its own plaza pricing when enabled', () => {
+    const wrapper = mountTable({}, true)
+    const links = wrapper.findAllComponents(RouterLinkStub)
+
+    expect(links).toHaveLength(2)
+    expect(links.map((link) => link.props('to'))).toEqual([
+      { path: '/model-plaza', query: { embedded: '1', group: '1' } },
+      { path: '/model-plaza', query: { embedded: '1', group: '2' } },
+    ])
+    expect(links.every((link) => link.attributes('title') === 'availableChannels.viewGroupPricing')).toBe(true)
+  })
+
+  it('hides group pricing links when the model plaza is disabled', () => {
+    const wrapper = mountTable({}, false)
+    expect(wrapper.findAllComponents(RouterLinkStub)).toHaveLength(0)
   })
 
   it('uses the group request protocol rather than the model supplier name', () => {

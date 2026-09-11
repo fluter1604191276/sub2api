@@ -8,12 +8,16 @@ is an error, and a healthy container is not treated as capability evidence.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
-import re
-import shlex
+import os
+import selectors
 import subprocess
 import sys
+import tempfile
+import time
+import uuid
 from pathlib import Path
 from typing import Iterable
 
@@ -38,7 +42,15 @@ REQUIRED_CAPABILITIES = (
     "channel-monitor-budget",
     "smart-probe-modes",
     "account-model-sync-preview",
+    "official-024-compatibility",
+    "public-catalog-contract",
 )
+
+OFFICIAL_VERSION = "0.2.4"
+OFFICIAL_VERSION_FILE = "backend/cmd/server/VERSION"
+IMAGE_INSPECTION_TIMEOUT_SECONDS = 120
+CONTAINER_CLEANUP_TIMEOUT_SECONDS = 30
+STREAM_CHUNK_SIZE = 1024 * 1024
 
 CAPABILITY_FILES = {
     "scheduler": (
@@ -233,6 +245,23 @@ CAPABILITY_FILES = {
         "frontend/src/components/admin/account/AccountModelSyncDialog.vue",
         "frontend/src/api/admin/accounts.ts",
     ),
+    "official-024-compatibility": (
+        OFFICIAL_VERSION_FILE,
+        "backend/internal/domain/model_allowlist.go",
+        "backend/internal/handler/admin/admin_basic_handlers_test.go",
+        "backend/internal/handler/admin/group_handler_simple_mode_test.go",
+        "frontend/src/api/admin/groups.ts",
+        "frontend/src/views/admin/__tests__/modelAllowlistCandidates.spec.ts",
+        "ops/public-deploy/docs/extensions/20260911-official-024-compatibility.md",
+    ),
+    "public-catalog-contract": (
+        "backend/internal/handler/catalog_metadata.go",
+        "backend/internal/handler/catalog_metadata_test.go",
+        "backend/internal/handler/available_channel_handler.go",
+        "backend/internal/handler/available_channel_handler_test.go",
+        "backend/internal/handler/model_plaza_handler.go",
+        "backend/internal/handler/model_plaza_handler_test.go",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -290,6 +319,12 @@ IMAGE_CAPABILITY_MARKERS = {
     "generic-400-failover": (
         "openai_generic_upstream_failure",
         "openai_generic_upstream_failure_cooldown",
+    ),
+    "official-024-compatibility": (OFFICIAL_VERSION, "model-allowlist-candidates"),
+    "public-catalog-contract": (
+        "configured_not_live",
+        "before_group_multiplier",
+        "unavailable_fallback_to_group",
     ),
 }
 
@@ -409,6 +444,11 @@ def validate_source_capabilities(repo_root: Path) -> list[str]:
     for marker in ("local_shell", "custom_tool_call", "response.custom_tool_call_input.delta"):
         if marker not in responses:
             errors.append(f"responses tool marker missing: {marker}")
+    version = file_text(repo_root, OFFICIAL_VERSION_FILE).strip()
+    if version != OFFICIAL_VERSION:
+        errors.append(
+            f"official compatibility VERSION is {version!r}; expected {OFFICIAL_VERSION!r}"
+        )
     return errors
 
 
@@ -488,15 +528,15 @@ def inspect_image(image: str) -> dict[str, object]:
         "image_digest": digest,
         "architecture": item.get("Architecture", ""),
         "revision_label": labels.get("org.opencontainers.image.revision", ""),
+        "version_label": labels.get("org.opencontainers.image.version", ""),
         "source_snapshot_label": labels.get("org.opencontainers.image.source-snapshot", ""),
     }
 
 
-def inspect_binary_capabilities(payload: bytes) -> dict[str, dict[str, object]]:
-    printable = b"\0".join(re.findall(rb"[\x20-\x7e]{4,}", payload))
+def capability_results(matched_markers: set[str]) -> dict[str, dict[str, object]]:
     results: dict[str, dict[str, object]] = {}
     for capability_id, markers in IMAGE_CAPABILITY_MARKERS.items():
-        matched = [marker for marker in markers if marker.encode("ascii") in printable]
+        matched = [marker for marker in markers if marker in matched_markers]
         results[capability_id] = {
             "status": "present" if len(matched) == len(markers) else "missing",
             "matched": matched,
@@ -505,8 +545,87 @@ def inspect_binary_capabilities(payload: bytes) -> dict[str, dict[str, object]]:
     return results
 
 
+def match_binary_markers(chunks: Iterable[bytes], markers: Iterable[str]) -> set[str]:
+    encoded = {marker: marker.encode("ascii") for marker in markers}
+    if not encoded:
+        return set()
+    carry_size = max(len(marker) for marker in encoded.values()) - 1
+    pending = dict(encoded)
+    matched: set[str] = set()
+    carry = b""
+    for chunk in chunks:
+        window = carry + chunk
+        for marker, marker_bytes in tuple(pending.items()):
+            if marker_bytes in window:
+                matched.add(marker)
+                del pending[marker]
+        if not pending:
+            break
+        carry = window[-carry_size:] if carry_size else b""
+    return matched
+
+
+def inspect_binary_capabilities(payload: bytes) -> dict[str, dict[str, object]]:
+    markers = (
+        marker
+        for capability_markers in IMAGE_CAPABILITY_MARKERS.values()
+        for marker in capability_markers
+    )
+    return capability_results(match_binary_markers((payload,), markers))
+
+
+def stream_container_markers(
+    container: str, markers: tuple[str, ...], timeout: int
+) -> set[str]:
+    command = ["docker", "start", "--attach", container]
+    deadline = time.monotonic() + timeout
+    with tempfile.TemporaryFile() as stderr:
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=stderr,
+        )
+        assert process.stdout is not None
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+
+        def chunks() -> Iterable[bytes]:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(command, timeout)
+                chunk = os.read(process.stdout.fileno(), STREAM_CHUNK_SIZE)
+                if not chunk:
+                    return
+                yield chunk
+
+        try:
+            matched = match_binary_markers(chunks(), markers)
+            if len(matched) == len(markers):
+                return matched
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(command, timeout)
+            return_code = process.wait(timeout=remaining)
+            if return_code:
+                stderr.seek(0)
+                raise subprocess.CalledProcessError(
+                    return_code,
+                    command,
+                    stderr=stderr.read().decode("utf-8", errors="replace"),
+                )
+            return matched
+        finally:
+            selector.close()
+            process.stdout.close()
+            if process.poll() is None:
+                process.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=5)
+
+
 def inspect_image_capabilities(image: str) -> dict[str, dict[str, object]]:
-    """Inspect the compiled application binary without starting the service."""
+    """Stream the compiled binary from a disposable container and match it natively."""
     markers = tuple(
         dict.fromkeys(
             marker
@@ -514,36 +633,40 @@ def inspect_image_capabilities(image: str) -> dict[str, dict[str, object]]:
             for marker in capability_markers
         )
     )
-    marker_args = " ".join(shlex.quote(marker) for marker in markers)
-    script = f"""set -eu
-strings /app/sub2api > /tmp/sub2api-capability-strings
-for marker in {marker_args}; do
-    if grep -F -q -- "$marker" /tmp/sub2api-capability-strings; then
-        printf '%s\\n' "$marker"
-    fi
-done
-"""
-    result = subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "--platform",
-            "linux/amd64",
-            "--entrypoint",
-            "/bin/sh",
-            image,
-            "-c",
-            script,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    matched_markers = set(result.stdout.splitlines())
-    payload = b"\0".join(marker.encode("ascii") for marker in matched_markers)
-    return inspect_binary_capabilities(payload)
+    container = f"sub2api-capability-{uuid.uuid4().hex}"
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "create",
+                "--name",
+                container,
+                "--platform",
+                "linux/amd64",
+                "--entrypoint",
+                "/bin/cat",
+                image,
+                "/app/sub2api",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=IMAGE_INSPECTION_TIMEOUT_SECONDS,
+        )
+        if not result.stdout.strip():
+            raise ValueError(f"docker returned no container for {image}")
+        matched = stream_container_markers(
+            container, markers, IMAGE_INSPECTION_TIMEOUT_SECONDS
+        )
+        return capability_results(matched)
+    finally:
+        subprocess.run(
+            ["docker", "rm", "-f", container],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=CONTAINER_CLEANUP_TIMEOUT_SECONDS,
+        )
 
 
 def main() -> int:

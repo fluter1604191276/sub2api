@@ -60,6 +60,13 @@
           </div>
 
           <div v-else class="space-y-2 text-gray-700 dark:text-gray-300">
+            <div
+              v-if="pricingHeading"
+              class="border-b pb-2 font-medium text-gray-600 dark:text-gray-400"
+              :class="[popoverBorderClass]"
+            >
+              {{ pricingHeading }}
+            </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t(prefixKey('billingMode')) }}</span>
               <span>{{ billingModeLabel }}</span>
@@ -187,6 +194,8 @@ const props = withDefaults(
     /** i18n 前缀：管理端传 `admin.availableChannels.pricing`，用户端传 `availableChannels.pricing`。 */
     pricingKeyPrefix?: string
     noPricingLabel?: string
+    /** Optional pricing context for user-facing surfaces; omitted by admin callers. */
+    pricingHeading?: string
     showPlatform?: boolean
     /**
      * 当 model.platform 缺失（如 admin 聚合场景）时，用父行的平台作为兜底着色。
@@ -197,6 +206,7 @@ const props = withDefaults(
   {
     pricingKeyPrefix: 'availableChannels.pricing',
     noPricingLabel: '',
+    pricingHeading: '',
     showPlatform: true,
     platformHint: ''
   }
