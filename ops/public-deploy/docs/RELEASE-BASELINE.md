@@ -13,30 +13,35 @@ next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
 ## Current Production Baseline (2026-09-10)
 
-Verified switch completed at approximately 11:26 UTC. This block supersedes
+Verified switch completed at approximately 15:15 UTC. This block supersedes
 the historical 2026-09-09 baseline below.
 
 ~~~text
 SSH alias: fluterapi-prod
 Role: production
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.1.183-smart-primary-score-20260910-r2
-Image ID: sha256:74cbfd94fd61a0cbf9c30326063337a0084623a0aeaebc1d6f558a5053908d0c
-Revision: 12e3171f263d5bbe93f471c677883e6129377917
-Source snapshot: 57e4fc16ba6fa555ceadbe7f01642c9dcc7e48250ede3853f7f4c2b2f84d758f
-Manifest: /www/sub2api-builds/release-manifests/20260910-smart-primary-score-r2/release-manifest.json
-Rollback config: /www/sub2api/backups/pre-switch-smart-score-20260910T112516Z
-Database archive: /www/sub2api/backups/sub2api-backup-20260910T102638Z.tar.gz
-Previous image: fluter/sub2api:fluter-0.1.183-probe-budget-fix-20260909-r1
-Local exact source: .worktrees/production-12e3171f2
-Local evidence: .release-evidence/20260910-smart-primary-score-r2
+Image: fluter/sub2api:fluter-0.1.183-probe-daily-bills-20260910-r1
+Image ID: sha256:c69d71603f5cdb806085b28aa9f05ae80a3895572945e1697b5550896ff4646f
+Revision: 09ede4f7880a40b3aa4a0794e5d5c439fbd891fb
+Source snapshot: 89bff5ed0f9bdb1d4cddcda1f2c5ea25aa090d98bfc6bd3510e45c713879cdbf
+Manifest: /www/sub2api-builds/release-manifests/20260910-probe-daily-bills-r1/release-manifest.json
+Rollback config: /www/sub2api/backups/pre-switch-daily-bills-20260910T151428Z
+Database archive: /www/sub2api/backups/sub2api-backup-20260910T141330Z.tar.gz
+Previous image: fluter/sub2api:fluter-0.1.183-smart-primary-score-20260910-r2
+Local exact source: .worktrees/production-09ede4f78
+Local evidence: .release-evidence/20260910-probe-daily-bills-r1
 ~~~
 
 Native image capability gate, isolated authenticated smoke, public application
 pages and admin authentication boundary passed. No paid upstream end-to-end
 request was executed. Other service containers were not restarted.
 
-The first switch automatically rolled back because the smoke script incorrectly
+Daily bill migrations 234/235 and actual usage correlation were verified in an
+isolated full application. Account-rate costs use immutable usage snapshots;
+historical uncorrelated spending remains unverified. Budget reservations and
+user billing are unchanged. Prior image and configuration are retained.
+
+In the previous smart-primary-score release, the first switch automatically rolled back because the smoke script incorrectly
 assumed the static homepage domain exposed /health, and urllib received 403.
 Verified existing routes use api.fluterapi.top/health (GET 200), while
 fluterapi.top/health returns 404. Corrected curl checks passed on the retry.
