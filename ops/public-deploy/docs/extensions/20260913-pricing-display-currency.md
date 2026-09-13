@@ -12,14 +12,14 @@ Client protocol impact: none
 Tests/fixtures: PricingCurrencyForPlatform unit test；现有可用渠道/模型广场与前端构建验证。
 First release manifest: pending candidate manifest
 Rollback note: 回退应用镜像即可；无数据库回滚要求。
-Owner/status: fluter / candidate implementation, not released to production
+Owner/status: fluter / candidate correction: official reference-price currency now follows the model platform, not released to production
 ```
 
 ## Contract
 
 - `deepseek`、`zhipu`、`kimi`、`minimax`、`qwen` 显示 `¥`。
 - `openai`、`anthropic`、`gemini`、`grok` 及未知平台显示 `$`。
-- 官方参考价仍按官方目录的美元语义显示；它与本站实收价格是两列不同的数据。
+- 官方参考价与本站实收价格仍是两列不同的数据，但展示符号按模型平台区分：国内模型为 `¥`，国外模型为 `$`。
 - 价格数值、分组倍率、用户倍率、缓存价、长上下文区间价、按次价和图片价均不改变。
 - 余额仍是一种无货币属性的站内计费单位；不存在美元余额与人民币余额的换算。
 

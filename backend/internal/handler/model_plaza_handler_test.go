@@ -169,7 +169,24 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 }
 
 func TestToModelPlazaOfficialPricing_NilPassthrough(t *testing.T) {
-	require.Nil(t, toModelPlazaOfficialPricing(nil))
+	require.Nil(t, toModelPlazaOfficialPricing(nil, service.PlatformOpenAI))
+}
+
+func TestToModelPlazaOfficialPricing_UsesModelPlatformCurrency(t *testing.T) {
+	price := 1e-6
+	for _, tc := range []struct {
+		platform string
+		currency string
+	}{
+		{platform: service.PlatformDeepseek, currency: "CNY"},
+		{platform: service.PlatformZhipu, currency: "CNY"},
+		{platform: service.PlatformKimi, currency: "CNY"},
+		{platform: service.PlatformOpenAI, currency: "USD"},
+		{platform: service.PlatformAnthropic, currency: "USD"},
+	} {
+		got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{InputPrice: &price}, tc.platform)
+		require.Equal(t, tc.currency, got.Currency, tc.platform)
+	}
 }
 
 func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {

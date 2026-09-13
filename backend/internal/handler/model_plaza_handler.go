@@ -37,7 +37,7 @@ func NewModelPlazaHandler(
 	}
 }
 
-// modelPlazaOfficialPricing 官方参考价（USD per token，与计费目录同源）。
+// modelPlazaOfficialPricing 官方参考价（按模型平台标注 USD/CNY；与计费目录同源）。
 type modelPlazaOfficialPricing struct {
 	Currency          string   `json:"currency"`
 	InputPrice        *float64 `json:"input_price"`
@@ -233,7 +233,7 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 			Name:             m.Name,
 			Platform:         m.Platform,
 			Pricing:          toUserPricing(m.Pricing),
-			OfficialPricing:  toModelPlazaOfficialPricing(m.OfficialPricing),
+			OfficialPricing:  toModelPlazaOfficialPricing(m.OfficialPricing, m.Platform),
 			LongContextBasis: string(m.LongContextBasis),
 			TimePricing:      toModelPlazaTimePricing(m.TimePricing),
 		})
@@ -277,13 +277,13 @@ func toModelPlazaTimePricing(p *service.TimePricingSchedule) *modelPlazaTimePric
 	return &modelPlazaTimePricing{Timezone: p.Timezone, WeekdaysOnly: p.WeekdaysOnly, Periods: periods}
 }
 
-// toModelPlazaOfficialPricing 转换官方参考价；nil 透传（前端显示 "-"）。
-func toModelPlazaOfficialPricing(p *service.PlazaOfficialPricing) *modelPlazaOfficialPricing {
+// toModelPlazaOfficialPricing 转换官方参考价；币种是展示元数据，不参与计费。
+func toModelPlazaOfficialPricing(p *service.PlazaOfficialPricing, platform string) *modelPlazaOfficialPricing {
 	if p == nil {
 		return nil
 	}
 	return &modelPlazaOfficialPricing{
-		Currency:          "USD",
+		Currency:          service.PricingCurrencyForPlatform(platform),
 		InputPrice:        p.InputPrice,
 		OutputPrice:       p.OutputPrice,
 		CacheWritePrice:   p.CacheWritePrice,

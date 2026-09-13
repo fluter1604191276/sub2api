@@ -248,6 +248,17 @@ describe('PlazaModelPricingTable', () => {
     expect(cells[6].text().trim()).toBe('-')
   })
 
+  it('国内模型的官方参考价沿用接口提供的人民币币种', () => {
+    const base = tokenModel()
+    const wrapper = mountTable([tokenModel({
+      platform: 'deepseek',
+      official_pricing: { ...base.official_pricing!, currency: 'CNY' },
+      pricing: { ...base.pricing!, currency: 'CNY' }
+    })], 1)
+    expect(wrapper.findAll('tbody td')[1].text()).toContain('¥3.00')
+    expect(wrapper.findAll('tbody td')[4].text()).toContain('¥3.00')
+  })
+
   it('实付价分别展示自定义 5m 与 1h 缓存写入价', () => {
     const model = tokenModel()
     model.pricing!.cache_write_1h_price = 7e-6
