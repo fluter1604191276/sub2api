@@ -8,13 +8,15 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline (2026-09-10)
+## Production Baseline (2026-09-13)
 
-Current image: `fluter/sub2api:fluter-0.1.183-probe-daily-bills-20260910-r1`.
-Current revision: `09ede4f7880a40b3aa4a0794e5d5c439fbd891fb`.
-Current image ID: `sha256:c69d71603f5cdb806085b28aa9f05ae80a3895572945e1697b5550896ff4646f`.
-Exact local source: `.worktrees/production-09ede4f78` (detached, preserved).
-Evidence: `.release-evidence/20260910-probe-daily-bills-r1`.
+Current image: `fluter/sub2api:fluter-0.2.4-currency-20260913-r1`.
+Current revision: `5d4f620ba397ebe9d6c65b8919771f9e07219183`.
+Current image ID: `sha256:13daa766e72ce58b14574143a27b8c7915e56a68ee75905422dfc8a87fc01775`.
+Source snapshot: `c827f70b90bf70f04f63ed8b90c0640d0cee0bfcb42ce14c0be385d8b7ad13d2`.
+Exact local source: `.worktrees/production-currency-20260913` (detached, preserved).
+Evidence: `.release-evidence/20260913-pricing-display-currency-r1`.
+Remote manifest: `/www/sub2api-builds/release-manifests/20260913-pricing-display-currency-r1/release-manifest.json`.
 See RELEASE-BASELINE.md for remote manifest and rollback paths.
 
 The next development line must derive from this live-verified revision, not
