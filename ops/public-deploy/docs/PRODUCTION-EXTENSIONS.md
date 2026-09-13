@@ -92,11 +92,12 @@ GET /api/v1/admin/public-catalog/visibility
 PUT /api/v1/admin/public-catalog/visibility
 ~~~
 
-The policy supports a default media visibility and explicit `platform:model`
+The policy supports independent text/media defaults and explicit `platform:model`
 overrides. Text models remain visible by default; `gpt-image` and
 `gpt-image-*` remain visible by default; other media models remain hidden until
-explicitly enabled. Historical overrides are retained when a model temporarily
-disappears from the active-channel candidate list.
+explicitly enabled. The administrator can change either default, and explicit
+overrides take precedence. Historical overrides are retained when a model
+temporarily disappears from the active-channel candidate list.
 
 This setting must not be reused as a source for channel pricing, model mappings,
 group routing, user billing, upstream cost accounting, probes, monitoring, or
