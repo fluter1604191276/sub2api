@@ -42,6 +42,7 @@ export interface ChannelTimePricing {
 
 export interface ChannelModelPricing {
   id?: number
+  currency?: 'USD' | 'CNY'
   platform: string
   models: string[]
   billing_mode: BillingMode

@@ -420,12 +420,14 @@ function priceLines(pricing: UserSupportedModelPricing | null, field: PricingFie
               ? interval.cache_read_price
               : interval.cache_write_price,
         1_000_000,
+        0,
+        pricing.currency,
       ),
     }))
     .filter((line) => line.value !== '-')
 
   if (intervals.length > 0) return intervals
-  return [{ label: '', value: formatScaled(pricingValue(pricing, field), 1_000_000) }]
+  return [{ label: '', value: formatScaled(pricingValue(pricing, field), 1_000_000, 0, pricing.currency) }]
 }
 
 function tokenPrice(pricing: UserSupportedModelPricing | null, field: PricingField): string {
@@ -438,9 +440,9 @@ function pricingSummary(pricing: UserSupportedModelPricing | null): string {
     case BILLING_MODE_TOKEN:
       return `${t('modelPlaza.perToken')} · ${tokenPrice(pricing, 'input')} / ${tokenPrice(pricing, 'output')}`
     case BILLING_MODE_PER_REQUEST:
-      return `${t('modelPlaza.perRequest')} · ${formatScaled(pricing.per_request_price, 1)}`
+      return `${t('modelPlaza.perRequest')} · ${formatScaled(pricing.per_request_price, 1, 0, pricing.currency)}`
     case BILLING_MODE_IMAGE:
-      return `${t('modelPlaza.perImage')} · ${formatScaled(pricing.image_output_price, 1)}`
+      return `${t('modelPlaza.perImage')} · ${formatScaled(pricing.image_output_price, 1, 0, pricing.currency)}`
     default:
       return t('availableChannels.noPricing')
   }

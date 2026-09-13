@@ -78,18 +78,21 @@
                 :value="model.pricing.input_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('outputPrice'))"
                 :value="model.pricing.output_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('cacheWrite5mPrice'))"
                 :value="model.pricing.cache_write_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 v-if="model.pricing.cache_write_1h_price != null"
@@ -97,12 +100,14 @@
                 :value="model.pricing.cache_write_1h_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('cacheReadPrice'))"
                 :value="model.pricing.cache_read_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 v-if="model.pricing.image_input_price != null && model.pricing.image_input_price > 0"
@@ -110,6 +115,7 @@
                 :value="model.pricing.image_input_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
               <PricingRow
                 v-if="model.pricing.image_output_price != null && model.pricing.image_output_price > 0"
@@ -117,6 +123,7 @@
                 :value="model.pricing.image_output_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
+                :currency="model.pricing.currency"
               />
             </template>
 
@@ -129,6 +136,7 @@
               :value="model.pricing.per_request_price"
               :unit="t(prefixKey('unitPerRequest'))"
               :scale="1"
+              :currency="model.pricing.currency"
             />
 
             <PricingRow
@@ -140,6 +148,7 @@
               :value="model.pricing.image_output_price"
               :unit="t(prefixKey('unitPerRequest'))"
               :scale="1"
+              :currency="model.pricing.currency"
             />
 
             <div
@@ -257,11 +266,11 @@ function formatRange(min: number, max: number | null): string {
 
 function formatInterval(iv: UserPricingInterval, pricing: UserSupportedModelPricing): string {
   if (pricing.billing_mode === BILLING_MODE_PER_REQUEST || pricing.billing_mode === BILLING_MODE_IMAGE) {
-    return formatScaled(iv.per_request_price, 1)
+    return formatScaled(iv.per_request_price, 1, 0, pricing.currency)
   }
   const resolved = resolveIntervalPrices(iv, pricing)
-  const input = formatScaled(resolved.input_price, perMillionScale)
-  const output = formatScaled(resolved.output_price, perMillionScale)
+  const input = formatScaled(resolved.input_price, perMillionScale, 0, pricing.currency)
+  const output = formatScaled(resolved.output_price, perMillionScale, 0, pricing.currency)
   return `${input} / ${output}`
 }
 

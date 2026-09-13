@@ -132,6 +132,7 @@ type channelResponse struct {
 
 type channelModelPricingResponse struct {
 	ID                           int64                       `json:"id"`
+	Currency                     string                      `json:"currency"`
 	Platform                     string                      `json:"platform"`
 	Models                       []string                    `json:"models"`
 	BillingMode                  string                      `json:"billing_mode"`
@@ -262,6 +263,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 	}
 	return channelModelPricingResponse{
 		ID:                           p.ID,
+		Currency:                     service.PricingCurrencyForPlatform(platform),
 		Platform:                     platform,
 		Models:                       models,
 		BillingMode:                  billingMode,

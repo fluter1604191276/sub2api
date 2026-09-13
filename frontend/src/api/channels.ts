@@ -39,6 +39,8 @@ export interface UserPricingInterval {
 }
 
 export interface UserSupportedModelPricing {
+  /** Display currency only; billing remains a single site credit unit. */
+  currency?: 'USD' | 'CNY'
   billing_mode: BillingMode
   input_price: number | null
   output_price: number | null

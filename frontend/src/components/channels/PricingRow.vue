@@ -15,11 +15,12 @@ const props = withDefaults(
     value: number | null
     unit: string
     scale: number
+    currency?: 'USD' | 'CNY'
   }>(),
   { value: null }
 )
 
 const display = computed(() =>
-  props.value == null ? '-' : `${formatScaled(props.value, props.scale)} ${props.unit}`
+  props.value == null ? '-' : `${formatScaled(props.value, props.scale, 0, props.currency)} ${props.unit}`
 )
 </script>

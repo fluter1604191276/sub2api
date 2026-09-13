@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -53,6 +54,17 @@ const (
 	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
 	PlatformKiro = "kiro"
 )
+
+// PricingCurrencyForPlatform is presentation metadata only. Billing keeps
+// using the numeric price as a single site-wide credit unit.
+func PricingCurrencyForPlatform(platform string) string {
+	switch strings.ToLower(strings.TrimSpace(platform)) {
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, "qwen":
+		return "CNY"
+	default:
+		return "USD"
+	}
+}
 
 // 账号接入模式（国产供应商）：按量付费 vs Coding Plan。
 const (
