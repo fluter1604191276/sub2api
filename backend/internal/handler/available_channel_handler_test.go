@@ -121,6 +121,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 	cacheWriteMultiplier := 2.0
 	cacheReadMultiplier := 2.0
 	pricing := toUserPricing(&service.ChannelModelPricing{
+		Platform:    service.PlatformDeepseek,
 		BillingMode: service.BillingModeToken,
 		Intervals: []service.PricingInterval{
 			{
@@ -131,6 +132,7 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		},
 	})
 	require.NotNil(t, pricing)
+	require.Equal(t, "CNY", pricing.Currency)
 	require.Len(t, pricing.Intervals, 1)
 	rawIv, err := json.Marshal(pricing.Intervals[0])
 	require.NoError(t, err)

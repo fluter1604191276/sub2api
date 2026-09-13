@@ -337,7 +337,7 @@ func toUserSupportedModels(
 		out = append(out, userSupportedModel{
 			Name:     m.Name,
 			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing),
+			Pricing:  toUserPricing(m.Pricing, m.Platform),
 		})
 	}
 	return out
@@ -370,7 +370,8 @@ func toUserPricingIntervals(src []service.PricingInterval) []userPricingInterval
 }
 
 // toUserPricing 将 service 层定价转换为用户 DTO；入参为 nil 时返回 nil。
-func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
+// platformOverride 用模型条目的平台兜底，兼容历史定价行未保存 platform 的情况。
+func toUserPricing(p *service.ChannelModelPricing, platformOverride ...string) *userSupportedModelPricing {
 	if p == nil {
 		return nil
 	}
@@ -383,8 +384,12 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 	if billingMode == "" {
 		billingMode = string(service.BillingModeToken)
 	}
+	platform := p.Platform
+	if platform == "" && len(platformOverride) > 0 {
+		platform = platformOverride[0]
+	}
 	return &userSupportedModelPricing{
-		Currency:                     service.PricingCurrencyForPlatform(p.Platform),
+		Currency:                     service.PricingCurrencyForPlatform(platform),
 		BillingMode:                  billingMode,
 		InputPrice:                   p.InputPrice,
 		OutputPrice:                  p.OutputPrice,
