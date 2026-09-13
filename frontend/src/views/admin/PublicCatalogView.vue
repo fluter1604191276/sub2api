@@ -166,7 +166,7 @@
                 </td>
                 <td class="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-300">{{ candidate.platform }}</td>
                 <td class="px-5 py-3.5 text-sm text-gray-600 dark:text-gray-300">{{ candidate.is_media ? t('admin.publicCatalog.mediaType') : t('admin.publicCatalog.textType') }}</td>
-                <td class="px-5 py-3.5 text-sm text-gray-500 dark:text-gray-400">{{ candidate.default_visible ? t('admin.publicCatalog.visible') : t('admin.publicCatalog.hidden') }}</td>
+                <td class="px-5 py-3.5 text-sm text-gray-500 dark:text-gray-400">{{ defaultVisibility(candidate) ? t('admin.publicCatalog.visible') : t('admin.publicCatalog.hidden') }}</td>
                 <td class="px-5 py-3.5 text-right">
                   <button
                     type="button"
@@ -225,10 +225,17 @@ function effectiveVisibility(candidate: PublicCatalogModelCandidate): boolean {
   if (Object.prototype.hasOwnProperty.call(models, candidate.key)) {
     return models[candidate.key]
   }
-  if (!candidate.is_media || candidate.default_visible) {
-    return true
+  return defaultVisibility(candidate)
+}
+
+function defaultVisibility(candidate: PublicCatalogModelCandidate): boolean {
+  // GPT image models are the one media family intentionally visible by default.
+  if (candidate.is_media) {
+    return candidate.model.toLowerCase() === 'gpt-image' || candidate.model.toLowerCase().startsWith('gpt-image-')
+      ? true
+      : defaultMediaVisibility.value === 'visible'
   }
-  return defaultMediaVisibility.value === 'visible'
+  return defaultTextVisibility.value === 'visible'
 }
 
 const filteredCandidates = computed(() => {

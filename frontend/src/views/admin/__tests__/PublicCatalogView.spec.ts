@@ -121,4 +121,31 @@ describe('PublicCatalogView', () => {
     expect(payload.models['gemini:gemini-3.1-flash-image']).toBeUndefined()
     expect(payload.models['openai:gpt-5.6-sol']).toBeUndefined()
   })
+
+  it('applies the text default policy to visibility state and bulk actions', async () => {
+    getVisibility.mockResolvedValue({
+      ...structuredClone(initialView),
+      default_text_visibility: 'hidden',
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    const textToggle = wrapper.get('[data-testid="visibility-openai:gpt-5.6-sol"]')
+    expect(textToggle.text()).toContain('admin.publicCatalog.hidden')
+
+    await wrapper.get('[data-testid="catalog-search"]').setValue('gpt-5.6-sol')
+    await wrapper.get('[data-testid="bulk-show-catalog"]').trigger('click')
+    expect(textToggle.text()).toContain('admin.publicCatalog.visible')
+  })
+
+  it('uses changed default policies for models without explicit overrides', async () => {
+    const wrapper = mountView()
+    await flushPromises()
+
+    const textToggle = wrapper.get('[data-testid="visibility-openai:gpt-5.6-sol"]')
+    expect(textToggle.text()).toContain('admin.publicCatalog.visible')
+    const selects = wrapper.findAll('select')
+    await selects[4].setValue('hidden')
+    expect(textToggle.text()).toContain('admin.publicCatalog.hidden')
+  })
 })
