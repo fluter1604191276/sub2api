@@ -297,13 +297,16 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 // GetIntervalPricing 根据 context token 数获取区间定价。
 // 如果有区间列表，找到匹配区间并构造 ModelPricing；否则直接返回 BasePricing。
 func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing {
+	if resolved == nil {
+		return nil
+	}
 	if len(resolved.Intervals) == 0 {
-		return resolved.BasePricing
+		return cloneModelPricing(resolved.BasePricing)
 	}
 
 	iv := FindMatchingInterval(resolved.Intervals, totalContextTokens)
 	if iv == nil {
-		return resolved.BasePricing
+		return cloneModelPricing(resolved.BasePricing)
 	}
 
 	pricing := intervalToModelPricing(iv, resolved.BasePricing, resolved.channelPricing)
@@ -315,9 +318,9 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 
 // intervalToModelPricing 将区间定价转换为 ModelPricing
 func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *ChannelModelPricing) *ModelPricing {
-	pricing := &ModelPricing{}
-	if base != nil {
-		*pricing = *base
+	pricing := cloneModelPricing(base)
+	if pricing == nil {
+		pricing = &ModelPricing{}
 	}
 	applyMultiplier := func(value float64, multiplier *float64) float64 {
 		if multiplier == nil {

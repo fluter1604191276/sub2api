@@ -49,6 +49,18 @@ func TestPublicCatalogVisibilityDefaultPolicy(t *testing.T) {
 	require.False(t, cfg.IsVisible("video", "provider-render-v1", BillingModeVideo))
 }
 
+func TestPublicCatalogVisibilityCanDefaultHideTextModels(t *testing.T) {
+	cfg, err := ValidateAndNormalizePublicCatalogVisibility(PublicCatalogVisibilityConfig{
+		DefaultTextVisibility:  PublicCatalogMediaHidden,
+		DefaultMediaVisibility: PublicCatalogMediaHidden,
+		Models:                 map[string]bool{"openai:gpt-5.6-sol": true},
+	})
+	require.NoError(t, err)
+	require.True(t, cfg.IsVisible("openai", "gpt-5.6-sol", BillingModeToken))
+	require.False(t, cfg.IsVisible("openai", "gpt-5.6-terra", BillingModeToken))
+	require.True(t, cfg.IsVisible("openai", "gpt-image-2", BillingModeImage))
+}
+
 func TestPublicCatalogVisibilityExplicitOverridesAreCaseInsensitive(t *testing.T) {
 	cfg, err := ValidateAndNormalizePublicCatalogVisibility(PublicCatalogVisibilityConfig{
 		DefaultMediaVisibility: PublicCatalogMediaHidden,

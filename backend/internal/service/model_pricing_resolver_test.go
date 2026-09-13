@@ -69,7 +69,10 @@ func TestGetIntervalPricing_NoIntervals(t *testing.T) {
 	}
 
 	result := r.GetIntervalPricing(resolved, 50000)
+	require.NotSame(t, basePricing, result)
 	require.Equal(t, basePricing, result)
+	result.InputPricePerToken = 99e-6
+	require.InDelta(t, 5e-6, basePricing.InputPricePerToken, 1e-12)
 }
 
 func TestGetIntervalPricing_MatchesInterval(t *testing.T) {
@@ -111,7 +114,43 @@ func TestGetIntervalPricing_NoMatch_FallsBackToBase(t *testing.T) {
 	}
 
 	result := r.GetIntervalPricing(resolved, 5000)
+	require.NotSame(t, basePricing, result)
 	require.Equal(t, basePricing, result)
+	result.InputPricePerToken = 1e-6
+	require.InDelta(t, 99e-6, basePricing.InputPricePerToken, 1e-12)
+}
+
+func TestGetIntervalPricingReturnsIndependentSnapshotsConcurrently(t *testing.T) {
+	base := &ModelPricing{
+		InputPricePerToken:         3e-6,
+		OutputPricePerToken:        15e-6,
+		CacheReadPricePerToken:     0.3e-6,
+		FastMultiplier:             testPtrFloat64(2),
+		LongContextInputMultiplier: 2,
+	}
+	resolved := &ResolvedPricing{BasePricing: base}
+
+	const workers = 32
+	results := make(chan *ModelPricing, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			pricing := (&ModelPricingResolver{}).GetIntervalPricing(resolved, 1)
+			pricing.InputPricePerToken = 100e-6
+			if pricing.FastMultiplier != nil {
+				*pricing.FastMultiplier = 7
+			}
+			results <- pricing
+		}()
+	}
+	for i := 0; i < workers; i++ {
+		got := <-results
+		require.InDelta(t, 100e-6, got.InputPricePerToken, 1e-12)
+		require.NotNil(t, got.FastMultiplier)
+		require.InDelta(t, 7, *got.FastMultiplier, 1e-12)
+	}
+	require.InDelta(t, 3e-6, base.InputPricePerToken, 1e-12)
+	require.NotNil(t, base.FastMultiplier)
+	require.InDelta(t, 2, *base.FastMultiplier, 1e-12)
 }
 
 func TestGPT56ExplicitZeroCacheWritePriceIsPreserved(t *testing.T) {

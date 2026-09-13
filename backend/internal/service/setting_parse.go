@@ -215,7 +215,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyModelPlazaEnabled:       "false",
 		SettingKeyModelPlazaRequireAuth:   "false",
 		SettingKeyModelPlazaDescription:   "",
-		SettingKeyPublicCatalogVisibility: "{\"default_media_visibility\":\"hidden\",\"models\":{}}",
+		SettingKeyPublicCatalogVisibility: "{\"default_text_visibility\":\"visible\",\"default_media_visibility\":\"hidden\",\"models\":{}}",
 		SettingKeyPluginManagementEnabled: "false",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)

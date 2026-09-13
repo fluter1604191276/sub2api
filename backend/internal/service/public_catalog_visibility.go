@@ -25,6 +25,7 @@ var publicCatalogMediaPlatforms = map[string]struct{}{
 // PublicCatalogVisibilityConfig controls only which models are rendered in the
 // two user-facing catalogues. Models contains explicit platform:model overrides.
 type PublicCatalogVisibilityConfig struct {
+	DefaultTextVisibility  string          `json:"default_text_visibility"`
 	DefaultMediaVisibility string          `json:"default_media_visibility"`
 	Models                 map[string]bool `json:"models"`
 }
@@ -45,6 +46,7 @@ type PublicCatalogModelCandidate struct {
 // current active-channel candidates. Stale overrides remain in Models even if a
 // candidate temporarily disappears.
 type PublicCatalogVisibilityView struct {
+	DefaultTextVisibility  string                        `json:"default_text_visibility"`
 	DefaultMediaVisibility string                        `json:"default_media_visibility"`
 	Models                 map[string]bool               `json:"models"`
 	Candidates             []PublicCatalogModelCandidate `json:"candidates"`
@@ -52,6 +54,7 @@ type PublicCatalogVisibilityView struct {
 
 func DefaultPublicCatalogVisibilityConfig() PublicCatalogVisibilityConfig {
 	return PublicCatalogVisibilityConfig{
+		DefaultTextVisibility:  PublicCatalogMediaVisible,
 		DefaultMediaVisibility: PublicCatalogMediaHidden,
 		Models:                 map[string]bool{},
 	}
@@ -60,6 +63,19 @@ func DefaultPublicCatalogVisibilityConfig() PublicCatalogVisibilityConfig {
 // ValidateAndNormalizePublicCatalogVisibility validates an admin payload and
 // canonicalizes all lookup keys for case-insensitive matching.
 func ValidateAndNormalizePublicCatalogVisibility(input PublicCatalogVisibilityConfig) (PublicCatalogVisibilityConfig, error) {
+	textPolicy := strings.ToLower(strings.TrimSpace(input.DefaultTextVisibility))
+	// Older stored settings do not have this field; preserve their historical
+	// behavior by treating an omitted value as visible.
+	if textPolicy == "" {
+		textPolicy = PublicCatalogMediaVisible
+	}
+	if textPolicy != PublicCatalogMediaHidden && textPolicy != PublicCatalogMediaVisible {
+		return PublicCatalogVisibilityConfig{}, fmt.Errorf(
+			"default_text_visibility must be %q or %q",
+			PublicCatalogMediaHidden,
+			PublicCatalogMediaVisible,
+		)
+	}
 	policy := strings.ToLower(strings.TrimSpace(input.DefaultMediaVisibility))
 	if policy != PublicCatalogMediaHidden && policy != PublicCatalogMediaVisible {
 		return PublicCatalogVisibilityConfig{}, fmt.Errorf(
@@ -89,6 +105,7 @@ func ValidateAndNormalizePublicCatalogVisibility(input PublicCatalogVisibilityCo
 	}
 
 	return PublicCatalogVisibilityConfig{
+		DefaultTextVisibility:  textPolicy,
 		DefaultMediaVisibility: policy,
 		Models:                 models,
 	}, nil
@@ -154,7 +171,7 @@ func (c PublicCatalogVisibilityConfig) IsVisible(platform, model string, billing
 		}
 	}
 	if !IsPublicCatalogMediaModel(platform, model, billingMode) {
-		return true
+		return c.DefaultTextVisibility == PublicCatalogMediaVisible
 	}
 	if isDefaultPublicGPTImage(model) {
 		return true
@@ -250,10 +267,12 @@ func BuildPublicCatalogModelCandidates(channels []AvailableChannel, config Publi
 	}
 	sort.Strings(keys)
 	out := make([]PublicCatalogModelCandidate, 0, len(keys))
+	defaultConfig := config
+	defaultConfig.Models = nil
 	for _, key := range keys {
 		candidate := byKey[key]
 		candidate.IsMedia = IsPublicCatalogMediaModel(candidate.Platform, candidate.Model, candidate.BillingMode)
-		candidate.DefaultVisible = DefaultPublicCatalogVisibilityConfig().IsVisible(
+		candidate.DefaultVisible = defaultConfig.IsVisible(
 			candidate.Platform,
 			candidate.Model,
 			candidate.BillingMode,
@@ -270,6 +289,7 @@ func BuildPublicCatalogVisibilityView(channels []AvailableChannel, config Public
 		models[key] = visible
 	}
 	return PublicCatalogVisibilityView{
+		DefaultTextVisibility:  config.DefaultTextVisibility,
 		DefaultMediaVisibility: config.DefaultMediaVisibility,
 		Models:                 models,
 		Candidates:             BuildPublicCatalogModelCandidates(channels, config),

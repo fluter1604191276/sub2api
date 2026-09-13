@@ -110,6 +110,14 @@
             </div>
 
             <div class="w-full sm:w-52">
+              <label class="input-label">{{ t('admin.publicCatalog.defaultTextLabel') }}</label>
+              <select v-model="defaultTextVisibility" class="input">
+                <option value="hidden">{{ t('admin.publicCatalog.defaultTextHidden') }}</option>
+                <option value="visible">{{ t('admin.publicCatalog.defaultTextVisible') }}</option>
+              </select>
+            </div>
+
+            <div class="w-full sm:w-52">
               <label class="input-label">{{ t('admin.publicCatalog.defaultMediaLabel') }}</label>
               <select v-model="defaultMediaVisibility" class="input">
                 <option value="hidden">{{ t('admin.publicCatalog.defaultMediaHidden') }}</option>
@@ -207,6 +215,7 @@ const platformFilter = ref('')
 const typeFilter = ref<CatalogTypeFilter>('all')
 const visibilityFilter = ref<CatalogVisibilityFilter>('all')
 const defaultMediaVisibility = ref<PublicCatalogMediaVisibility>('hidden')
+const defaultTextVisibility = ref<PublicCatalogMediaVisibility>('visible')
 const candidates = ref<PublicCatalogModelCandidate[]>([])
 const models = reactive<Record<string, boolean>>({})
 
@@ -235,6 +244,7 @@ const filteredCandidates = computed(() => {
 })
 
 function applyView(view: PublicCatalogVisibilityView): void {
+  defaultTextVisibility.value = view.default_text_visibility || 'visible'
   defaultMediaVisibility.value = view.default_media_visibility
   candidates.value = view.candidates || []
   Object.keys(models).forEach((key) => delete models[key])
@@ -270,6 +280,7 @@ async function save(): Promise<void> {
   saving.value = true
   try {
     const view = await updateVisibility({
+      default_text_visibility: defaultTextVisibility.value,
       default_media_visibility: defaultMediaVisibility.value,
       models: { ...models },
     })

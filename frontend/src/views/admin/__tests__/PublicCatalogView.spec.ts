@@ -25,6 +25,7 @@ vi.mock('vue-i18n', async (importOriginal) => ({
 }))
 
 const initialView = {
+  default_text_visibility: 'visible' as const,
   default_media_visibility: 'hidden' as const,
   models: { 'retired:legacy-image': false },
   candidates: [
@@ -93,6 +94,7 @@ describe('PublicCatalogView', () => {
     await flushPromises()
 
     expect(updateVisibility).toHaveBeenCalledWith({
+      default_text_visibility: 'visible',
       default_media_visibility: 'hidden',
       models: {
         'retired:legacy-image': false,

@@ -13,6 +13,7 @@ export interface PublicCatalogModelCandidate {
 }
 
 export interface PublicCatalogVisibilityConfig {
+  default_text_visibility: PublicCatalogMediaVisibility
   default_media_visibility: PublicCatalogMediaVisibility
   models: Record<string, boolean>
 }

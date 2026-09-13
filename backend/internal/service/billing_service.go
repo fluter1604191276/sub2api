@@ -117,6 +117,29 @@ type ModelPricing struct {
 	ImageOutputPriceExplicit           bool     // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
 }
 
+// cloneModelPricing returns an owned pricing snapshot. Catalog entries may be
+// reused by concurrent requests, so policy resolution must never mutate a
+// shared pricing pointer in place.
+func cloneModelPricing(pricing *ModelPricing) *ModelPricing {
+	if pricing == nil {
+		return nil
+	}
+	cloned := *pricing
+	if pricing.FastMultiplier != nil {
+		value := *pricing.FastMultiplier
+		cloned.FastMultiplier = &value
+	}
+	if pricing.FlexMultiplier != nil {
+		value := *pricing.FlexMultiplier
+		cloned.FlexMultiplier = &value
+	}
+	if pricing.MaxReasoningEffortMultiplier != nil {
+		value := *pricing.MaxReasoningEffortMultiplier
+		cloned.MaxReasoningEffortMultiplier = &value
+	}
+	return &cloned
+}
+
 func normalizeBillingServiceTier(serviceTier string) string {
 	normalized := strings.ToLower(strings.TrimSpace(serviceTier))
 	if normalized == "fast" {
@@ -1225,7 +1248,7 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
 			log.Printf("[Billing] Using fallback pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicy(model, fallback), nil
+		return s.applyModelSpecificPricingPolicy(model, cloneModelPricing(fallback)), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
@@ -1239,11 +1262,10 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 		return nil, err
 	}
 	if channelPricing == nil {
-		return pricing, nil
+		return cloneModelPricing(pricing), nil
 	}
 	// 防止修改 fallbackPrices 中的共享指针
-	cloned := *pricing
-	pricing = &cloned
+	pricing = cloneModelPricing(pricing)
 	applyChannelTokenPriceOverrides(pricing, channelPricing)
 	pricing.FastMultiplier = channelPricing.FastMultiplier
 	pricing.FlexMultiplier = channelPricing.FlexMultiplier
