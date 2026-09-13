@@ -11,25 +11,26 @@ development from this document's old path after production has changed.
 Use `ops/public-deploy/create-production-derived-worktree.sh` to bootstrap the
 next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
-## Current Production Baseline (2026-09-10)
+## Current Production Baseline (2026-09-13)
 
-Verified switch completed at approximately 15:15 UTC. This block supersedes
+Verified switch completed at approximately 13:09 UTC. This block supersedes
 the historical 2026-09-09 baseline below.
 
 ~~~text
 SSH alias: fluterapi-prod
 Role: production
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.1.183-probe-daily-bills-20260910-r1
-Image ID: sha256:c69d71603f5cdb806085b28aa9f05ae80a3895572945e1697b5550896ff4646f
-Revision: 09ede4f7880a40b3aa4a0794e5d5c439fbd891fb
-Source snapshot: 89bff5ed0f9bdb1d4cddcda1f2c5ea25aa090d98bfc6bd3510e45c713879cdbf
-Manifest: /www/sub2api-builds/release-manifests/20260910-probe-daily-bills-r1/release-manifest.json
-Rollback config: /www/sub2api/backups/pre-switch-daily-bills-20260910T151428Z
-Database archive: /www/sub2api/backups/sub2api-backup-20260910T141330Z.tar.gz
-Previous image: fluter/sub2api:fluter-0.1.183-smart-primary-score-20260910-r2
-Local exact source: .worktrees/production-09ede4f78
-Local evidence: .release-evidence/20260910-probe-daily-bills-r1
+Image: fluter/sub2api:fluter-0.2.4-currency-20260913-r1
+Image ID: sha256:13daa766e72ce58b14574143a27b8c7915e56a68ee75905422dfc8a87fc01775
+Revision: 5d4f620ba397ebe9d6c65b8919771f9e07219183
+Source snapshot: c827f70b90bf70f04f63ed8b90c0640d0cee0bfcb42ce14c0be385d8b7ad13d2
+Manifest: /www/sub2api-builds/release-manifests/20260913-pricing-display-currency-r1/release-manifest.json
+Rollback config: /www/sub2api/backups/pre-switch-currency-20260913T125838Z
+Database archive: /www/sub2api/backups/pre-switch-currency-20260913T125838Z/sub2api.sql
+Previous image: fluter/sub2api:fluter-0.2.4-official-catalog-20260913-r2
+Post-switch checks: healthy, /health 200, admin boundary 401, model plaza 200, root 200
+Local exact source: .worktrees/production-currency-20260913
+Local evidence: .release-evidence/20260913-pricing-display-currency-r1
 ~~~
 
 Native image capability gate, isolated authenticated smoke, public application
