@@ -135,7 +135,9 @@ describe('PublicCatalogView', () => {
 
     await wrapper.get('[data-testid="catalog-search"]').setValue('gpt-5.6-sol')
     await wrapper.get('[data-testid="bulk-show-catalog"]').trigger('click')
-    expect(textToggle.text()).toContain('admin.publicCatalog.visible')
+    await wrapper.get('[data-testid="save-public-catalog"]').trigger('click')
+    await flushPromises()
+    expect(updateVisibility.mock.calls[0][0].models['openai:gpt-5.6-sol']).toBe(true)
   })
 
   it('uses changed default policies for models without explicit overrides', async () => {
@@ -145,7 +147,7 @@ describe('PublicCatalogView', () => {
     const textToggle = wrapper.get('[data-testid="visibility-openai:gpt-5.6-sol"]')
     expect(textToggle.text()).toContain('admin.publicCatalog.visible')
     const selects = wrapper.findAll('select')
-    await selects[4].setValue('hidden')
+    await selects[3].setValue('hidden')
     expect(textToggle.text()).toContain('admin.publicCatalog.hidden')
   })
 })
