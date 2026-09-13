@@ -135,7 +135,9 @@ func TestIntervalMultipliersApplyToChannelBase(t *testing.T) {
 	require.InDelta(t, 45, pricing.OutputPricePerToken, 1e-12)
 	require.InDelta(t, 12.5, pricing.CacheCreationPricePerToken, 1e-12)
 	require.InDelta(t, 1, pricing.CacheReadPricePerToken, 1e-12)
-	require.Same(t, base, (&ModelPricingResolver{}).GetIntervalPricing(resolved, 272000))
+	baseResolved := (&ModelPricingResolver{}).GetIntervalPricing(resolved, 272000)
+	require.NotSame(t, base, baseResolved, "interval resolution must return an independent pricing snapshot")
+	require.Equal(t, *base, *baseResolved)
 }
 
 func TestIntervalExplicitPriceTakesPrecedenceOverMultiplier(t *testing.T) {
