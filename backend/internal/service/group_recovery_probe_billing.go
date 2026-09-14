@@ -371,6 +371,7 @@ func (s *GroupRecoveryProbeBillingService) Settle(ctx context.Context, audit Gro
 		audit.Model,
 		AccountStatsUsageContext{Tokens: audit.UsageTokens},
 		breakdown.TotalCost,
+		audit.StartedAt,
 	)
 	accountCostBase := breakdown.TotalCost
 	if accountStatsCost != nil {
@@ -401,6 +402,8 @@ func (s *GroupRecoveryProbeBillingService) Settle(ctx context.Context, audit Gro
 		InputTokens:           audit.UsageTokens.InputTokens,
 		OutputTokens:          audit.UsageTokens.OutputTokens,
 		CacheCreationTokens:   audit.UsageTokens.CacheCreationTokens,
+		CacheCreation5mTokens: audit.UsageTokens.CacheCreation5mTokens,
+		CacheCreation1hTokens: audit.UsageTokens.CacheCreation1hTokens,
 		CacheReadTokens:       audit.UsageTokens.CacheReadTokens,
 		InputCost:             breakdown.InputCost,
 		OutputCost:            breakdown.OutputCost,

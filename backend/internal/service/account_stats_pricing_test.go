@@ -852,6 +852,34 @@ func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
 	}
 }
 
+func TestCalculateStatsCost_DeepSeekAccountProfileUsesCacheBreakdown(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		Models:            []string{"deepseek-v4.1-flash"},
+		BillingMode:       BillingModeToken,
+		InputPrice:        testPtrFloat64(2e-6),
+		OutputPrice:       testPtrFloat64(8e-6),
+		CacheWritePrice:   testPtrFloat64(0.04e-6),
+		CacheWrite1hPrice: testPtrFloat64(0.04e-6),
+		CacheReadPrice:    testPtrFloat64(0.04e-6),
+	}
+	usage := AccountStatsUsageContext{Tokens: UsageTokens{
+		InputTokens:           1_000_000,
+		OutputTokens:          100_000,
+		CacheCreationTokens:   300_000,
+		CacheCreation5mTokens: 100_000,
+		CacheCreation1hTokens: 200_000,
+		CacheReadTokens:       400_000,
+	}}
+
+	got := calculateStatsCost(pricing, usage)
+	require.NotNil(t, got)
+	// This is the pre-account-multiplier price card. The caller applies the
+	// account's 0.15 multiplier once when aggregating account cost.
+	want := 1_000_000*2e-6 + 100_000*8e-6 + 100_000*0.04e-6 +
+		200_000*0.04e-6 + 400_000*0.04e-6
+	require.InDelta(t, want, *got, 1e-12)
+}
+
 // ---------------------------------------------------------------------------
 // resolveAccountStatsCost — integration tests covering the 4-level priority chain
 // ---------------------------------------------------------------------------

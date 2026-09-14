@@ -182,8 +182,8 @@
           </div>
 
           <TimePricingSection
-            v-if="enableTimePricing"
-            :model-value="entry.time_pricing"
+            v-if="enableTimePricing || accountStats"
+            :model-value="timePricing"
             @update:model-value="emit('update', { ...entry, time_pricing: $event })"
           />
         </div>
@@ -283,7 +283,7 @@ import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import TimePricingSection from './TimePricingSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
-import { perTokenToMTok, getPlatformTagClass } from './types'
+import { perTokenToMTok, getPlatformTagClass, createDefaultTimePricingForm } from './types'
 import type { BillingMode } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
 import { accountStatsImageOperationOptions } from './accountStatsImageCost'
@@ -311,6 +311,7 @@ const emit = defineEmits<{
 
 // Collapse state: entries with existing models default to collapsed
 const collapsed = ref(props.entry.models.length > 0)
+const timePricing = computed(() => props.entry.time_pricing ?? createDefaultTimePricingForm())
 
 const billingModeOptions = computed(() => [
   { value: 'token', label: t('admin.channels.billingMode.token') },
@@ -353,7 +354,7 @@ function onBillingModeChange(nextMode: BillingMode) {
     billing_mode: nextMode,
     intervals: [],
     time_pricing: {
-      ...props.entry.time_pricing,
+      ...timePricing.value,
       periods: [],
     },
     image_operation: nextMode === 'image' ? (props.entry.image_operation ?? null) : null,

@@ -685,8 +685,7 @@ func validateChannelConfig(pricing []ChannelModelPricing, mapping map[string]map
 	return validateNoConflictingMappings(mapping)
 }
 
-// validatePricingEntries 校验定价条目（冲突检测 + 区间校验 + 计费模式校验），
-// 同时用于主渠道定价和 account_stats_pricing_rules 的内部定价。
+// validatePricingEntries 校验主渠道定价；账号统计定价使用独立校验以允许图片操作。
 func validatePricingEntries(pricing []ChannelModelPricing) error {
 	if err := validateNoPrimaryImageOperation(pricing); err != nil {
 		return err
@@ -727,13 +726,10 @@ func validatePricingTimePricing(pricing []ChannelModelPricing) error {
 
 func validateAccountStatsPricingRules(rules []AccountStatsPricingRule) error {
 	for i := range rules {
-		for _, pricing := range rules[i].Pricing {
-			if pricing.TimePricing != nil && len(pricing.TimePricing.Periods) > 0 {
-				return fmt.Errorf("account stats pricing rule #%d: %w", i+1,
-					infraerrors.BadRequest("ACCOUNT_STATS_TIME_PRICING_UNSUPPORTED", "account stats pricing does not support time pricing"))
-			}
+		if err := validateAccountStatsPricingEntries(rules[i].Pricing); err != nil {
+			return fmt.Errorf("account stats pricing rule #%d: %w", i+1, err)
 		}
-		if err := validatePricingEntries(rules[i].Pricing); err != nil {
+		if err := validatePricingTimePricing(rules[i].Pricing); err != nil {
 			return fmt.Errorf("account stats pricing rule #%d: %w", i+1, err)
 		}
 	}

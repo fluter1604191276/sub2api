@@ -11,10 +11,12 @@ function entry(overrides: Partial<PricingFormEntry>): PricingFormEntry {
     output_price: null,
     cache_write_price: null,
     cache_read_price: null,
+    image_input_price: null,
     image_output_price: null,
     per_request_price: null,
     intervals: [],
     image_operation: null,
+    time_pricing: { timezone: 'Asia/Shanghai', weekdays_only: false, periods: [] },
     ...overrides,
   }
 }
@@ -39,6 +41,20 @@ describe('findAccountStatsPricingConflict', () => {
       entry({ models: ['claude-sonnet'], billing_mode: 'token' }),
       entry({ models: ['claude-sonnet'], billing_mode: 'per_request' }),
     ])).toEqual(['claude-sonnet', 'claude-sonnet'])
+  })
+
+  it('allows the same model on different concrete platforms', () => {
+    expect(findAccountStatsPricingConflict([
+      entry({ platform: 'anthropic', models: ['shared-model'] }),
+      entry({ platform: 'openai', models: ['shared-model'] }),
+    ], 'deepseek')).toBeNull()
+  })
+
+  it('uses the section platform for new entries without stored provenance', () => {
+    expect(findAccountStatsPricingConflict([
+      entry({ platform: undefined, models: ['shared-model'] }),
+      entry({ platform: undefined, models: ['shared-model'] }),
+    ], 'deepseek')).toEqual(['shared-model', 'shared-model'])
   })
 
   it('returns a pair for duplicate same image model and same operation', () => {

@@ -47,6 +47,14 @@ describe('PricingEntryCard time pricing visibility', () => {
     expect(wrapper.findComponent({ name: 'TimePricingSection' }).exists()).toBe(true)
   })
 
+  it('is shown for account-stats token pricing', () => {
+    const wrapper = shallowMount(PricingEntryCard, {
+      props: { entry: createEntry(), accountStats: true },
+    })
+
+    expect(wrapper.findComponent({ name: 'TimePricingSection' }).exists()).toBe(true)
+  })
+
   it('is hidden for non-token pricing even when explicitly enabled', () => {
     const wrapper = shallowMount(PricingEntryCard, {
       props: { entry: createEntry('per_request'), enableTimePricing: true },

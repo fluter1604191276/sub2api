@@ -125,6 +125,30 @@ func TestChannelToResponse_EmptyDefaults(t *testing.T) {
 	require.Equal(t, "token", resp.ModelPricing[0].BillingMode)
 }
 
+func TestChannelToResponse_AccountStatsPreservesEmptyPlatform(t *testing.T) {
+	now := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	ch := &service.Channel{
+		ID:                 1,
+		Name:               "ch",
+		BillingModelSource: service.BillingModelSourceChannelMapped,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		ModelPricing: []service.ChannelModelPricing{{
+			Platform: "", Models: []string{"primary"},
+		}},
+		AccountStatsPricingRules: []service.AccountStatsPricingRule{{
+			AccountIDs: []int64{7},
+			Pricing: []service.ChannelModelPricing{{
+				Platform: "", Models: []string{"wildcard"},
+			}},
+		}},
+	}
+
+	resp := channelToResponse(ch)
+	require.Equal(t, service.PlatformAnthropic, resp.ModelPricing[0].Platform)
+	require.Equal(t, "", resp.AccountStatsPricingRules[0].Pricing[0].Platform)
+}
+
 func TestChannelToResponse_BillingModelSourcePassthrough(t *testing.T) {
 	// handler 不再兜底 BillingModelSource：空值应原样透传（由 service 层负责默认回填）。
 	ch := &service.Channel{
@@ -347,6 +371,32 @@ func TestPricingRequestToService_WithAllFields(t *testing.T) {
 	require.Equal(t, float64Ptr(0.002), r.CacheReadPrice)
 	require.Equal(t, float64Ptr(0.04), r.ImageOutputPrice)
 	require.Equal(t, float64Ptr(0.5), r.PerRequestPrice)
+}
+
+func TestPricingCacheWrite1hPrice_PreservesNilZeroAndDistinctValue(t *testing.T) {
+	distinct := 0.008
+	zero := 0.0
+	tests := []struct {
+		name  string
+		value *float64
+	}{
+		{name: "nil", value: nil},
+		{name: "zero", value: &zero},
+		{name: "distinct", value: &distinct},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pricingRequestToService([]channelModelPricingRequest{{
+				Models:            []string{"m1"},
+				CacheWrite1hPrice: tt.value,
+			}}, true)
+
+			require.Len(t, result, 1)
+			require.Equal(t, tt.value, result[0].CacheWrite1hPrice)
+			require.Equal(t, tt.value, pricingToResponse(&result[0]).CacheWrite1hPrice)
+		})
+	}
 }
 
 func TestPricingRequestToService_ImageOperationResponsesRoundTrip(t *testing.T) {

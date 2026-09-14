@@ -708,7 +708,7 @@
                       v-for="(entry, pIdx) in rule.pricing"
                       :key="pIdx"
                       :entry="entry"
-                      :platform="section.platform"
+                      :platform="entry.platform ?? section.platform"
                       :account-stats="true"
                       @update="rule.pricing.splice(pIdx, 1, $event)"
                       @remove="removeRulePricingEntry(sIdx, ruleIndex, pIdx)"
@@ -772,8 +772,8 @@ import type {
   ChannelModelCalibrationPreview,
   ModelCalibrationSkipReason
 } from '@/api/admin/channels'
-import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
+import type { AccountStatsPricingFormRule, PricingFormEntry } from '@/components/admin/channel/types'
+import { accountStatsPricingRulesToAPI, accountStatsPricingRuleToForm, accountStatsRuleSectionPlatform, apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findAccountStatsTimePricingError, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
 import { findAccountStatsPricingConflict, isAccountStatsImageTierLabel } from '@/components/admin/channel/accountStatsImageCost'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
@@ -808,14 +808,6 @@ async function loadWebSearchGlobalState() {
   }
 }
 
-// ── Form-level pricing rule type (per-platform) ──
-interface FormPricingRule {
-  name: string
-  group_ids: number[]
-  account_ids: number[]
-  pricing: PricingFormEntry[]
-}
-
 // ── Platform Section type ──
 interface PlatformSection {
   platform: GroupPlatform
@@ -827,7 +819,7 @@ interface PlatformSection {
   web_search_emulation: boolean
   codex_image_generation_bridge: boolean
   bedrock_cc_compat: boolean
-  account_stats_pricing_rules: FormPricingRule[]
+  account_stats_pricing_rules: AccountStatsPricingFormRule[]
 }
 
 // ── Table columns ──
@@ -969,10 +961,10 @@ function formatDate(value: string): string {
 // ── Platform section helpers ──
 const activePlatforms = computed(() => form.platforms.filter(s => s.enabled).map(s => s.platform))
 
-function addPlatformSection(platform: GroupPlatform) {
-  form.platforms.push({
+function createPlatformSection(platform: GroupPlatform, enabled = true): PlatformSection {
+  return {
     platform,
-    enabled: true,
+    enabled,
     collapsed: false,
     group_ids: [],
     model_mapping: {},
@@ -981,7 +973,11 @@ function addPlatformSection(platform: GroupPlatform) {
     codex_image_generation_bridge: false,
     bedrock_cc_compat: false,
     account_stats_pricing_rules: [],
-  })
+  }
+}
+
+function addPlatformSection(platform: GroupPlatform) {
+  form.platforms.push(createPlatformSection(platform))
 }
 
 function togglePlatform(platform: GroupPlatform) {
@@ -1266,42 +1262,7 @@ function clearAllRuleAccountSearchState() {
 }
 
 function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
-  const rules: AccountStatsPricingRule[] = []
-  for (const section of form.platforms) {
-    if (!section.enabled) continue
-    for (const rule of section.account_stats_pricing_rules) {
-      const pricing: ChannelModelPricing[] = rule.pricing
-        .filter(p => p.models.length > 0)
-        .map(p => {
-          const item: ChannelModelPricing = {
-            platform: section.platform,
-            models: p.models,
-            billing_mode: p.billing_mode,
-            input_price: mTokToPerToken(p.input_price),
-            output_price: mTokToPerToken(p.output_price),
-            cache_write_price: mTokToPerToken(p.cache_write_price),
-            cache_write_1h_price: mTokToPerToken(p.cache_write_1h_price),
-            cache_read_price: mTokToPerToken(p.cache_read_price),
-            image_input_price: mTokToPerToken(p.image_input_price),
-            image_output_price: mTokToPerToken(p.image_output_price),
-            per_request_price: p.per_request_price != null && p.per_request_price !== '' ? Number(p.per_request_price) : null,
-            intervals: formIntervalsToAPI(p.intervals || []),
-            time_pricing: null
-          }
-          if (p.billing_mode === 'image') {
-            item.image_operation = p.image_operation ?? null
-          }
-          return item
-        })
-      rules.push({
-        name: rule.name,
-        group_ids: rule.group_ids,
-        account_ids: rule.account_ids,
-        pricing
-      })
-    }
-  }
-  return rules
+  return accountStatsPricingRulesToAPI(form.platforms)
 }
 
 function isBlankPrice(value: number | string | null | undefined): boolean {
@@ -1634,45 +1595,21 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
     groupPlatformMap.set(g.id, g.platform)
   }
 
-  for (const apiRule of apiRules) {
-    // Infer platform from group_ids
-    const platforms = new Set<GroupPlatform>()
-    for (const gid of apiRule.group_ids || []) {
-      const p = groupPlatformMap.get(gid)
-      if (p && p !== 'composite') platforms.add(p)
-    }
-    // If pricing has a platform field, use that as fallback
-    if (platforms.size === 0 && apiRule.pricing?.length > 0) {
-      const p = apiRule.pricing[0].platform as GroupPlatform | undefined
-      if (p) platforms.add(p)
-    }
-    const targetPlatform = platforms.size >= 1 ? [...platforms][0] : null
-    if (!targetPlatform) continue
+  for (const [originalIndex, apiRule] of apiRules.entries()) {
+    const targetPlatform = accountStatsRuleSectionPlatform(
+      apiRule,
+      groupPlatformMap,
+      form.platforms.map(section => section.platform),
+      platformOrder,
+    ) as GroupPlatform | null
+    if (!targetPlatform) throw new Error('No supported platform is available for account stats pricing rules')
 
-    const section = form.platforms.find(s => s.platform === targetPlatform)
-    if (!section) continue
-
-    const formRule: FormPricingRule = {
-      name: apiRule.name || '',
-      group_ids: [...(apiRule.group_ids || [])],
-      account_ids: [...(apiRule.account_ids || [])],
-      pricing: (apiRule.pricing || []).map(p => ({
-        models: [...(p.models || [])],
-        billing_mode: p.billing_mode,
-        input_price: perTokenToMTok(p.input_price),
-        output_price: perTokenToMTok(p.output_price),
-        cache_write_price: perTokenToMTok(p.cache_write_price),
-        cache_write_1h_price: perTokenToMTok(p.cache_write_1h_price),
-        cache_read_price: perTokenToMTok(p.cache_read_price),
-        image_input_price: perTokenToMTok(p.image_input_price),
-        image_output_price: perTokenToMTok(p.image_output_price),
-        per_request_price: p.per_request_price,
-        image_operation: p.billing_mode === 'image' ? (p.image_operation ?? null) : null,
-        intervals: apiIntervalsToForm(p.intervals || []),
-        time_pricing: createDefaultTimePricingForm()
-      } as PricingFormEntry))
+    let section = form.platforms.find(item => item.platform === targetPlatform)
+    if (!section) {
+      section = createPlatformSection(targetPlatform, false)
+      form.platforms.push(section)
     }
-    section.account_stats_pricing_rules.push(formRule)
+    section.account_stats_pricing_rules.push(accountStatsPricingRuleToForm(apiRule, originalIndex))
   }
 }
 
@@ -1779,7 +1716,7 @@ async function handleSubmit() {
 
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const rule of section.account_stats_pricing_rules) {
-      const conflict = findAccountStatsPricingConflict(rule.pricing)
+      const conflict = findAccountStatsPricingConflict(rule.pricing, section.platform)
       if (conflict) {
         appStore.showError(
           t('admin.channels.accountStatsPricingConflict',
@@ -1811,6 +1748,15 @@ async function handleSubmit() {
         }
       }
     }
+  }
+
+  const accountStatsTimePricingError = findAccountStatsTimePricingError(form.platforms, t)
+  if (accountStatsTimePricingError) {
+    const { section, entry, error } = accountStatsTimePricingError
+    const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+    appStore.showError(`${platformLabel} - ${modelLabel(entry)}: ${error}`)
+    activeTab.value = section.platform
+    return
   }
 
   // 校验区间合法性（范围、重叠等）

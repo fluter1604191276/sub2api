@@ -1,4 +1,4 @@
-import type { AccountStatsImageOperation, BillingMode, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
+import type { AccountStatsImageOperation, AccountStatsPricingRule, BillingMode, ChannelModelPricing, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -20,6 +20,7 @@ export interface IntervalFormEntry {
 }
 
 export interface PricingFormEntry {
+  platform?: string
   models: string[]
   billing_mode: BillingMode
   input_price: number | string | null
@@ -36,6 +37,20 @@ export interface PricingFormEntry {
   image_operation?: AccountStatsImageOperation | null
   intervals: IntervalFormEntry[]
   time_pricing: TimePricingFormEntry
+}
+
+export interface AccountStatsPricingFormRule {
+  name: string
+  group_ids: number[]
+  account_ids: number[]
+  pricing: PricingFormEntry[]
+  original_index?: number
+}
+
+export interface AccountStatsPricingFormSection {
+  platform: string
+  enabled: boolean
+  account_stats_pricing_rules: AccountStatsPricingFormRule[]
 }
 
 export interface TimePricingPeriodFormEntry {
@@ -232,6 +247,116 @@ export function formIntervalsToAPI(intervals: IntervalFormEntry[]): PricingInter
     per_request_price: toNullableNumber(iv.per_request_price),
     sort_order: iv.sort_order
   }))
+}
+
+export function accountStatsPricingRuleToForm(
+  rule: AccountStatsPricingRule,
+  originalIndex: number,
+): AccountStatsPricingFormRule {
+  return {
+    name: rule.name || '',
+    group_ids: [...(rule.group_ids || [])],
+    account_ids: [...(rule.account_ids || [])],
+    original_index: originalIndex,
+    pricing: (rule.pricing || []).map(pricing => ({
+      platform: pricing.platform,
+      models: [...(pricing.models || [])],
+      billing_mode: pricing.billing_mode,
+      input_price: perTokenToMTok(pricing.input_price),
+      output_price: perTokenToMTok(pricing.output_price),
+      cache_write_price: perTokenToMTok(pricing.cache_write_price),
+      cache_write_1h_price: perTokenToMTok(pricing.cache_write_1h_price),
+      cache_read_price: perTokenToMTok(pricing.cache_read_price),
+      image_input_price: perTokenToMTok(pricing.image_input_price),
+      image_output_price: perTokenToMTok(pricing.image_output_price),
+      per_request_price: pricing.per_request_price,
+      image_operation: pricing.billing_mode === 'image' ? (pricing.image_operation ?? null) : null,
+      intervals: apiIntervalsToForm(pricing.intervals || []),
+      time_pricing: apiTimePricingToForm(pricing.time_pricing),
+    })),
+  }
+}
+
+export function accountStatsRuleSectionPlatform(
+  rule: AccountStatsPricingRule,
+  groupPlatforms: ReadonlyMap<number, string>,
+  sectionPlatforms: readonly string[],
+  supportedPlatforms: readonly string[],
+): string | null {
+  const supported = new Set(supportedPlatforms)
+  for (const groupID of rule.group_ids || []) {
+    const platform = groupPlatforms.get(groupID)
+    if (platform && platform !== 'composite' && supported.has(platform)) return platform
+  }
+  for (const pricing of rule.pricing || []) {
+    if (pricing.platform && supported.has(pricing.platform)) return pricing.platform
+  }
+  if (sectionPlatforms.length > 0) return sectionPlatforms[0]
+  return supportedPlatforms[0] ?? null
+}
+
+export function accountStatsPricingRulesToAPI(
+  sections: readonly AccountStatsPricingFormSection[],
+): AccountStatsPricingRule[] {
+  const serialized: Array<{ rule: AccountStatsPricingRule, originalIndex?: number, sequence: number }> = []
+  let sequence = 0
+  for (const section of sections) {
+    for (const formRule of section.account_stats_pricing_rules) {
+      if (!section.enabled && formRule.original_index === undefined) continue
+      const pricing: ChannelModelPricing[] = formRule.pricing
+        .filter(entry => entry.models.length > 0)
+        .map(entry => ({
+          platform: entry.platform ?? section.platform,
+          models: entry.models,
+          billing_mode: entry.billing_mode,
+          input_price: mTokToPerToken(entry.input_price),
+          output_price: mTokToPerToken(entry.output_price),
+          cache_write_price: mTokToPerToken(entry.cache_write_price),
+          cache_write_1h_price: mTokToPerToken(entry.cache_write_1h_price),
+          cache_read_price: mTokToPerToken(entry.cache_read_price),
+          image_input_price: mTokToPerToken(entry.image_input_price),
+          image_output_price: mTokToPerToken(entry.image_output_price),
+          per_request_price: toNullableNumber(entry.per_request_price),
+          image_operation: entry.billing_mode === 'image' ? (entry.image_operation ?? null) : undefined,
+          intervals: formIntervalsToAPI(entry.intervals || []),
+          time_pricing: formTimePricingToAPI(entry.time_pricing),
+        }))
+      serialized.push({
+        originalIndex: formRule.original_index,
+        sequence: sequence++,
+        rule: {
+          name: formRule.name,
+          group_ids: formRule.group_ids,
+          account_ids: formRule.account_ids,
+          pricing,
+        },
+      })
+    }
+  }
+  serialized.sort((a, b) => {
+    if (a.originalIndex !== undefined && b.originalIndex !== undefined) return a.originalIndex - b.originalIndex
+    if (a.originalIndex !== undefined) return -1
+    if (b.originalIndex !== undefined) return 1
+    return a.sequence - b.sequence
+  })
+  return serialized.map(item => item.rule)
+}
+
+export function findAccountStatsTimePricingError(
+  sections: readonly AccountStatsPricingFormSection[],
+  t: TranslateFn,
+): { section: AccountStatsPricingFormSection, entry: PricingFormEntry, error: string } | null {
+  for (const section of sections) {
+    for (const rule of section.account_stats_pricing_rules) {
+      if (!section.enabled && rule.original_index === undefined) continue
+      for (const entry of rule.pricing) {
+        if (entry.models.length === 0) continue
+        const error = validateTimePricing(entry.time_pricing, t)
+        if (error) return { section, entry, error }
+      }
+    }
+  }
+  return null
 }
 
 // ── 模型模式冲突检测 ──────────────────────────────────────

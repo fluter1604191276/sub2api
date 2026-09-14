@@ -140,6 +140,7 @@ type channelModelPricingResponse struct {
 	InputPrice                   *float64                    `json:"input_price"`
 	OutputPrice                  *float64                    `json:"output_price"`
 	CacheWritePrice              *float64                    `json:"cache_write_price"`
+	CacheWrite1hPrice            *float64                    `json:"cache_write_1h_price"`
 	CacheReadPrice               *float64                    `json:"cache_read_price"`
 	ImageInputPrice              *float64                    `json:"image_input_price"`
 	ImageOutputPrice             *float64                    `json:"image_output_price"`
@@ -236,7 +237,7 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 			ruleResp.AccountIDs = []int64{}
 		}
 		for i := range rule.Pricing {
-			ruleResp.Pricing = append(ruleResp.Pricing, pricingToResponse(&rule.Pricing[i]))
+			ruleResp.Pricing = append(ruleResp.Pricing, accountStatsPricingToResponse(&rule.Pricing[i]))
 		}
 		resp.AccountStatsPricingRules = append(resp.AccountStatsPricingRules, ruleResp)
 	}
@@ -245,6 +246,14 @@ func channelToResponse(ch *service.Channel) *channelResponse {
 }
 
 func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingResponse {
+	return pricingToResponseWithPlatformDefault(p, true)
+}
+
+func accountStatsPricingToResponse(p *service.ChannelModelPricing) channelModelPricingResponse {
+	return pricingToResponseWithPlatformDefault(p, false)
+}
+
+func pricingToResponseWithPlatformDefault(p *service.ChannelModelPricing, defaultPlatform bool) channelModelPricingResponse {
 	models := p.Models
 	if models == nil {
 		models = []string{}
@@ -254,7 +263,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		billingMode = string(service.BillingModeToken)
 	}
 	platform := p.Platform
-	if platform == "" {
+	if defaultPlatform && platform == "" {
 		platform = service.PlatformAnthropic
 	}
 	intervals := make([]pricingIntervalResponse, 0, len(p.Intervals))
@@ -271,6 +280,7 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		InputPrice:                   p.InputPrice,
 		OutputPrice:                  p.OutputPrice,
 		CacheWritePrice:              p.CacheWritePrice,
+		CacheWrite1hPrice:            p.CacheWrite1hPrice,
 		CacheReadPrice:               p.CacheReadPrice,
 		FastMultiplier:               p.FastMultiplier,
 		FlexMultiplier:               p.FlexMultiplier,
@@ -370,6 +380,7 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			InputPrice:                   r.InputPrice,
 			OutputPrice:                  r.OutputPrice,
 			CacheWritePrice:              r.CacheWritePrice,
+			CacheWrite1hPrice:            r.CacheWrite1hPrice,
 			CacheReadPrice:               r.CacheReadPrice,
 			FastMultiplier:               fastMultiplier,
 			FlexMultiplier:               flexMultiplier,

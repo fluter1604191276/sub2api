@@ -15,17 +15,24 @@ export function isAccountStatsImageTierLabel(label: string): boolean {
   return accountStatsImageTiers.has(label.trim().toUpperCase())
 }
 
-function conflictScope(entry: Pick<PricingFormEntry, 'billing_mode' | 'image_operation'>): string {
+function conflictScope(
+  entry: Pick<PricingFormEntry, 'platform' | 'billing_mode' | 'image_operation'>,
+  defaultPlatform: string,
+): string {
+  const platform = entry.platform ?? defaultPlatform
   if ((entry.billing_mode as BillingMode) === 'image') {
-    return `image:${entry.image_operation ?? ''}`
+    return `${platform}\x00image:${entry.image_operation ?? ''}`
   }
-  return 'non-image'
+  return `${platform}\x00non-image`
 }
 
-export function findAccountStatsPricingConflict(entries: PricingFormEntry[]): [string, string] | null {
+export function findAccountStatsPricingConflict(
+  entries: PricingFormEntry[],
+  defaultPlatform = '',
+): [string, string] | null {
   const scopedModels = new Map<string, string[]>()
   for (const entry of entries) {
-    const scope = conflictScope(entry)
+    const scope = conflictScope(entry, defaultPlatform)
     const models = scopedModels.get(scope) ?? []
     models.push(...entry.models)
     scopedModels.set(scope, models)

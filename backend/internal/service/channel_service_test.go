@@ -2779,15 +2779,28 @@ func TestValidatePricingTimePricing(t *testing.T) {
 	require.Nil(t, empty[0].TimePricing)
 }
 
-func TestValidateAccountStatsPricingRulesRejectsTimePricing(t *testing.T) {
+func TestValidateAccountStatsPricingRulesTimePricing(t *testing.T) {
 	rules := []AccountStatsPricingRule{{Pricing: []ChannelModelPricing{{
 		BillingMode: BillingModeToken,
 		TimePricing: validTimePricingForTest(),
 	}}}}
 
+	require.NoError(t, validateAccountStatsPricingRules(rules))
+	rules[0].Pricing[0].TimePricing.Timezone = "invalid/zone"
 	appErr := infraerrors.FromError(validateAccountStatsPricingRules(rules))
 	require.Equal(t, int32(http.StatusBadRequest), appErr.Code)
-	require.Equal(t, "ACCOUNT_STATS_TIME_PRICING_UNSUPPORTED", appErr.Reason)
+	require.Equal(t, "INVALID_TIME_PRICING", appErr.Reason)
+}
+
+func TestValidateAccountStatsPricingRulesPreservesImageOperation(t *testing.T) {
+	rules := []AccountStatsPricingRule{{Pricing: []ChannelModelPricing{{
+		BillingMode: BillingModeImage, ImageOperation: AccountStatsImageOperationResponses,
+		Models: []string{"gpt-image-1"}, PerRequestPrice: testPtrFloat64(0.1),
+	}}}}
+	require.NoError(t, validateAccountStatsPricingRules(rules))
+	rules[0].Pricing[0].TimePricing = validTimePricingForTest()
+	appErr := infraerrors.FromError(validateAccountStatsPricingRules(rules))
+	require.Equal(t, "TIME_PRICING_UNSUPPORTED_MODE", appErr.Reason)
 }
 
 // ---------------------------------------------------------------------------

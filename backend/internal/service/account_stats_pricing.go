@@ -41,7 +41,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, usage, requestCount, reasoningEffort); cost != nil {
+	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, usage, requestCount, pricingAt, reasoningEffort); cost != nil {
 		return cost
 	}
 
@@ -65,13 +65,15 @@ func resolveAccountStatsCost(
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
 func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, options ...any) *float64 {
 	tier := ""
+	tierSet := false
 	pricingAt := time.Time{}
 	reasoningEffort := ""
 	for _, option := range options {
 		switch value := option.(type) {
 		case string:
-			if tier == "" {
+			if !tierSet {
 				tier = value
+				tierSet = true
 			} else if reasoningEffort == "" {
 				reasoningEffort = value
 			}
@@ -104,7 +106,7 @@ func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, usageOrTokens any, args ...any,
 ) *float64 {
-	usage, requestCount, _, _, _, reasoningEffort := parseAccountStatsUsageArgs(usageOrTokens, args)
+	usage, requestCount, _, _, pricingAt, reasoningEffort := parseAccountStatsUsageArgs(usageOrTokens, args)
 	modelLower := strings.ToLower(model)
 	imageOperation := deriveAccountStatsImageOperation(usage.ImageCount, usage.InboundEndpoint)
 	for _, rule := range channel.AccountStatsPricingRules {
@@ -117,6 +119,8 @@ func tryCustomRules(
 		}
 		cost := calculateStatsCost(pricing, usage, requestCount)
 		if cost != nil {
+			// Use the request's pricing time, not the asynchronous settlement time.
+			*cost *= pricing.TimePricing.MultiplierAt(pricingAt)
 			*cost *= maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil)
 		}
 		return cost
@@ -339,6 +343,10 @@ func applyAccountStatsCost(
 	}
 	usage := AccountStatsUsageContext{Tokens: tokens}
 	if usageLog != nil {
+		if usage.Tokens.CacheCreation5mTokens == 0 && usage.Tokens.CacheCreation1hTokens == 0 {
+			usage.Tokens.CacheCreation5mTokens = usageLog.CacheCreation5mTokens
+			usage.Tokens.CacheCreation1hTokens = usageLog.CacheCreation1hTokens
+		}
 		if usageLog.ServiceTier != nil {
 			usage.ServiceTier = strings.TrimSpace(*usageLog.ServiceTier)
 		}
@@ -389,6 +397,8 @@ func parseAccountStatsUsageArgs(usageOrTokens any, args []any) (AccountStatsUsag
 	if tokens, ok := usageOrTokens.(UsageTokens); ok {
 		usage.Tokens = tokens
 	}
+	// An empty tier still occupies the first string argument slot.
+	tierSet := false
 	for _, arg := range args {
 		switch value := arg.(type) {
 		case int:
@@ -396,8 +406,9 @@ func parseAccountStatsUsageArgs(usageOrTokens any, args []any) (AccountStatsUsag
 		case float64:
 			totalCost = value
 		case string:
-			if serviceTier == "" {
+			if !tierSet {
 				serviceTier = value
+				tierSet = true
 			} else if reasoningEffort == "" {
 				reasoningEffort = value
 			}

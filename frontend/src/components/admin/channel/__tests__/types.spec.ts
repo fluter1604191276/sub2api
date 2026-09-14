@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import {
+  accountStatsPricingRulesToAPI,
+  accountStatsPricingRuleToForm,
+  accountStatsRuleSectionPlatform,
   apiIntervalsToForm,
   apiTimePricingToForm,
   createDefaultTimePricingForm,
+  findAccountStatsTimePricingError,
   formIntervalsToAPI,
   formTimePricingToAPI,
   isValidPositiveMultiplier,
   validateIntervals,
   validateTimePricing,
   type IntervalFormEntry,
+  type PricingFormEntry,
   type TimePricingFormEntry,
   type TimePricingPeriodFormEntry,
 } from '../types'
+import type { AccountStatsPricingRule } from '@/api/admin/channels'
 
 describe('interval multiplier conversion', () => {
   it('preserves component multipliers without MTok conversion', () => {
@@ -214,5 +220,166 @@ describe('time pricing', () => {
     expect(validateTimePricing(form, t)).toContain('timezone')
     expect(() => formTimePricingToAPI(form)).not.toThrow()
     expect(formTimePricingToAPI(form)?.timezone).toBe('')
+  })
+})
+
+function makePricingEntry(over: Partial<PricingFormEntry> = {}): PricingFormEntry {
+  return {
+    models: ['model'],
+    billing_mode: 'token',
+    input_price: null,
+    output_price: null,
+    cache_write_price: null,
+    cache_read_price: null,
+    image_input_price: null,
+    image_output_price: null,
+    per_request_price: null,
+    intervals: [],
+    time_pricing: createDefaultTimePricingForm(),
+    ...over,
+  }
+}
+
+function makeAPIRule(over: Partial<AccountStatsPricingRule> = {}): AccountStatsPricingRule {
+  return {
+    name: 'rule',
+    group_ids: [],
+    account_ids: [1],
+    pricing: [{
+      platform: '',
+      models: ['model'],
+      billing_mode: 'token',
+      input_price: 0.000001,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+      time_pricing: null,
+    }],
+    ...over,
+  }
+}
+
+describe('account stats pricing form roundtrip', () => {
+  it('round-trips one mixed-platform rule from a disabled section without splitting it', () => {
+    const apiRule = makeAPIRule({
+      name: 'mixed',
+      pricing: [
+        { ...makeAPIRule().pricing[0], platform: '', models: ['shared-*'] },
+        { ...makeAPIRule().pricing[0], platform: 'openai', models: ['gpt-5'] },
+      ],
+    })
+    const formRule = accountStatsPricingRuleToForm(apiRule, 0)
+
+    const rules = accountStatsPricingRulesToAPI([{
+      platform: 'anthropic',
+      enabled: false,
+      account_stats_pricing_rules: [formRule],
+    }])
+
+    expect(rules).toHaveLength(1)
+    expect(rules[0].name).toBe('mixed')
+    expect(rules[0].pricing.map(entry => ({ platform: entry.platform, models: entry.models }))).toEqual([
+      { platform: '', models: ['shared-*'] },
+      { platform: 'openai', models: ['gpt-5'] },
+    ])
+  })
+
+  it('preserves wildcard entry platform and original cross-section rule order', () => {
+    const first = accountStatsPricingRuleToForm(makeAPIRule({ name: 'first' }), 0)
+    const second = accountStatsPricingRuleToForm(makeAPIRule({
+      name: 'second',
+      pricing: [{ ...makeAPIRule().pricing[0], platform: 'openai', models: ['gpt'] }],
+    }), 1)
+    const rules = accountStatsPricingRulesToAPI([
+      { platform: 'openai', enabled: true, account_stats_pricing_rules: [second] },
+      { platform: 'anthropic', enabled: false, account_stats_pricing_rules: [first] },
+    ])
+
+    expect(rules.map(rule => rule.name)).toEqual(['first', 'second'])
+    expect(rules[0].pricing[0].platform).toBe('')
+    expect(rules[1].pricing[0].platform).toBe('openai')
+  })
+
+  it('uses the section platform only for new entries and ignores new rules in disabled sections', () => {
+    const rules = accountStatsPricingRulesToAPI([
+      {
+        platform: 'deepseek',
+        enabled: true,
+        account_stats_pricing_rules: [{ name: 'new', group_ids: [], account_ids: [1], pricing: [makePricingEntry()] }],
+      },
+      {
+        platform: 'openai',
+        enabled: false,
+        account_stats_pricing_rules: [{ name: 'disabled-new', group_ids: [], account_ids: [1], pricing: [makePricingEntry()] }],
+      },
+    ])
+
+    expect(rules).toHaveLength(1)
+    expect(rules[0].pricing[0].platform).toBe('deepseek')
+  })
+
+  it('keeps account-only wildcard rules anchored to an existing section', () => {
+    expect(accountStatsRuleSectionPlatform(
+      makeAPIRule(),
+      new Map(),
+      ['deepseek'],
+      ['anthropic', 'deepseek'],
+    )).toBe('deepseek')
+  })
+
+  it('returns a supported inferred platform even when its section must be created disabled', () => {
+    expect(accountStatsRuleSectionPlatform(
+      makeAPIRule({
+        pricing: [{ ...makeAPIRule().pricing[0], platform: 'openai' }],
+      }),
+      new Map(),
+      ['anthropic'],
+      ['anthropic', 'openai'],
+    )).toBe('openai')
+  })
+
+  it('reports invalid schedules from enabled account-stat entries only', () => {
+    const invalid = makePricingEntry({
+      time_pricing: {
+        timezone: 'Asia/Shanghai',
+        weekdays_only: false,
+        periods: [{ start_time: '12:00:00', end_time: '09:00:00', multiplier: '2.00' }],
+      },
+    })
+    const result = findAccountStatsTimePricingError([{
+      platform: 'deepseek',
+      enabled: true,
+      account_stats_pricing_rules: [{ name: 'rule', group_ids: [], account_ids: [1], pricing: [invalid] }],
+    }], t)
+
+    expect(result?.entry).toBe(invalid)
+    expect(result?.error).toContain('range')
+  })
+
+  it('validates retained original rules in disabled sections but skips new ones', () => {
+    const invalid = makePricingEntry({
+      time_pricing: {
+        timezone: 'Asia/Shanghai',
+        weekdays_only: false,
+        periods: [{ start_time: '12:00:00', end_time: '09:00:00', multiplier: '2.00' }],
+      },
+    })
+    const disabledNew = {
+      name: 'new', group_ids: [], account_ids: [1], pricing: [invalid],
+    }
+    const disabledOriginal = {
+      name: 'original', group_ids: [], account_ids: [1], pricing: [invalid], original_index: 0,
+    }
+
+    expect(findAccountStatsTimePricingError([{
+      platform: 'deepseek', enabled: false, account_stats_pricing_rules: [disabledNew],
+    }], t)).toBeNull()
+    expect(findAccountStatsTimePricingError([{
+      platform: 'deepseek', enabled: false, account_stats_pricing_rules: [disabledOriginal],
+    }], t)?.error).toContain('range')
   })
 })
