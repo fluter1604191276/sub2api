@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 
 	captcha "github.com/alibabacloud-go/captcha-20230305/client"
 	openapiutil "github.com/alibabacloud-go/darabonba-openapi/v2/utils"
@@ -65,17 +66,41 @@ func (v *aliyunCaptchaVerifier) VerifyCaptcha(ctx context.Context, cred service.
 func normalizeAliyunCaptchaError(err error) error {
 	var teaErr *tea.SDKError
 	if errors.As(err, &teaErr) {
-		return &service.AliyunCaptchaAPIError{
-			Code:    tea.StringValue(teaErr.Code),
-			Message: tea.StringValue(teaErr.Message),
+		if isAliyunCaptchaAPIError(tea.StringValue(teaErr.Code), tea.IntValue(teaErr.StatusCode)) {
+			return &service.AliyunCaptchaAPIError{
+				Code:    tea.StringValue(teaErr.Code),
+				Message: tea.StringValue(teaErr.Message),
+			}
 		}
+		return err
 	}
 	var daraErr *dara.SDKError
 	if errors.As(err, &daraErr) {
-		return &service.AliyunCaptchaAPIError{
-			Code:    dara.StringValue(daraErr.Code),
-			Message: dara.StringValue(daraErr.Message),
+		if isAliyunCaptchaAPIError(dara.StringValue(daraErr.Code), dara.IntValue(daraErr.StatusCode)) {
+			return &service.AliyunCaptchaAPIError{
+				Code:    dara.StringValue(daraErr.Code),
+				Message: dara.StringValue(daraErr.Message),
+			}
 		}
+		return err
 	}
 	return err
+}
+
+// The Alibaba SDK wraps transport failures in SDKError values too, sometimes
+// using the HTTP status as the Code (for example, "503"). A real API error
+// carries a service error code such as SignatureDoesNotMatch.
+func isAliyunCaptchaAPIError(code string, statusCode int) bool {
+	if code == "" || code == "<nil>" {
+		return false
+	}
+	if statusCode > 0 && code == strconv.Itoa(statusCode) {
+		return false
+	}
+	// Transport/retry wrappers from the SDK can expose a bare numeric status
+	// as Code even when StatusCode is not populated.
+	if _, err := strconv.Atoi(code); err == nil {
+		return false
+	}
+	return true
 }
