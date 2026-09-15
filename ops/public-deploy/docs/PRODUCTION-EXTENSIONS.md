@@ -72,6 +72,13 @@ that require the account-level guard must have
 `openai_long_context_billing_enabled=true`. Both gates must be verified as
 part of a production pricing release.
 
+For models absent from the dynamic catalog and without a verified fallback, an
+explicit channel pricing row may define the internal token cost only when both
+`input_price` and `output_price` are present. Image-only, cache-only, or partial
+token rows remain fail-closed. Resolved `Currency`/`PriceBasis` metadata is for
+display and audit; it never converts or changes the site's unified billing math.
+See `extensions/20260915-pricing-currency-semantics.md`.
+
 ## Source Of Truth
 
 The source of truth is the tuple:

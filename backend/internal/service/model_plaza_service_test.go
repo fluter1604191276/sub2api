@@ -57,6 +57,21 @@ func TestListPlazaGroups_GroupCentricAggregation(t *testing.T) {
 	require.Equal(t, "claude-sonnet", out[0].Models[1].Name)
 }
 
+func TestLookupOfficialPricingPreservesBillingCurrencyAndBasis(t *testing.T) {
+	svc := &ModelPlazaService{billingService: newTestBillingService()}
+	memo := make(map[string]*PlazaOfficialPricing)
+
+	deepseek := svc.lookupOfficialPricing(context.Background(), "deepseek-v4.1-flash", memo)
+	require.NotNil(t, deepseek)
+	require.Equal(t, "CNY", deepseek.Currency)
+	require.Equal(t, "Observed upstream billing card (CNY)", deepseek.PriceBasis)
+
+	openAI := svc.lookupOfficialPricing(context.Background(), "gpt-5.5", memo)
+	require.NotNil(t, openAI)
+	require.Equal(t, "USD", openAI.Currency)
+	require.Equal(t, "fallback catalog", openAI.PriceBasis)
+}
+
 func TestWithDefaultMaxReasoningEffortMultiplier_Fable51(t *testing.T) {
 	base := &ChannelModelPricing{BillingMode: BillingModeToken}
 	got := withDefaultMaxReasoningEffortMultiplier(base, "claude-fable-5-1")

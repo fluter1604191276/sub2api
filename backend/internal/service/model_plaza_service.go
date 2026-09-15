@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
-// PlazaOfficialPricing 模型广场展示用的官方参考价，与计费同源；展示币种由模型平台推导。
+// PlazaOfficialPricing 模型广场展示用的官方参考价，与计费同源。
+// Currency/PriceBasis 是展示与审计元数据，不参与任何用户或账号费用计算。
 // LiteLLM → 内置兜底价卡 → 模型策略。字段为 nil 表示该项缺失（0 视为未配置）。
 type PlazaOfficialPricing struct {
+	Currency          string
+	PriceBasis        string
 	InputPrice        *float64
 	OutputPrice       *float64
 	CacheWritePrice   *float64 // 5m 缓存写入（= LiteLLM cache_creation）
@@ -355,6 +358,8 @@ func (s *ModelPlazaService) lookupOfficialPricing(ctx context.Context, modelName
 	var result *PlazaOfficialPricing
 	if mp, err := s.billingService.GetModelPricing(modelName); err == nil && mp != nil {
 		result = &PlazaOfficialPricing{
+			Currency:        mp.Currency,
+			PriceBasis:      mp.PriceBasis,
 			InputPrice:      nonZeroPtr(mp.InputPricePerToken),
 			OutputPrice:     nonZeroPtr(mp.OutputPricePerToken),
 			CacheWritePrice: nonZeroPtr(mp.CacheCreationPricePerToken),

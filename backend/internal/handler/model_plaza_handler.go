@@ -278,12 +278,18 @@ func toModelPlazaTimePricing(p *service.TimePricingSchedule) *modelPlazaTimePric
 }
 
 // toModelPlazaOfficialPricing 转换官方参考价；币种是展示元数据，不参与计费。
+// 模型广场按模型平台展示币种：国产模型显示 CNY，海外模型显示 USD。
+// 计价源的真实币种/依据保留在服务层用于审计，不让它改变站内展示语义。
 func toModelPlazaOfficialPricing(p *service.PlazaOfficialPricing, platform string) *modelPlazaOfficialPricing {
 	if p == nil {
 		return nil
 	}
+	// platform is authoritative for public catalog presentation. The source
+	// currency in p may differ when an upstream publishes a domestic model in
+	// USD, but that must not leak into the site's platform-based display.
+	currency := service.PricingCurrencyForPlatform(platform)
 	return &modelPlazaOfficialPricing{
-		Currency:          service.PricingCurrencyForPlatform(platform),
+		Currency:          currency,
 		InputPrice:        p.InputPrice,
 		OutputPrice:       p.OutputPrice,
 		CacheWritePrice:   p.CacheWritePrice,

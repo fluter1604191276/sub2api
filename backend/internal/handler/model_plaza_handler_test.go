@@ -189,6 +189,33 @@ func TestToModelPlazaOfficialPricing_UsesModelPlatformCurrency(t *testing.T) {
 	}
 }
 
+func TestToModelPlazaOfficialPricing_UsesPlatformCurrencyOverSourceCurrency(t *testing.T) {
+	price := 1e-6
+	for _, tc := range []struct {
+		platform       string
+		sourceCurrency string
+		currency       string
+	}{
+		{platform: service.PlatformOpenAI, sourceCurrency: "CNY", currency: "USD"},
+		{platform: service.PlatformDeepseek, sourceCurrency: "USD", currency: "CNY"},
+	} {
+		got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{
+			Currency:   tc.sourceCurrency,
+			InputPrice: &price,
+		}, tc.platform)
+		require.Equal(t, tc.currency, got.Currency, tc.platform)
+	}
+}
+
+func TestToModelPlazaOfficialPricing_IgnoresInvalidSourceCurrency(t *testing.T) {
+	price := 1e-6
+	got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{
+		Currency:   "eur",
+		InputPrice: &price,
+	}, service.PlatformDeepseek)
+	require.Equal(t, "CNY", got.Currency)
+}
+
 func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	maxTokens := 272000
 	g := service.PlazaGroup{
