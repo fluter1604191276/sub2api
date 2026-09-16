@@ -14,7 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
-const SmartSchedulerPreviewAlgorithmVersion = "preview-v5"
+const SmartSchedulerPreviewAlgorithmVersion = "preview-v6"
 
 const smartSchedulerOrderingCacheTTL = 15 * time.Second
 
@@ -28,10 +28,6 @@ const (
 	smartSchedulerRecentLast100                 = 0.30
 	smartSchedulerStableLast10                  = 0.30
 	smartSchedulerStableLast100                 = 0.70
-	smartSchedulerRobustMedian                  = 0.70
-	smartSchedulerRobustTail                    = 0.30
-	smartSchedulerTTFTWeight                    = 0.90
-	smartSchedulerGenerationWeight              = 0.10
 	smartSchedulerRecentErrorWeight             = 0.60
 	smartSchedulerStableErrorWeight             = 0.40
 	smartSchedulerExplorationBase               = 0.05
@@ -59,15 +55,6 @@ const (
 	smartSchedulerBasisTTFTOnly       = "routing_ttft_only"
 	smartSchedulerBasisGenerationOnly = "routing_generation_only"
 )
-
-var smartSchedulerGenerationCurve = []accountQualityCurvePoint{
-	{LatencyMs: 10, Score: 0},
-	{LatencyMs: 20, Score: 40},
-	{LatencyMs: 30, Score: 65},
-	{LatencyMs: 40, Score: 80},
-	{LatencyMs: 50, Score: 92},
-	{LatencyMs: 70, Score: 100},
-}
 
 type SmartSchedulerErrorStats struct {
 	SuccessfulRequestCount          int64 `json:"successful_request_count"`
@@ -1347,62 +1334,15 @@ func weightedQualityScore(last10, last100 AccountQualityWindow, weight10, weight
 }
 
 func applySmartSchedulerQualityScore(window AccountQualityWindow) AccountQualityWindow {
-	if window.SampleCount < accountQualityMinSamples {
-		return window
-	}
-
-	var ttftScore *float64
-	if window.FirstTokenSampleCount >= accountQualityMinTTFTSamples && window.P50FirstTokenMs != nil && window.P90FirstTokenMs != nil {
-		routingTTFT := *window.P50FirstTokenMs*smartSchedulerRobustMedian + *window.P90FirstTokenMs*smartSchedulerRobustTail
-		window.RoutingFirstTokenMs = &routingTTFT
-		if score, ok := qualityCurveScore(&routingTTFT, accountQualityTTFTCurve); ok {
-			ttftScore = &score
-		}
-	}
-
-	var generationScore *float64
-	if window.GenerationSampleCount >= accountQualityMinSamples && window.P50GenerationTokensPerSecond != nil && window.P10GenerationTokensPerSecond != nil {
-		routingGeneration := *window.P50GenerationTokensPerSecond*smartSchedulerRobustMedian + *window.P10GenerationTokensPerSecond*smartSchedulerRobustTail
-		window.RoutingGenerationTokensPerSecond = &routingGeneration
-		score := smartSchedulerGenerationScore(routingGeneration)
-		generationScore = &score
-	}
-
-	var score float64
-	switch {
-	case ttftScore != nil && generationScore != nil:
-		score = *ttftScore*smartSchedulerTTFTWeight + *generationScore*smartSchedulerGenerationWeight
-		window.ScoreBasis = smartSchedulerBasisTTFTGeneration
-	case ttftScore != nil:
-		score = *ttftScore
-		window.ScoreBasis = smartSchedulerBasisTTFTOnly
-	case generationScore != nil:
-		score = math.Min(*generationScore, accountQualityDurationOnlyMax)
-		window.ScoreBasis = smartSchedulerBasisGenerationOnly
-	default:
+	if !hasRobustQualityEvidence(window) {
 		return applyAccountQualityScore(window)
 	}
-
-	rounded := int(math.Round(math.Max(0, math.Min(100, score))))
-	window.QualityScore = &rounded
-	window.QualityGrade = accountQualityGrade(rounded)
-	return window
-}
-
-func smartSchedulerGenerationScore(tokensPerSecond float64) float64 {
-	if tokensPerSecond <= smartSchedulerGenerationCurve[0].LatencyMs {
-		return smartSchedulerGenerationCurve[0].Score
-	}
-	for i := 1; i < len(smartSchedulerGenerationCurve); i++ {
-		current := smartSchedulerGenerationCurve[i]
-		if tokensPerSecond > current.LatencyMs {
-			continue
-		}
-		previous := smartSchedulerGenerationCurve[i-1]
-		ratio := (tokensPerSecond - previous.LatencyMs) / (current.LatencyMs - previous.LatencyMs)
-		return previous.Score + ratio*(current.Score-previous.Score)
-	}
-	return smartSchedulerGenerationCurve[len(smartSchedulerGenerationCurve)-1].Score
+	return applyRobustQualityScore(
+		window,
+		smartSchedulerBasisTTFTGeneration,
+		smartSchedulerBasisTTFTOnly,
+		smartSchedulerBasisGenerationOnly,
+	)
 }
 
 func relativeCostScore(item SmartSchedulerPreviewItem, all []SmartSchedulerPreviewItem) float64 {

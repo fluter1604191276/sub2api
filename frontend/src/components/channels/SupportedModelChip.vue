@@ -8,10 +8,11 @@
           ? platformBadgeClass(effectivePlatform)
           : 'border-gray-200 bg-gray-50 text-gray-700 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300',
       ]"
-      @mouseenter="onEnter"
-      @mouseleave="onLeave"
-      @focusin="onEnter"
-      @focusout="onLeave"
+      @mouseenter="setTriggerHovered(true)"
+      @mouseleave="setTriggerHovered(false)"
+      @focusin="setTriggerFocused(true)"
+      @focusout="setTriggerFocused(false)"
+      @keydown.esc="closePopover"
       tabindex="0"
     >
       <PlatformIcon
@@ -36,9 +37,15 @@
         v-show="show"
         ref="popoverEl"
         role="tooltip"
-        class="pointer-events-none fixed z-[99999] w-80 max-w-[min(22rem,calc(100vw-1rem))] rounded-lg border bg-white text-xs shadow-xl dark:bg-dark-800"
+        tabindex="0"
+        class="pointer-events-auto fixed z-[99999] max-h-[calc(100vh-1rem)] w-80 max-w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-lg border bg-white text-xs shadow-xl dark:bg-dark-800"
         :class="[popoverBorderClass]"
         :style="popoverStyle"
+        @mouseenter="setPopoverHovered(true)"
+        @mouseleave="setPopoverHovered(false)"
+        @focusin="setPopoverFocused(true)"
+        @focusout="setPopoverFocused(false)"
+        @keydown.esc="closePopover"
       >
         <!-- Header：平台主题色背景，含模型名 + 平台徽章 -->
         <div
@@ -59,100 +66,106 @@
             {{ noPricingLabel }}
           </div>
 
-          <div v-else class="space-y-2 text-gray-700 dark:text-gray-300">
+          <div v-else class="space-y-3 text-gray-700 dark:text-gray-300">
+            <section
+              v-for="(context, contextIndex) in displayPricingContexts"
+              :key="context.key"
+              :class="contextIndex > 0 ? 'border-t pt-3' : ''"
+            >
             <div
-              v-if="pricingHeading"
-              class="border-b pb-2 font-medium text-gray-600 dark:text-gray-400"
+              v-if="context.heading"
+              class="mb-2 flex items-center justify-between gap-2 border-b pb-2 font-medium text-gray-600 dark:text-gray-400"
               :class="[popoverBorderClass]"
             >
-              {{ pricingHeading }}
+              <span>{{ context.heading }}</span>
+              <span v-if="context.multiplierLabel" class="font-mono text-[11px] text-gray-400 dark:text-dark-500">{{ context.multiplierLabel }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t(prefixKey('billingMode')) }}</span>
-              <span>{{ billingModeLabel }}</span>
+              <span>{{ billingModeLabel(context.pricing) }}</span>
             </div>
 
-            <template v-if="model.pricing.billing_mode === BILLING_MODE_TOKEN">
+            <template v-if="context.pricing.billing_mode === BILLING_MODE_TOKEN">
               <PricingRow
                 :label="t(prefixKey('inputPrice'))"
-                :value="model.pricing.input_price"
+                :value="context.pricing.input_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('outputPrice'))"
-                :value="model.pricing.output_price"
+                :value="context.pricing.output_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('cacheWrite5mPrice'))"
-                :value="model.pricing.cache_write_price"
+                :value="context.pricing.cache_write_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
-                v-if="model.pricing.cache_write_1h_price != null"
+                v-if="context.pricing.cache_write_1h_price != null"
                 :label="t(prefixKey('cacheWrite1hPrice'))"
-                :value="model.pricing.cache_write_1h_price"
+                :value="context.pricing.cache_write_1h_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
                 :label="t(prefixKey('cacheReadPrice'))"
-                :value="model.pricing.cache_read_price"
+                :value="context.pricing.cache_read_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
-                v-if="model.pricing.image_input_price != null && model.pricing.image_input_price > 0"
+                v-if="context.pricing.image_input_price != null"
                 :label="t(prefixKey('imageInputPrice'))"
-                :value="model.pricing.image_input_price"
+                :value="context.pricing.image_input_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
               <PricingRow
-                v-if="model.pricing.image_output_price != null && model.pricing.image_output_price > 0"
+                v-if="context.pricing.image_output_price != null"
                 :label="t(prefixKey('imageOutputPrice'))"
-                :value="model.pricing.image_output_price"
+                :value="context.pricing.image_output_price"
                 :unit="t(prefixKey('unitPerMillion'))"
                 :scale="perMillionScale"
-                :currency="model.pricing.currency"
+                :currency="context.pricing.currency"
               />
             </template>
 
             <PricingRow
               v-if="
-                model.pricing.billing_mode === BILLING_MODE_PER_REQUEST &&
-                model.pricing.per_request_price != null
+                context.pricing.billing_mode === BILLING_MODE_PER_REQUEST &&
+                context.pricing.per_request_price != null
               "
               :label="t(prefixKey('perRequestPrice'))"
-              :value="model.pricing.per_request_price"
+              :value="context.pricing.per_request_price"
               :unit="t(prefixKey('unitPerRequest'))"
               :scale="1"
-              :currency="model.pricing.currency"
+              :currency="context.pricing.currency"
             />
 
             <PricingRow
               v-if="
-                model.pricing.billing_mode === BILLING_MODE_IMAGE &&
-                model.pricing.image_output_price != null
+                context.pricing.billing_mode === BILLING_MODE_IMAGE &&
+                (context.pricing.per_request_price != null || context.pricing.image_output_price != null)
               "
               :label="t(prefixKey('imageOutputPrice'))"
-              :value="model.pricing.image_output_price"
+              :value="context.pricing.per_request_price ?? context.pricing.image_output_price"
               :unit="t(prefixKey('unitPerRequest'))"
               :scale="1"
-              :currency="model.pricing.currency"
+              :currency="context.pricing.currency"
             />
 
             <div
-              v-if="model.pricing.intervals && model.pricing.intervals.length > 0"
+              v-if="context.pricing.intervals && context.pricing.intervals.length > 0"
               class="mt-2 border-t pt-2"
               :class="[popoverBorderClass]"
             >
@@ -161,7 +174,7 @@
               </div>
               <div class="space-y-1">
                 <div
-                  v-for="(iv, idx) in model.pricing.intervals"
+                  v-for="(iv, idx) in context.pricing.intervals"
                   :key="idx"
                   class="flex justify-between text-[11px]"
                 >
@@ -169,10 +182,11 @@
                     <template v-if="iv.tier_label">{{ iv.tier_label }}</template>
                     <template v-else>{{ formatRange(iv.min_tokens, iv.max_tokens) }}</template>
                   </span>
-                  <span>{{ formatInterval(iv, model.pricing) }}</span>
+                  <span>{{ formatInterval(iv, context.pricing) }}</span>
                 </div>
               </div>
             </div>
+            </section>
           </div>
         </div>
       </div>
@@ -205,6 +219,12 @@ const props = withDefaults(
     noPricingLabel?: string
     /** Optional pricing context for user-facing surfaces; omitted by admin callers. */
     pricingHeading?: string
+    pricingContexts?: Array<{
+      key: string
+      heading: string
+      multiplierLabel?: string
+      pricing: UserSupportedModelPricing
+    }>
     showPlatform?: boolean
     /**
      * 当 model.platform 缺失（如 admin 聚合场景）时，用父行的平台作为兜底着色。
@@ -224,6 +244,12 @@ const props = withDefaults(
 const effectivePlatform = computed<string>(() => props.model.platform || props.platformHint || '')
 
 const { t } = useI18n()
+
+const displayPricingContexts = computed(() => props.pricingContexts?.length
+  ? props.pricingContexts
+  : props.model.pricing
+    ? [{ key: 'default', heading: props.pricingHeading, pricing: props.model.pricing }]
+    : [])
 
 /** 按 token 定价展示时的换算单位：每百万 token。 */
 const perMillionScale = 1_000_000
@@ -245,8 +271,8 @@ function prefixKey(k: string): string {
   return `${props.pricingKeyPrefix}.${k}`
 }
 
-const billingModeLabel = computed(() => {
-  const mode = props.model.pricing?.billing_mode
+function billingModeLabel(pricing: UserSupportedModelPricing): string {
+  const mode = pricing.billing_mode
   switch (mode) {
     case BILLING_MODE_TOKEN:
       return t(prefixKey('billingModeToken'))
@@ -257,7 +283,7 @@ const billingModeLabel = computed(() => {
     default:
       return '-'
   }
-})
+}
 
 function formatRange(min: number, max: number | null): string {
   const maxLabel = max == null ? '∞' : String(max)
@@ -284,6 +310,11 @@ const show = ref(false)
 const triggerEl = ref<HTMLElement | null>(null)
 const popoverEl = ref<HTMLElement | null>(null)
 const popoverStyle = ref<Record<string, string>>({ top: '0px', left: '0px' })
+let closeTimer: ReturnType<typeof setTimeout> | null = null
+let triggerHovered = false
+let triggerFocused = false
+let popoverHovered = false
+let popoverFocused = false
 
 function updatePosition() {
   const trigger = triggerEl.value
@@ -312,7 +343,11 @@ function updatePosition() {
   }
 }
 
-function onEnter() {
+function openPopover() {
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = null
+  }
   show.value = true
   nextTick(() => {
     updatePosition()
@@ -321,13 +356,47 @@ function onEnter() {
   })
 }
 
-function onLeave() {
+function scheduleClose() {
+  if (closeTimer) clearTimeout(closeTimer)
+  closeTimer = setTimeout(() => {
+    if (!triggerHovered && !triggerFocused && !popoverHovered && !popoverFocused) {
+      closePopover()
+    }
+  }, 100)
+}
+
+function setTriggerHovered(value: boolean) {
+  triggerHovered = value
+  value ? openPopover() : scheduleClose()
+}
+
+function setTriggerFocused(value: boolean) {
+  triggerFocused = value
+  value ? openPopover() : scheduleClose()
+}
+
+function setPopoverHovered(value: boolean) {
+  popoverHovered = value
+  value ? openPopover() : scheduleClose()
+}
+
+function setPopoverFocused(value: boolean) {
+  popoverFocused = value
+  value ? openPopover() : scheduleClose()
+}
+
+function closePopover() {
+  if (closeTimer) {
+    clearTimeout(closeTimer)
+    closeTimer = null
+  }
   show.value = false
   window.removeEventListener('scroll', updatePosition, true)
   window.removeEventListener('resize', updatePosition)
 }
 
 onBeforeUnmount(() => {
+  if (closeTimer) clearTimeout(closeTimer)
   window.removeEventListener('scroll', updatePosition, true)
   window.removeEventListener('resize', updatePosition)
 })

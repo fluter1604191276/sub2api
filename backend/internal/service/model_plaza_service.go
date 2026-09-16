@@ -7,12 +7,16 @@ import (
 	"strings"
 )
 
-// PlazaOfficialPricing 模型广场展示用的官方参考价，与计费同源。
+// PlazaOfficialPricing 模型广场展示用的官方参考价，不作为计费输入。
 // Currency/PriceBasis 是展示与审计元数据，不参与任何用户或账号费用计算。
 // LiteLLM → 内置兜底价卡 → 模型策略。字段为 nil 表示该项缺失（0 视为未配置）。
 type PlazaOfficialPricing struct {
 	Currency          string
 	PriceBasis        string
+	SourceURL         string
+	VerifiedAt        string
+	ReferenceNote     string
+	DisplayTiers      []PlazaOfficialDisplayTier
 	InputPrice        *float64
 	OutputPrice       *float64
 	CacheWritePrice   *float64 // 5m 缓存写入（= LiteLLM cache_creation）
@@ -20,6 +24,15 @@ type PlazaOfficialPricing struct {
 	CacheReadPrice    *float64
 	// Intervals 官方长上下文阶梯（多档时给出），不受分组开关影响。
 	Intervals []PricingInterval
+}
+
+// PlazaOfficialDisplayTier retains a vendor's published label without inventing
+// numerical billing boundaries for ambiguous units such as "32K".
+type PlazaOfficialDisplayTier struct {
+	Label          string   `json:"label"`
+	InputPrice     *float64 `json:"input_price"`
+	OutputPrice    *float64 `json:"output_price"`
+	CacheReadPrice *float64 `json:"cache_read_price"`
 }
 
 // PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价 + 官方参考价。
@@ -345,8 +358,8 @@ func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPri
 	return &clone
 }
 
-// lookupOfficialPricing 查询模型的官方参考价（与计费同源：LiteLLM → 内置兜底 → 模型策略），
-// 带 memo 避免同名模型重复解析。官方阶梯按无分组、无渠道的口径查阶梯表。
+// lookupOfficialPricing 优先查询独立的中国区官方参考价，避免把美元价或
+// 上游成本价卡误标为人民币官方价。海外目录沿用现有解析，不修改计费输入。
 // billingService 为 nil（测试场景）或查不到时返回 nil。
 func (s *ModelPlazaService) lookupOfficialPricing(ctx context.Context, modelName string, memo map[string]*PlazaOfficialPricing) *PlazaOfficialPricing {
 	if s.billingService == nil {
@@ -354,6 +367,10 @@ func (s *ModelPlazaService) lookupOfficialPricing(ctx context.Context, modelName
 	}
 	if cached, ok := memo[modelName]; ok {
 		return cached
+	}
+	if reference, handled := s.domesticOfficialPricing(modelName); handled {
+		memo[modelName] = reference
+		return reference
 	}
 	var result *PlazaOfficialPricing
 	if mp, err := s.billingService.GetModelPricing(modelName); err == nil && mp != nil {

@@ -16,6 +16,46 @@ import (
 	"github.com/lib/pq"
 )
 
+type accountQualityWindowScan struct {
+	sampleCount     int64
+	firstTokenCount int64
+	firstTokenAvg   sql.NullFloat64
+	durationAvg     sql.NullFloat64
+	firstTokenP50   sql.NullFloat64
+	firstTokenP90   sql.NullFloat64
+	generationCount int64
+	generationP50   sql.NullFloat64
+	generationP10   sql.NullFloat64
+}
+
+func (w *accountQualityWindowScan) destinations() []any {
+	return []any{
+		&w.sampleCount,
+		&w.firstTokenCount,
+		&w.firstTokenAvg,
+		&w.durationAvg,
+		&w.firstTokenP50,
+		&w.firstTokenP90,
+		&w.generationCount,
+		&w.generationP50,
+		&w.generationP10,
+	}
+}
+
+func (w accountQualityWindowScan) window() service.AccountQualityWindow {
+	return service.AccountQualityWindow{
+		SampleCount:                  w.sampleCount,
+		FirstTokenSampleCount:        w.firstTokenCount,
+		AverageFirstTokenMs:          nullableFloat64(w.firstTokenAvg),
+		AverageDurationMs:            nullableFloat64(w.durationAvg),
+		P50FirstTokenMs:              nullableFloat64(w.firstTokenP50),
+		P90FirstTokenMs:              nullableFloat64(w.firstTokenP90),
+		GenerationSampleCount:        w.generationCount,
+		P50GenerationTokensPerSecond: nullableFloat64(w.generationP50),
+		P10GenerationTokensPerSecond: nullableFloat64(w.generationP10),
+	}
+}
+
 // getQualityStatsBatch returns realtime and baseline quality windows plus
 // realtime failures per account or group in one query. The scope is restricted
 // to trusted database columns so it cannot become SQL input.
@@ -35,7 +75,13 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				ul.created_at,
 				ul.duration_ms,
 				ul.first_token_ms,
-				ul.id
+				ul.id,
+				CASE
+					WHEN ul.output_tokens >= 32
+						AND ul.first_token_ms >= 0
+						AND ul.duration_ms - ul.first_token_ms >= 1000
+					THEN ul.output_tokens * 1000.0 / NULLIF(ul.duration_ms - ul.first_token_ms, 0)
+				END AS generation_tokens_per_second
 			FROM usage_logs ul
 			WHERE ul.%[1]s = ANY($1)
 				AND ul.created_at >= $2
@@ -43,38 +89,64 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 				AND ul.actual_cost > 0
 				AND ul.request_type <> 6
 				AND ul.stream = TRUE
+				AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%%sub2api-channel-monitor/%%'
 		), ranked AS (
 			SELECT
 				%[1]s,
 				created_at,
 				duration_ms,
 				first_token_ms,
+				generation_tokens_per_second,
 				ROW_NUMBER() OVER (
 					PARTITION BY %[1]s
 					ORDER BY created_at DESC, id DESC
 				) AS request_rank
 			FROM successful
 			WHERE duration_ms IS NOT NULL
+		), quality_input AS (
+			SELECT *
+			FROM ranked
+			WHERE request_rank <= 100
 		), quality AS (
 			SELECT
 				%[1]s,
 				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_first_count,
+				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_count,
 				AVG(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_first_avg,
 				AVG(duration_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_duration_avg,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_p90,
+				COUNT(generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_generation_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_10_generation_p50,
+				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_10_generation_p10,
 				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_first_count,
+				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_count,
 				AVG(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_first_avg,
 				AVG(duration_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_duration_avg,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_p90,
+				COUNT(generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_generation_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_100_generation_p50,
+				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_100_generation_p10,
 				COUNT(*) FILTER (WHERE request_rank <= 10) AS last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10) AS last_10_first_count,
+				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_count,
 				AVG(first_token_ms) FILTER (WHERE request_rank <= 10) AS last_10_first_avg,
 				AVG(duration_ms) FILTER (WHERE request_rank <= 10) AS last_10_duration_avg,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_p90,
+				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 10) AS last_10_generation_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS last_10_generation_p50,
+				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS last_10_generation_p10,
 				COUNT(*) FILTER (WHERE request_rank <= 100) AS last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100) AS last_100_first_count,
+				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_count,
 				AVG(first_token_ms) FILTER (WHERE request_rank <= 100) AS last_100_first_avg,
-				AVG(duration_ms) FILTER (WHERE request_rank <= 100) AS last_100_duration_avg
-			FROM ranked
+				AVG(duration_ms) FILTER (WHERE request_rank <= 100) AS last_100_duration_avg,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_p90,
+				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 100) AS last_100_generation_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS last_100_generation_p50,
+				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS last_100_generation_p10
+			FROM quality_input
 			GROUP BY %[1]s
 		), activity AS (
 			SELECT
@@ -101,18 +173,38 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 			COALESCE(q.realtime_last_10_first_count, 0),
 			q.realtime_last_10_first_avg,
 			q.realtime_last_10_duration_avg,
+			q.realtime_last_10_first_p50,
+			q.realtime_last_10_first_p90,
+			COALESCE(q.realtime_last_10_generation_count, 0),
+			q.realtime_last_10_generation_p50,
+			q.realtime_last_10_generation_p10,
 			COALESCE(q.realtime_last_100_count, 0),
 			COALESCE(q.realtime_last_100_first_count, 0),
 			q.realtime_last_100_first_avg,
 			q.realtime_last_100_duration_avg,
+			q.realtime_last_100_first_p50,
+			q.realtime_last_100_first_p90,
+			COALESCE(q.realtime_last_100_generation_count, 0),
+			q.realtime_last_100_generation_p50,
+			q.realtime_last_100_generation_p10,
 			COALESCE(q.last_10_count, 0),
 			COALESCE(q.last_10_first_count, 0),
 			q.last_10_first_avg,
 			q.last_10_duration_avg,
+			q.last_10_first_p50,
+			q.last_10_first_p90,
+			COALESCE(q.last_10_generation_count, 0),
+			q.last_10_generation_p50,
+			q.last_10_generation_p10,
 			COALESCE(q.last_100_count, 0),
 			COALESCE(q.last_100_first_count, 0),
 			q.last_100_first_avg,
 			q.last_100_duration_avg,
+			q.last_100_first_p50,
+			q.last_100_first_p90,
+			COALESCE(q.last_100_generation_count, 0),
+			q.last_100_generation_p50,
+			q.last_100_generation_p10,
 			COALESCE(a.successful_requests_1h, 0),
 			COALESCE(e.failed_requests_1h, 0),
 			a.last_success_at,
@@ -129,66 +221,26 @@ func (r *usageLogRepository) getQualityStatsBatch(ctx context.Context, ids []int
 
 	for rows.Next() {
 		var entityID int64
-		var realtimeLast10, realtimeLast10First, realtimeLast100, realtimeLast100First int64
-		var last10, last10First, last100, last100First int64
+		var realtimeLast10, realtimeLast100, last10, last100 accountQualityWindowScan
 		var successfulRequests1h, failedRequests1h int64
-		var realtimeLast10FirstAvg, realtimeLast10DurationAvg sql.NullFloat64
-		var realtimeLast100FirstAvg, realtimeLast100DurationAvg sql.NullFloat64
-		var last10FirstAvg, last10DurationAvg, last100FirstAvg, last100DurationAvg sql.NullFloat64
 		var lastSuccessAt, lastErrorAt sql.NullTime
-		if err := rows.Scan(
-			&entityID,
-			&realtimeLast10,
-			&realtimeLast10First,
-			&realtimeLast10FirstAvg,
-			&realtimeLast10DurationAvg,
-			&realtimeLast100,
-			&realtimeLast100First,
-			&realtimeLast100FirstAvg,
-			&realtimeLast100DurationAvg,
-			&last10,
-			&last10First,
-			&last10FirstAvg,
-			&last10DurationAvg,
-			&last100,
-			&last100First,
-			&last100FirstAvg,
-			&last100DurationAvg,
-			&successfulRequests1h,
-			&failedRequests1h,
-			&lastSuccessAt,
-			&lastErrorAt,
-		); err != nil {
+		destinations := []any{&entityID}
+		destinations = append(destinations, realtimeLast10.destinations()...)
+		destinations = append(destinations, realtimeLast100.destinations()...)
+		destinations = append(destinations, last10.destinations()...)
+		destinations = append(destinations, last100.destinations()...)
+		destinations = append(destinations, &successfulRequests1h, &failedRequests1h, &lastSuccessAt, &lastErrorAt)
+		if err := rows.Scan(destinations...); err != nil {
 			return nil, err
 		}
 		result[entityID] = service.AccountQualitySamples{
 			Recent1h: service.AccountQualityPeriodSamples{
-				Last10: service.AccountQualityWindow{
-					SampleCount:           realtimeLast10,
-					FirstTokenSampleCount: realtimeLast10First,
-					AverageFirstTokenMs:   nullableFloat64(realtimeLast10FirstAvg),
-					AverageDurationMs:     nullableFloat64(realtimeLast10DurationAvg),
-				},
-				Last100: service.AccountQualityWindow{
-					SampleCount:           realtimeLast100,
-					FirstTokenSampleCount: realtimeLast100First,
-					AverageFirstTokenMs:   nullableFloat64(realtimeLast100FirstAvg),
-					AverageDurationMs:     nullableFloat64(realtimeLast100DurationAvg),
-				},
+				Last10:  realtimeLast10.window(),
+				Last100: realtimeLast100.window(),
 			},
 			Last24h: service.AccountQualityPeriodSamples{
-				Last10: service.AccountQualityWindow{
-					SampleCount:           last10,
-					FirstTokenSampleCount: last10First,
-					AverageFirstTokenMs:   nullableFloat64(last10FirstAvg),
-					AverageDurationMs:     nullableFloat64(last10DurationAvg),
-				},
-				Last100: service.AccountQualityWindow{
-					SampleCount:           last100,
-					FirstTokenSampleCount: last100First,
-					AverageFirstTokenMs:   nullableFloat64(last100FirstAvg),
-					AverageDurationMs:     nullableFloat64(last100DurationAvg),
-				},
+				Last10:  last10.window(),
+				Last100: last100.window(),
 			},
 			SuccessfulRequests1h: successfulRequests1h,
 			FailedRequests1h:     failedRequests1h,

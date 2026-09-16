@@ -57,14 +57,18 @@ func TestListPlazaGroups_GroupCentricAggregation(t *testing.T) {
 	require.Equal(t, "claude-sonnet", out[0].Models[1].Name)
 }
 
-func TestLookupOfficialPricingPreservesBillingCurrencyAndBasis(t *testing.T) {
+func TestLookupOfficialPricingSeparatesDomesticReferenceFromBilling(t *testing.T) {
 	svc := &ModelPlazaService{billingService: newTestBillingService()}
 	memo := make(map[string]*PlazaOfficialPricing)
 
 	deepseek := svc.lookupOfficialPricing(context.Background(), "deepseek-v4.1-flash", memo)
 	require.NotNil(t, deepseek)
 	require.Equal(t, "CNY", deepseek.Currency)
-	require.Equal(t, "Observed upstream billing card (CNY)", deepseek.PriceBasis)
+	require.Equal(t, "Official China pricing (CNY)", deepseek.PriceBasis)
+	require.InDelta(t, 1e-6, *deepseek.InputPrice, 1e-15)
+	require.InDelta(t, 4e-6, *deepseek.OutputPrice, 1e-15)
+	require.InDelta(t, .02e-6, *deepseek.CacheReadPrice, 1e-15)
+	require.NotEmpty(t, deepseek.ReferenceNote)
 
 	openAI := svc.lookupOfficialPricing(context.Background(), "gpt-5.5", memo)
 	require.NotNil(t, openAI)

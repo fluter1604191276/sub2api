@@ -57,6 +57,26 @@ function mountTable(
 }
 
 describe('PlazaModelPricingTable', () => {
+  it('renders vendor-labelled reference tiers without scaling them by the customer rate', () => {
+    const model = tokenModel({
+      name: 'glm-5.1', platform: 'zhipu',
+      official_pricing: {
+        currency: 'CNY', input_price: 6e-6, output_price: 24e-6,
+        cache_read_price: 1.3e-6, cache_write_price: null,
+        display_tiers: [
+          { label: '<32K', input_price: 6e-6, output_price: 24e-6, cache_read_price: 1.3e-6 },
+          { label: '32K+', input_price: 8e-6, output_price: 28e-6, cache_read_price: 2e-6 },
+        ],
+      },
+    })
+    const cells = mountTable([model], 0.6).findAll('tbody td')
+    expect(cells[4].text()).toContain('<32K')
+    expect(cells[4].text()).toContain('32K+')
+    expect(cells[4].text()).toContain('¥6.00')
+    expect(cells[4].text()).toContain('¥8.00')
+    expect(cells[5].text()).toContain('¥28.00')
+  })
+
   it('switches between site standard and user prices without modifying either price source', async () => {
     const model = tokenModel()
     const before = JSON.stringify(model)
@@ -257,6 +277,32 @@ describe('PlazaModelPricingTable', () => {
     })], 1)
     expect(wrapper.findAll('tbody td')[1].text()).toContain('¥3.00')
     expect(wrapper.findAll('tbody td')[4].text()).toContain('¥3.00')
+  })
+
+  it('shows optional official reference provenance without changing prices or user time pricing', () => {
+    const model = tokenModel({
+      official_pricing: {
+        ...tokenModel().official_pricing!,
+        currency: 'CNY',
+        price_basis: '智谱官方公开价',
+        reference_note: '闲时参考价',
+        source_url: 'https://open.bigmodel.cn/pricing',
+        verified_at: '2026-09-17T00:00:00Z',
+      },
+      time_pricing: {
+        timezone: 'Asia/Shanghai',
+        periods: [{ start_time: '00:00', end_time: '08:00', multiplier: 0.5 }],
+      },
+    })
+    const wrapper = mountTable([model], 0.6)
+    const note = wrapper.find('[data-testid="official-reference-note"]')
+    const officialInput = wrapper.findAll('tbody tr')[0].findAll('td')[4]
+
+    expect(note.text()).toBe('智谱官方公开价 · 闲时参考价')
+    expect(note.attributes('title')).toContain('https://open.bigmodel.cn/pricing')
+    expect(officialInput.attributes('title')).toContain('2026-09-17T00:00:00Z')
+    expect(officialInput.text()).toBe('¥3.00')
+    expect(wrapper.findAll('tbody tr')[1].findAll('td')[1].text()).toContain('$0.90')
   })
 
   it('实付价分别展示自定义 5m 与 1h 缓存写入价', () => {

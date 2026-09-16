@@ -658,8 +658,8 @@ func TestSmartSchedulerPreviewShowsDynamicCapabilityCooldownAsRecoverable(t *tes
 	require.Equal(t, "luna-upstream", item.ModelMapping)
 }
 
-func TestSmartSchedulerPreviewUsesV5AlgorithmVersion(t *testing.T) {
-	require.Equal(t, "preview-v5", SmartSchedulerPreviewAlgorithmVersion)
+func TestSmartSchedulerPreviewUsesV6AlgorithmVersion(t *testing.T) {
+	require.Equal(t, "preview-v6", SmartSchedulerPreviewAlgorithmVersion)
 }
 
 func TestSmartSchedulerPreviewSupportsWildcardModelMapping(t *testing.T) {
@@ -929,10 +929,10 @@ func TestSmartSchedulerQualityUsesRobustTTFTAndGenerationSpeed(t *testing.T) {
 	result := applySmartSchedulerQualityScore(window)
 	require.NotNil(t, result.QualityScore)
 	require.NotNil(t, result.RoutingFirstTokenMs)
-	require.InDelta(t, 28400, *result.RoutingFirstTokenMs, 0.001)
+	require.InDelta(t, 19600, *result.RoutingFirstTokenMs, 0.001)
 	require.NotNil(t, result.RoutingGenerationTokensPerSecond)
-	require.InDelta(t, 41, *result.RoutingGenerationTokensPerSecond, 0.001)
-	require.Greater(t, *result.QualityScore, 30)
+	require.InDelta(t, 44, *result.RoutingGenerationTokensPerSecond, 0.001)
+	require.Equal(t, 78, *result.QualityScore)
 }
 
 func TestSmartSchedulerScoreExcludesClientAndPlatformFailures(t *testing.T) {

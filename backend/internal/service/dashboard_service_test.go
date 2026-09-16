@@ -195,7 +195,7 @@ func TestDashboardService_GetGroupQualityStatsBatch(t *testing.T) {
 	require.Equal(t, 24, stats[7].WindowHours)
 	require.Equal(t, 1, stats[7].Recent1h.WindowHours)
 	require.Equal(t, accountQualityActivityActive, stats[7].Activity.State)
-	require.Equal(t, 2, stats[7].ScoreVersion)
+	require.Equal(t, 3, stats[7].ScoreVersion)
 	require.NotNil(t, stats[7].Last10.QualityScore)
 	require.Nil(t, stats[7].Last100.QualityScore)
 }

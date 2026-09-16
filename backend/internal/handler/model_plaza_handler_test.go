@@ -116,6 +116,7 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 				InputPrice:  testPtr(3e-6),
 			},
 			OfficialPricing: &service.PlazaOfficialPricing{
+				Currency:       "USD",
 				InputPrice:     testPtr(3e-6),
 				CacheReadPrice: testPtr(3e-7),
 			},
@@ -172,7 +173,7 @@ func TestToModelPlazaOfficialPricing_NilPassthrough(t *testing.T) {
 	require.Nil(t, toModelPlazaOfficialPricing(nil, service.PlatformOpenAI))
 }
 
-func TestToModelPlazaOfficialPricing_UsesModelPlatformCurrency(t *testing.T) {
+func TestToModelPlazaOfficialPricing_PreservesVerifiedCurrency(t *testing.T) {
 	price := 1e-6
 	for _, tc := range []struct {
 		platform string
@@ -184,12 +185,14 @@ func TestToModelPlazaOfficialPricing_UsesModelPlatformCurrency(t *testing.T) {
 		{platform: service.PlatformOpenAI, currency: "USD"},
 		{platform: service.PlatformAnthropic, currency: "USD"},
 	} {
-		got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{InputPrice: &price}, tc.platform)
+		got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{Currency: tc.currency, InputPrice: &price}, tc.platform)
+		require.NotNil(t, got)
 		require.Equal(t, tc.currency, got.Currency, tc.platform)
+		require.Equal(t, price, *got.InputPrice)
 	}
 }
 
-func TestToModelPlazaOfficialPricing_UsesPlatformCurrencyOverSourceCurrency(t *testing.T) {
+func TestToModelPlazaOfficialPricing_DoesNotRelabelCurrency(t *testing.T) {
 	price := 1e-6
 	for _, tc := range []struct {
 		platform       string
@@ -203,17 +206,17 @@ func TestToModelPlazaOfficialPricing_UsesPlatformCurrencyOverSourceCurrency(t *t
 			Currency:   tc.sourceCurrency,
 			InputPrice: &price,
 		}, tc.platform)
-		require.Equal(t, tc.currency, got.Currency, tc.platform)
+		require.Nil(t, got, "mismatched source must not be relabeled as %s", tc.currency)
 	}
 }
 
-func TestToModelPlazaOfficialPricing_IgnoresInvalidSourceCurrency(t *testing.T) {
+func TestToModelPlazaOfficialPricing_RejectsInvalidSourceCurrency(t *testing.T) {
 	price := 1e-6
 	got := toModelPlazaOfficialPricing(&service.PlazaOfficialPricing{
 		Currency:   "eur",
 		InputPrice: &price,
 	}, service.PlatformDeepseek)
-	require.Equal(t, "CNY", got.Currency)
+	require.Nil(t, got)
 }
 
 func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
@@ -233,6 +236,7 @@ func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 				},
 			},
 			OfficialPricing: &service.PlazaOfficialPricing{
+				Currency:   "USD",
 				InputPrice: testPtr(2.5e-6),
 				Intervals: []service.PricingInterval{
 					{MinTokens: 0, MaxTokens: &maxTokens, TierLabel: "≤272K", InputPrice: testPtr(2.5e-6)},

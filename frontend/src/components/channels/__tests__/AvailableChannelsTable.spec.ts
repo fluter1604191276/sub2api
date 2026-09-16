@@ -32,6 +32,12 @@ const RouterLinkStub = defineComponent({
   template: '<a data-router-link><slot /></a>',
 })
 
+const SupportedModelChipStub = defineComponent({
+  name: 'SupportedModelChip',
+  props: ['model', 'noPricingLabel', 'pricingHeading', 'pricingContexts'],
+  template: '<span data-model-chip>{{ model.name }}:{{ noPricingLabel }}:{{ pricingHeading }}</span>',
+})
+
 function mountTable(props = {}, modelPlazaEnabled = false) {
   const pinia = createPinia()
   const appStore = useAppStore(pinia)
@@ -40,7 +46,7 @@ function mountTable(props = {}, modelPlazaEnabled = false) {
   return mount(AvailableChannelsTable, { props: { ...baseProps, ...props }, global: { plugins: [pinia], stubs: {
     Icon: { props: ['name'], template: '<i :data-icon="name" />' }, PlatformIcon: { template: '<i data-platform-icon />' },
     GroupBadge: { props: ['name', 'platform', 'rateMultiplier', 'userRateMultiplier'], template: '<span data-group-badge>{{ name }}:{{ platform }}:{{ rateMultiplier }}:{{ userRateMultiplier }}</span>' },
-    SupportedModelChip: { props: ['model', 'noPricingLabel', 'pricingHeading'], template: '<span data-model-chip>{{ model.name }}:{{ noPricingLabel }}:{{ pricingHeading }}</span>' },
+    SupportedModelChip: SupportedModelChipStub,
     RouterLink: RouterLinkStub,
   } } })
 }
@@ -57,7 +63,91 @@ describe('AvailableChannelsTable', () => {
     expect(wrapper.findAll('[data-group-badge]')).toHaveLength(2)
     expect(wrapper.find('[data-icon="clock"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('×1.5')
-    expect(wrapper.find('[data-model-chip]').text()).toBe('claude-test:No pricing:availableChannels.pricing.basePrice')
+    expect(wrapper.find('[data-model-chip]').text()).toBe('claude-test:No pricing:')
+  })
+
+  it('passes the GLM base-times-current-rate reference before the unchanged channel base price', () => {
+    const pricing = {
+      currency: 'CNY' as const,
+      billing_mode: 'token' as const,
+      input_price: 1.4e-6,
+      output_price: 4.4e-6,
+      cache_write_price: 0.26e-6,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+    }
+    const wrapper = mountTable({
+      rows: [{ name: 'GLM', description: '', platforms: [{
+        platform: 'zhipu',
+        groups: [{ id: 9, name: 'Domestic', platform: 'zhipu', subscription_type: 'standard', rate_multiplier: 0.7, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }],
+        supported_models: [{ name: 'glm-test', platform: 'zhipu', pricing }],
+      }] }],
+      userGroupRates: { 9: 0.6 },
+    })
+    const contexts = wrapper.findComponent(SupportedModelChipStub).props('pricingContexts')
+
+    expect(contexts[0]).toMatchObject({
+      key: 'group-9',
+      heading: 'availableChannels.pricing.effectivePrice',
+      multiplierLabel: 'availableChannels.pricing.multiplier',
+      pricing: { currency: 'CNY' },
+    })
+    expect(contexts[0].pricing.input_price).toBeCloseTo(0.84e-6)
+    expect(contexts[0].pricing.output_price).toBeCloseTo(2.64e-6)
+    expect(contexts[0].pricing.cache_write_price).toBeCloseTo(0.156e-6)
+    expect(contexts[1]).toMatchObject({ key: 'base', pricing })
+  })
+
+  it.each([
+    ['image pricing without an independent group image rate', {
+      currency: 'CNY' as const,
+      billing_mode: 'image' as const,
+      input_price: null,
+      output_price: null,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: 0.2,
+      intervals: [],
+    }],
+    ['tiered token pricing without group long-context policy', {
+      currency: 'USD' as const,
+      billing_mode: 'token' as const,
+      input_price: 1e-6,
+      output_price: 2e-6,
+      cache_write_price: null,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [{
+        min_tokens: 100_000,
+        max_tokens: null,
+        input_price: 2e-6,
+        output_price: 4e-6,
+        cache_write_price: null,
+        cache_read_price: null,
+        per_request_price: null,
+      }],
+    }],
+  ])('shows base only for %s', (_label, pricing) => {
+    const wrapper = mountTable({
+      rows: [{ name: 'Guarded', description: '', platforms: [{
+        platform: 'zhipu',
+        groups: [{ id: 9, name: 'Domestic', platform: 'zhipu', subscription_type: 'standard', rate_multiplier: 0.6, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }],
+        supported_models: [{ name: 'guarded-model', platform: 'zhipu', pricing }],
+      }] }],
+      userGroupRates: { 9: 0.5 },
+    }, true)
+    const contexts = wrapper.findComponent(SupportedModelChipStub).props('pricingContexts')
+
+    expect(contexts).toHaveLength(1)
+    expect(contexts[0]).toMatchObject({ key: 'base', pricing })
+    expect(wrapper.findAllComponents(RouterLinkStub)).toHaveLength(1)
   })
 
   it('links each accessible group to its own plaza pricing when enabled', () => {

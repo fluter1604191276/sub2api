@@ -86,4 +86,82 @@ describe('SupportedModelChip', () => {
     expect(document.body.textContent).not.toContain('$60')
     wrapper.unmount()
   })
+
+  it('shows effective pricing first and keeps the labeled base price distinct', async () => {
+    const base = {
+      billing_mode: 'token' as const,
+      input_price: 1.4e-6,
+      output_price: 4.4e-6,
+      cache_write_price: 0.26e-6,
+      cache_read_price: null,
+      image_input_price: null,
+      image_output_price: null,
+      per_request_price: null,
+      intervals: [],
+    }
+    const wrapper = mount(SupportedModelChip, {
+      attachTo: document.body,
+      props: {
+        model: { name: 'glm-test', platform: 'zhipu', pricing: base },
+        pricingContexts: [
+          { key: 'effective', heading: 'Domestic effective', multiplierLabel: 'base × 0.6', pricing: { ...base, input_price: 0.84e-6, output_price: 2.64e-6, cache_write_price: 0.156e-6 } },
+          { key: 'base', heading: 'Channel base', pricing: base },
+        ],
+      },
+    })
+
+    await wrapper.find('[tabindex="0"]').trigger('mouseenter')
+    await nextTick()
+    const text = document.body.textContent || ''
+    expect(text.indexOf('Domestic effective')).toBeLessThan(text.indexOf('Channel base'))
+    expect(text).toContain('base × 0.6')
+    expect(text).toContain('$0.84')
+    expect(text).toContain('$2.64')
+    expect(text).toContain('$0.156')
+    expect(text).toContain('$1.4')
+    expect(text).toContain('$4.4')
+    wrapper.unmount()
+  })
+
+  it('keeps the scrollable popover open while it is hovered or focused', async () => {
+    vi.useFakeTimers()
+    const wrapper = mount(SupportedModelChip, {
+      attachTo: document.body,
+      props: {
+        model: { name: 'interactive-model', platform: '', pricing: null },
+        noPricingLabel: 'No pricing',
+        showPlatform: false,
+      },
+    })
+
+    const trigger = wrapper.find('[tabindex="0"]')
+    await trigger.trigger('mouseenter')
+    await nextTick()
+
+    const popover = document.body.querySelector<HTMLElement>('[role="tooltip"]')
+    expect(popover).not.toBeNull()
+    expect(popover?.classList.contains('pointer-events-auto')).toBe(true)
+    expect(popover?.classList.contains('overflow-y-auto')).toBe(true)
+    expect(popover?.getAttribute('tabindex')).toBe('0')
+
+    await trigger.trigger('mouseleave')
+    popover?.dispatchEvent(new MouseEvent('mouseenter'))
+    vi.advanceTimersByTime(100)
+    await nextTick()
+    expect(popover?.style.display).not.toBe('none')
+
+    popover?.focus()
+    popover?.dispatchEvent(new MouseEvent('mouseleave'))
+    vi.advanceTimersByTime(100)
+    await nextTick()
+    expect(popover?.style.display).not.toBe('none')
+
+    popover?.blur()
+    vi.advanceTimersByTime(100)
+    await nextTick()
+    expect(popover?.style.display).toBe('none')
+
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
 })

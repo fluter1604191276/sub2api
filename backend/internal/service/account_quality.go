@@ -10,11 +10,14 @@ import (
 const (
 	AccountQualityRealtimeWindowHours  = 1
 	AccountQualityWindowHours          = 24
-	AccountQualityScoreVersion         = 2
+	AccountQualityScoreVersion         = 3
 	accountQualityMinSamples           = 3
 	accountQualityMinTTFTSamples       = 3
-	accountQualityTTFTWeight           = 0.85
-	accountQualityDurationWeight       = 0.15
+	accountQualityRobustMedianWeight   = 0.80
+	accountQualityRobustTailWeight     = 0.20
+	accountQualityTTFTWeight           = 0.70
+	accountQualityGenerationWeight     = 0.30
+	accountQualityTTFTOnlyMax          = 79
 	accountQualityDurationOnlyMax      = 69
 	accountQualityFailingMinErrors     = 3
 	accountQualityDegradedMinAttempts  = 5
@@ -23,9 +26,11 @@ const (
 	accountUnifiedQualityMaxLiveWeight = 0.80
 	accountUnifiedQualityHistoricalCap = 0.70
 
-	accountQualityBasisTTFTDuration = "ttft_duration"
-	accountQualityBasisTTFTOnly     = "ttft_only"
-	accountQualityBasisDurationOnly = "duration_only"
+	accountQualityBasisTTFTDuration   = "ttft_duration"
+	accountQualityBasisTTFTOnly       = "ttft_only"
+	accountQualityBasisDurationOnly   = "duration_only"
+	accountQualityBasisTTFTGeneration = "ttft_generation"
+	accountQualityBasisGenerationOnly = "generation_only"
 
 	accountQualityActivityActive    = "active"
 	accountQualityActivityLowSample = "low_sample"
@@ -61,6 +66,15 @@ var accountQualityDurationCurve = []accountQualityCurvePoint{
 	{LatencyMs: 90000, Score: 25},
 	{LatencyMs: 120000, Score: 12},
 	{LatencyMs: 180000, Score: 0},
+}
+
+var accountQualityGenerationCurve = []accountQualityCurvePoint{
+	{LatencyMs: 10, Score: 0},
+	{LatencyMs: 20, Score: 40},
+	{LatencyMs: 30, Score: 65},
+	{LatencyMs: 40, Score: 80},
+	{LatencyMs: 50, Score: 92},
+	{LatencyMs: 70, Score: 100},
 }
 
 // AccountQualityWindow contains the latency summary for one recent-request window.
@@ -360,6 +374,14 @@ func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow 
 	if window.SampleCount < accountQualityMinSamples {
 		return window
 	}
+	if hasRobustQualityEvidence(window) {
+		return applyRobustQualityScore(
+			window,
+			accountQualityBasisTTFTGeneration,
+			accountQualityBasisTTFTOnly,
+			accountQualityBasisGenerationOnly,
+		)
+	}
 
 	ttftScore, hasTTFT := qualityCurveScore(window.AverageFirstTokenMs, accountQualityTTFTCurve)
 	if window.FirstTokenSampleCount < accountQualityMinTTFTSamples {
@@ -370,10 +392,10 @@ func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow 
 	var score float64
 	var basis string
 	if hasTTFT && hasDuration {
-		score = ttftScore*accountQualityTTFTWeight + durationScore*accountQualityDurationWeight
+		score = math.Min(ttftScore*0.85+durationScore*0.15, accountQualityDurationOnlyMax)
 		basis = accountQualityBasisTTFTDuration
 	} else if hasTTFT {
-		score = ttftScore
+		score = math.Min(ttftScore, accountQualityDurationOnlyMax)
 		basis = accountQualityBasisTTFTOnly
 	} else if hasDuration {
 		score = math.Min(durationScore, accountQualityDurationOnlyMax)
@@ -387,6 +409,79 @@ func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow 
 	window.QualityGrade = accountQualityGrade(rounded)
 	window.ScoreBasis = basis
 	return window
+}
+
+func hasRobustQualityEvidence(window AccountQualityWindow) bool {
+	return window.P50FirstTokenMs != nil || window.P90FirstTokenMs != nil ||
+		window.P50GenerationTokensPerSecond != nil || window.P10GenerationTokensPerSecond != nil
+}
+
+func applyRobustQualityScore(window AccountQualityWindow, combinedBasis, ttftOnlyBasis, generationOnlyBasis string) AccountQualityWindow {
+	if window.SampleCount < accountQualityMinSamples {
+		return window
+	}
+
+	var ttftScore *float64
+	if window.FirstTokenSampleCount >= accountQualityMinTTFTSamples && validQualityMetric(window.P50FirstTokenMs) && validQualityMetric(window.P90FirstTokenMs) {
+		medianScore, medianOK := qualityCurveScore(window.P50FirstTokenMs, accountQualityTTFTCurve)
+		tailScore, tailOK := qualityCurveScore(window.P90FirstTokenMs, accountQualityTTFTCurve)
+		if medianOK && tailOK {
+			routingTTFT := *window.P50FirstTokenMs*accountQualityRobustMedianWeight + *window.P90FirstTokenMs*accountQualityRobustTailWeight
+			window.RoutingFirstTokenMs = &routingTTFT
+			score := medianScore*accountQualityRobustMedianWeight + tailScore*accountQualityRobustTailWeight
+			ttftScore = &score
+		}
+	}
+
+	var generationScore *float64
+	if window.GenerationSampleCount >= accountQualityMinSamples && validQualityMetric(window.P50GenerationTokensPerSecond) && validQualityMetric(window.P10GenerationTokensPerSecond) {
+		routingGeneration := *window.P50GenerationTokensPerSecond*accountQualityRobustMedianWeight + *window.P10GenerationTokensPerSecond*accountQualityRobustTailWeight
+		window.RoutingGenerationTokensPerSecond = &routingGeneration
+		medianScore := accountQualityGenerationScore(*window.P50GenerationTokensPerSecond)
+		tailScore := accountQualityGenerationScore(*window.P10GenerationTokensPerSecond)
+		score := medianScore*accountQualityRobustMedianWeight + tailScore*accountQualityRobustTailWeight
+		generationScore = &score
+	}
+
+	var score float64
+	switch {
+	case ttftScore != nil && generationScore != nil:
+		score = *ttftScore*accountQualityTTFTWeight + *generationScore*accountQualityGenerationWeight
+		window.ScoreBasis = combinedBasis
+	case ttftScore != nil:
+		score = math.Min(*ttftScore, accountQualityTTFTOnlyMax)
+		window.ScoreBasis = ttftOnlyBasis
+	case generationScore != nil:
+		score = math.Min(*generationScore, accountQualityDurationOnlyMax)
+		window.ScoreBasis = generationOnlyBasis
+	default:
+		return window
+	}
+
+	rounded := int(math.Round(math.Max(0, math.Min(100, score))))
+	window.QualityScore = &rounded
+	window.QualityGrade = accountQualityGrade(rounded)
+	return window
+}
+
+func validQualityMetric(value *float64) bool {
+	return value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) && *value >= 0
+}
+
+func accountQualityGenerationScore(tokensPerSecond float64) float64 {
+	if tokensPerSecond <= accountQualityGenerationCurve[0].LatencyMs {
+		return accountQualityGenerationCurve[0].Score
+	}
+	for i := 1; i < len(accountQualityGenerationCurve); i++ {
+		current := accountQualityGenerationCurve[i]
+		if tokensPerSecond > current.LatencyMs {
+			continue
+		}
+		previous := accountQualityGenerationCurve[i-1]
+		ratio := (tokensPerSecond - previous.LatencyMs) / (current.LatencyMs - previous.LatencyMs)
+		return previous.Score + ratio*(current.Score-previous.Score)
+	}
+	return accountQualityGenerationCurve[len(accountQualityGenerationCurve)-1].Score
 }
 
 func qualityCurveScore(value *float64, curve []accountQualityCurvePoint) (float64, bool) {

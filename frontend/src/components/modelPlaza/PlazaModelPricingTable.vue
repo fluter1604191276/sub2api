@@ -25,6 +25,7 @@
             <div class="pz-title border-b pb-2 font-semibold">
               {{ t(priceView === 'standard' ? 'modelPlaza.table.standardPrice' : priceView === 'user' ? 'modelPlaza.table.userPrice' : 'modelPlaza.table.paidPrice') }}
               <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              <div class="pz-unit mt-0.5 normal-case font-normal">{{ t('modelPlaza.table.effectivePriceFormula') }}</div>
             </div>
           </th>
           <th
@@ -107,6 +108,14 @@
                 {{ t('modelPlaza.table.maxReasoningMultiplierBadge', { multiplier: m.pricing.max_reasoning_effort_multiplier }) }}
               </span>
             </div>
+            <div
+              v-if="officialReferenceNote(m)"
+              data-testid="official-reference-note"
+              class="mt-1 text-[10px] leading-4 text-gray-400 dark:text-dark-500"
+              :title="officialReferenceTitle(m)"
+            >
+              {{ officialReferenceNote(m) }}
+            </div>
           </td>
 
           <!-- token 计费:输入 / 输出 / 缓存(写/读),有阶梯时每档一行;档位标签只放输入列,其余列按行对齐 -->
@@ -122,7 +131,7 @@
                   {{ paidPerMillion(iv.input_price, period, m.pricing?.currency) }}
                 </div>
               </template>
-              <template v-else>{{ paidPerMillion(m.pricing?.input_price, period, m.pricing?.currency) }}</template>
+              <template v-else>{{ paidPerMillion(effectivePricing(m)?.input_price, period, m.pricing?.currency) }}</template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle font-mono font-semibold text-gray-900 dark:text-gray-50">
               <template v-if="tokenIntervals(m).length">
@@ -135,7 +144,7 @@
                   {{ paidPerMillion(iv.output_price, period, m.pricing?.currency) }}
                 </div>
               </template>
-              <template v-else>{{ paidPerMillion(m.pricing?.output_price, period, m.pricing?.currency) }}</template>
+              <template v-else>{{ paidPerMillion(effectivePricing(m)?.output_price, period, m.pricing?.currency) }}</template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle">
               <template v-if="hasTierCachePricing(tokenIntervals(m))">
@@ -164,15 +173,15 @@
               >
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheWrite') }}</span>
-                  {{ paidPerMillion(m.pricing?.cache_write_price, period, m.pricing?.currency)
-                  }}<template v-if="m.pricing?.cache_write_1h_price != null"
-                    ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(m.pricing.cache_write_1h_price, period, m.pricing?.currency)
+                  {{ paidPerMillion(effectivePricing(m)?.cache_write_price, period, m.pricing?.currency)
+                  }}<template v-if="effectivePricing(m)?.cache_write_1h_price != null"
+                    ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(effectivePricing(m)?.cache_write_1h_price, period, m.pricing?.currency)
                     }}<span class="font-sans font-normal text-gray-400 dark:text-dark-500">)</span></template
                   >
                 </div>
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheRead') }}</span>
-                  {{ paidPerMillion(m.pricing?.cache_read_price, period, m.pricing?.currency) }}
+                  {{ paidPerMillion(effectivePricing(m)?.cache_read_price, period, m.pricing?.currency) }}
                 </div>
               </div>
               <span v-else class="text-gray-400 dark:text-dark-500">-</span>
@@ -196,9 +205,9 @@
                   }}<span class="font-sans text-gray-400 dark:text-dark-500">{{ perUnitSuffix(m) }}</span>
                 </span>
               </div>
-              <template v-else-if="m.pricing?.per_request_price != null">
+              <template v-else-if="effectivePricing(m)?.per_request_price != null">
                 <span class="font-mono font-semibold text-gray-900 dark:text-gray-50">
-                  {{ paidRequestPrice(m, m.pricing.per_request_price) }}
+                  {{ paidRequestPrice(m, effectivePricing(m)?.per_request_price) }}
                 </span>
                 <span class="ml-1 text-xs text-gray-400 dark:text-dark-500">{{ perUnitSuffix(m) }}</span>
               </template>
@@ -209,6 +218,7 @@
           <!-- 官方价格(参考价,不乘倍率;官方有阶梯时每档一行) -->
           <td
             class="border-l border-gray-100 px-3 py-2.5 align-middle font-mono text-xs text-gray-500 dark:border-dark-700/60 dark:text-dark-400"
+            :title="officialReferenceTitle(m)"
           >
             <template v-if="officialIntervals(m).length">
               <div
@@ -222,7 +232,7 @@
             </template>
             <template v-else>{{ official(m.official_pricing?.input_price, m.official_pricing?.currency) }}</template>
           </td>
-          <td class="px-3 py-2.5 align-middle font-mono text-xs text-gray-500 dark:text-dark-400">
+          <td class="px-3 py-2.5 align-middle font-mono text-xs text-gray-500 dark:text-dark-400" :title="officialReferenceTitle(m)">
             <template v-if="officialIntervals(m).length">
               <div
                 v-for="(iv, idx) in officialIntervals(m)"
@@ -235,7 +245,7 @@
             </template>
             <template v-else>{{ official(m.official_pricing?.output_price, m.official_pricing?.currency) }}</template>
           </td>
-          <td class="px-3 py-2.5 align-middle">
+          <td class="px-3 py-2.5 align-middle" :title="officialReferenceTitle(m)">
             <template v-if="hasTierCachePricing(officialIntervals(m))">
               <div
                 v-for="(iv, idx) in officialIntervals(m)"
@@ -306,7 +316,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { formatScaled, resolveIntervalPrices } from '@/utils/pricing'
+import { formatScaled, resolveEffectivePricing } from '@/utils/pricing'
 import { platformAccentColor, platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
 import {
   BILLING_MODE_TOKEN,
@@ -370,6 +380,13 @@ const hasCustomRate = computed(
   () => props.priceView !== 'standard' && props.userRateMultiplier != null && props.userRateMultiplier !== props.rateMultiplier
 )
 
+function effectivePricing(m: PlazaModel) {
+  if (!m.pricing) return null
+  return resolveEffectivePricing(m.pricing, effectiveRate.value, {
+    imageRateMultiplier: usesIndependentImageRate(m) ? (props.imageRateMultiplier ?? 1) : null,
+  })
+}
+
 function billingMode(m: PlazaModel): BillingMode {
   return (m.pricing?.billing_mode || BILLING_MODE_TOKEN) as BillingMode
 }
@@ -414,7 +431,7 @@ function paidPerMillion(
   currency: 'USD' | 'CNY' | undefined = 'USD',
 ): string {
   if (value == null) return '-'
-  const rate = period ? periodRate(period) : effectiveRate.value
+  const rate = period?.multiplier ?? 1
   return formatScaled(value * rate, PER_MILLION, MIN_DECIMALS, currency)
 }
 
@@ -431,13 +448,30 @@ function requestRate(m: PlazaModel): number {
 /** 按次 / 按图片单价(乘该行生效倍率,不换算 1M)。 */
 function paidRequestPrice(m: PlazaModel, value: number | null | undefined): string {
   if (value == null) return '-'
-  return formatScaled(value * requestRate(m), 1, MIN_DECIMALS, m.pricing?.currency)
+  return formatScaled(value, 1, MIN_DECIMALS, m.pricing?.currency)
 }
 
 /** 官方参考价不乘倍率。 */
 function official(value: number | null | undefined, currency: 'USD' | 'CNY' | undefined = 'USD'): string {
   if (value == null) return '-'
   return formatScaled(value, PER_MILLION, MIN_DECIMALS, currency)
+}
+
+function officialReferenceNote(m: PlazaModel): string {
+  const reference = m.official_pricing
+  return [reference?.price_basis, reference?.reference_note].filter(Boolean).join(' · ')
+}
+
+function officialReferenceTitle(m: PlazaModel): string | undefined {
+  const reference = m.official_pricing
+  if (!reference) return undefined
+  const provenance = [
+    reference.price_basis,
+    reference.reference_note,
+    reference.source_url,
+    reference.verified_at,
+  ].filter(Boolean)
+  return provenance.length ? provenance.join('\n') : undefined
 }
 
 /** 非 token 计费的单位后缀:按图片 → “/ 张”,按次 → “/ 次”。 */
@@ -491,11 +525,24 @@ function sortByContext(intervals: UserPricingInterval[]): UserPricingInterval[] 
 
 /** token 模式的阶梯定价(内联进输入/输出/缓存列)。 */
 function tokenIntervals(m: PlazaModel): UserPricingInterval[] {
-  return sortByContext(m.pricing?.intervals ?? []).map(iv => resolveIntervalPrices(iv, m.pricing!))
+  return sortByContext(effectivePricing(m)?.intervals ?? [])
 }
 
 /** 官方阶梯(后端按目录规则合成,不受分组开关影响)。 */
 function officialIntervals(m: PlazaModel): UserPricingInterval[] {
+  if (m.official_pricing?.display_tiers?.length) {
+    return m.official_pricing.display_tiers.map((tier) => ({
+      min_tokens: 0,
+      max_tokens: null,
+      tier_label: tier.label,
+      input_price: tier.input_price,
+      output_price: tier.output_price,
+      cache_read_price: tier.cache_read_price,
+      cache_write_price: null,
+      cache_write_1h_price: null,
+      per_request_price: null,
+    }))
+  }
   return sortByContext(m.official_pricing?.intervals ?? [])
 }
 
@@ -517,7 +564,7 @@ function tierHint(m: PlazaModel): string {
 
 /** 按次/按图模式的阶梯定价(仅保留配了按次价的档位)。 */
 function requestIntervals(m: PlazaModel): UserPricingInterval[] {
-  return (m.pricing?.intervals ?? []).filter((iv) => iv.per_request_price != null)
+  return (effectivePricing(m)?.intervals ?? []).filter((iv) => iv.per_request_price != null)
 }
 
 /**

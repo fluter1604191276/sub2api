@@ -831,7 +831,7 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:          "doubao embedding vision versioned alias",
 			model:         "doubao-embedding-vision-251215",
-			expectedInput: 0.098e-6,
+			expectedInput: 0.7e-6,
 		},
 
 		// ---- 负向用例 ----
@@ -856,9 +856,9 @@ func TestGetFallbackPricing_FamilyMatching(t *testing.T) {
 		{
 			name:              "kimi k2-0905-preview implicit fallback to k2",
 			model:             "kimi-k2-0905-preview",
-			expectedInput:     0.56e-6,
-			expectedOutput:    floatPtr(2.24e-6),
-			expectedCacheRead: floatPtr(0.14e-6),
+			expectedInput:     4e-6,
+			expectedOutput:    floatPtr(16e-6),
+			expectedCacheRead: floatPtr(1e-6),
 		},
 	}
 

@@ -65,7 +65,9 @@ func (r *usageLogRepository) GetSmartSchedulerQualityStatsBatch(
 				ul.first_token_ms,
 				ul.id,
 				CASE
-					WHEN ul.output_tokens > 0 AND ul.duration_ms > ul.first_token_ms
+					WHEN ul.output_tokens >= 32
+						AND ul.first_token_ms >= 0
+						AND ul.duration_ms - ul.first_token_ms >= 1000
 					THEN ul.output_tokens * 1000.0 / NULLIF(ul.duration_ms - ul.first_token_ms, 0)
 				END AS generation_tokens_per_second
 			FROM usage_logs ul
@@ -87,38 +89,42 @@ func (r *usageLogRepository) GetSmartSchedulerQualityStatsBatch(
 				) AS request_rank
 			FROM successful
 			WHERE duration_ms IS NOT NULL
+		), quality_input AS (
+			SELECT *
+			FROM ranked
+			WHERE request_rank <= 100
 		), quality AS (
 			SELECT
 				account_id,
 				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_first_count,
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms IS NOT NULL) AS realtime_last_10_first_p50,
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms IS NOT NULL) AS realtime_last_10_first_p90,
+				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND first_token_ms >= 0) AS realtime_last_10_first_p90,
 				COUNT(generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10) AS realtime_last_10_generation_count,
 				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_10_generation_p50,
 				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_10_generation_p10,
 				COUNT(*) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_first_count,
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms IS NOT NULL) AS realtime_last_100_first_p50,
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms IS NOT NULL) AS realtime_last_100_first_p90,
+				COUNT(first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND first_token_ms >= 0) AS realtime_last_100_first_p90,
 				COUNT(generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100) AS realtime_last_100_generation_count,
 				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_100_generation_p50,
 				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE created_at >= $3 AND request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS realtime_last_100_generation_p10,
 				COUNT(*) FILTER (WHERE request_rank <= 10) AS last_10_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10) AS last_10_first_count,
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms IS NOT NULL) AS last_10_first_p50,
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms IS NOT NULL) AS last_10_first_p90,
+				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0) AS last_10_first_p90,
 				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 10) AS last_10_generation_count,
 				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS last_10_generation_p50,
 				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL) AS last_10_generation_p10,
 				COUNT(*) FILTER (WHERE request_rank <= 100) AS last_100_count,
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100) AS last_100_first_count,
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms IS NOT NULL) AS last_100_first_p50,
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms IS NOT NULL) AS last_100_first_p90,
+				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_count,
+				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_p50,
+				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0) AS last_100_first_p90,
 				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 100) AS last_100_generation_count,
 				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS last_100_generation_p50,
 				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL) AS last_100_generation_p10
-			FROM ranked
+			FROM quality_input
 			GROUP BY account_id
 		), activity AS (
 			SELECT

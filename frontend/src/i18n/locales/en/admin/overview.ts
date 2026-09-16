@@ -831,7 +831,7 @@ export default {
       usageTotal: 'Total',
       quality: {
         loadFailed: 'Failed',
-        hint: 'Uses successful streaming usage records assigned to this group in the last 24 hours and the latest 10/100 timed requests. Score v2 matches account quality: TTFT weighs 85% and total duration 15%; with fewer than 3 TTFT samples, duration-only scoring is capped at 69. Letter grade and numeric score are display-only and never change group routing automatically.',
+        hint: 'Uses billed, non-probe streaming usage rows assigned to this group in the last 24 hours and the latest 10/100 timed requests. Score v3 blends each component from 80% median and 20% tail, then combines TTFT at 70% with generation tokens/second at 30%; TPS excludes rows with fewer than 32 output tokens or under 1000 ms of generation time. Account, group, and scheduler scores use the same formula but can differ because their data scopes differ. Original average TTFT and total duration remain displayed. Missing TPS uses a flagged, conservative TTFT-only fallback capped at 79; generation-only fallback is capped at 69. Grades and scores are display-only and never change group routing automatically.',
         realtimeHint: 'Uses streaming requests assigned to this group in the last hour and shows successes, failures, and the last success time. Idle means the group received no real traffic in the last hour, not that it is broken; its 24-hour score is then shown as a muted historical baseline.'
       },
       smartScheduler: {

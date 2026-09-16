@@ -126,7 +126,10 @@ const scoreTitle = (window: AccountQualityWindow): string => {
   if (window.score_basis === 'duration_only') {
     return `${base} · ${t('admin.accounts.quality.durationOnly')}`
   }
-  if (window.score_basis === 'ttft_only') {
+  if (window.score_basis === 'generation_only' || window.score_basis === 'routing_generation_only') {
+    return `${base} · ${t('admin.accounts.quality.generationOnly')}`
+  }
+  if (window.score_basis === 'ttft_only' || window.score_basis === 'routing_ttft_only') {
     return `${base} · ${t('admin.accounts.quality.ttftOnly')}`
   }
   return base

@@ -12,6 +12,8 @@ vi.mock('vue-i18n', () => ({
       'admin.accounts.quality.firstTokenShort': '首字',
       'admin.accounts.quality.totalShort': '总',
       'admin.accounts.quality.durationOnly': '仅按总耗时评分',
+      'admin.accounts.quality.generationOnly': '首字证据不足，生成 TPS 回退最高 69 分',
+      'admin.accounts.quality.ttftOnly': 'TPS 证据不足，首字回退最高 79 分',
       'admin.accounts.quality.activity.active': '活跃',
       'admin.accounts.quality.activity.low_sample': '样本少',
       'admin.accounts.quality.activity.degraded': '波动',
@@ -107,6 +109,50 @@ describe('AccountQualityCell', () => {
     expect(wrapper.text()).toContain('24成/1败')
     expect(wrapper.text()).toContain('最近成功 5 分钟前')
     expect(wrapper.find('[data-quality-activity="active"]').classes()).toContain('bg-emerald-100')
+  })
+
+  it('flags score v3 fallback bases in the score tooltip', async () => {
+    const wrapper = mount(AccountQualityCell, {
+      props: {
+        stats: {
+          last_10: {
+            sample_count: 10,
+            first_token_sample_count: 10,
+            average_first_token_ms: 1200,
+            average_duration_ms: 8000,
+            quality_score: 79,
+            quality_grade: 'A',
+            score_basis: 'ttft_only',
+          },
+          last_100: {
+            sample_count: 100,
+            first_token_sample_count: 0,
+            average_first_token_ms: null,
+            average_duration_ms: 8000,
+            quality_score: 69,
+            quality_grade: 'B+',
+            score_basis: 'routing_generation_only',
+          },
+          window_hours: 24,
+        },
+      },
+    })
+
+    let grades = wrapper.findAll('[data-quality-grade]')
+    expect(grades[0].attributes('title')).toContain('TPS 证据不足，首字回退最高 79 分')
+    expect(grades[1].attributes('title')).toContain('首字证据不足，生成 TPS 回退最高 69 分')
+
+    await wrapper.setProps({
+      stats: {
+        ...wrapper.props('stats'),
+        last_10: {
+          ...wrapper.props('stats')!.last_10,
+          score_basis: 'routing_ttft_only',
+        },
+      },
+    })
+    grades = wrapper.findAll('[data-quality-grade]')
+    expect(grades[0].attributes('title')).toContain('TPS 证据不足，首字回退最高 79 分')
   })
 
   it('does not paint an idle account red and allows scheduling state overrides', async () => {

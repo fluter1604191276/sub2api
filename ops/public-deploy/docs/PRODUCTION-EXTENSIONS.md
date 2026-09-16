@@ -79,6 +79,11 @@ token rows remain fail-closed. Resolved `Currency`/`PriceBasis` metadata is for
 display and audit; it never converts or changes the site's unified billing math.
 See `extensions/20260915-pricing-currency-semantics.md`.
 
+Catalog-only domestic official references and streaming quality v3 are described
+in `extensions/20260917-pricing-quality.md`. Reference prices must not overwrite
+configured customer or account-cost prices. Quality uses bounded percentile scores
+and generation throughput while preserving raw averages and existing routing gates.
+
 ## Source Of Truth
 
 The source of truth is the tuple:

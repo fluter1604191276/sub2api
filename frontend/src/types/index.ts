@@ -1377,7 +1377,9 @@ export interface AccountQualityWindow {
   quality_grade?: string
   score_basis?:
     | 'ttft_duration'
+    | 'ttft_generation'
     | 'ttft_only'
+    | 'generation_only'
     | 'duration_only'
     | 'routing_ttft_generation'
     | 'routing_ttft_only'

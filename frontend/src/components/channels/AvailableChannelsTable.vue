@@ -144,7 +144,7 @@
                 :no-pricing-label="noPricingLabel"
                 :show-platform="false"
                 :platform-hint="row.section.platform"
-                :pricing-heading="t('availableChannels.pricing.basePrice')"
+                :pricing-contexts="pricingContexts(row.section, model)"
               />
               <span v-if="row.models.length === 0" class="text-xs text-gray-400">
                 {{ noModelsLabel }}
@@ -164,12 +164,13 @@ import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import SupportedModelChip from './SupportedModelChip.vue'
-import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection } from '@/api/channels'
+import type { UserAvailableChannel, UserAvailableGroup, UserChannelPlatformSection, UserSupportedModel } from '@/api/channels'
 import type { GroupPlatform, SubscriptionType } from '@/types'
 import { platformBadgeClass, platformLabel } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 import { hasPeakRate as groupHasPeakRate, formatPeakRateWindow, serverTimezoneLabel } from '@/utils/peak-rate'
 import { buildAvailableChannelDisplayRows, type AvailableChannelCategory, type AvailableChannelDisplayRow } from '@/utils/availableChannels'
+import { resolveEffectivePricing } from '@/utils/pricing'
 
 const props = defineProps<{
   columns: {
@@ -244,6 +245,32 @@ function exclusiveGroups(section: UserChannelPlatformSection): UserAvailableGrou
 
 function publicGroups(section: UserChannelPlatformSection): UserAvailableGroup[] {
   return section.groups.filter((group) => !group.is_exclusive)
+}
+
+function pricingContexts(section: UserChannelPlatformSection, model: UserSupportedModel) {
+  if (!model.pricing) return []
+  const basePricing = model.pricing
+  // This endpoint lacks group model overrides, time pricing, independent image rates,
+  // and each group's long-context enablement. Flat token multiplication is reference-only;
+  // Model Plaza remains the source for the configured group/user schedule.
+  const canResolveEffective = basePricing.billing_mode === 'token' && basePricing.intervals.length === 0
+  const effective = canResolveEffective ? section.groups.map((group) => {
+    const rate = props.userGroupRates[group.id] ?? group.rate_multiplier
+    return {
+      key: `group-${group.id}`,
+      heading: t('availableChannels.pricing.effectivePrice', { group: group.name }),
+      multiplierLabel: t('availableChannels.pricing.multiplier', { rate }),
+      pricing: resolveEffectivePricing(basePricing, rate),
+    }
+  }) : []
+  return [
+    ...effective,
+    {
+      key: 'base',
+      heading: t('availableChannels.pricing.basePrice'),
+      pricing: basePricing,
+    },
+  ]
 }
 
 function groupPricingRoute(groupId: number) {

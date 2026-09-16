@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -19,8 +20,8 @@ func TestApplyAccountQualityScore(t *testing.T) {
 		})
 
 		require.NotNil(t, window.QualityScore)
-		require.Equal(t, 100, *window.QualityScore)
-		require.Equal(t, "S+", window.QualityGrade)
+		require.Equal(t, 69, *window.QualityScore)
+		require.Equal(t, "B+", window.QualityGrade)
 		require.Equal(t, accountQualityBasisTTFTDuration, window.ScoreBasis)
 	})
 
@@ -90,14 +91,17 @@ func TestApplyAccountQualityScore(t *testing.T) {
 		})
 
 		require.NotNil(t, window.QualityScore)
-		require.Equal(t, 73, *window.QualityScore)
-		require.Equal(t, "A-", window.QualityGrade)
+		require.Equal(t, 69, *window.QualityScore)
+		require.Equal(t, "B+", window.QualityGrade)
 	})
 }
 
 func TestBuildAccountQualityStatsIncludesRealtimeWindowAndActivity(t *testing.T) {
 	ttft := 1200.0
 	duration := 8000.0
+	ttftP90 := 1600.0
+	tpsP50 := 70.0
+	tpsP10 := 60.0
 	lastSuccess := time.Date(2026, 7, 22, 4, 10, 0, 0, time.UTC)
 	lastError := lastSuccess.Add(-2 * time.Minute)
 
@@ -105,18 +109,28 @@ func TestBuildAccountQualityStatsIncludesRealtimeWindowAndActivity(t *testing.T)
 		7: {
 			Recent1h: AccountQualityPeriodSamples{
 				Last10: AccountQualityWindow{
-					SampleCount:           10,
-					FirstTokenSampleCount: 10,
-					AverageFirstTokenMs:   &ttft,
-					AverageDurationMs:     &duration,
+					SampleCount:                  10,
+					FirstTokenSampleCount:        10,
+					AverageFirstTokenMs:          &ttft,
+					AverageDurationMs:            &duration,
+					P50FirstTokenMs:              &ttft,
+					P90FirstTokenMs:              &ttftP90,
+					GenerationSampleCount:        10,
+					P50GenerationTokensPerSecond: &tpsP50,
+					P10GenerationTokensPerSecond: &tpsP10,
 				},
 			},
 			Last24h: AccountQualityPeriodSamples{
 				Last100: AccountQualityWindow{
-					SampleCount:           100,
-					FirstTokenSampleCount: 100,
-					AverageFirstTokenMs:   &ttft,
-					AverageDurationMs:     &duration,
+					SampleCount:                  100,
+					FirstTokenSampleCount:        100,
+					AverageFirstTokenMs:          &ttft,
+					AverageDurationMs:            &duration,
+					P50FirstTokenMs:              &ttft,
+					P90FirstTokenMs:              &ttftP90,
+					GenerationSampleCount:        100,
+					P50GenerationTokensPerSecond: &tpsP50,
+					P10GenerationTokensPerSecond: &tpsP10,
 				},
 			},
 			SuccessfulRequests1h: 10,
@@ -138,6 +152,140 @@ func TestBuildAccountQualityStatsIncludesRealtimeWindowAndActivity(t *testing.T)
 	require.NotNil(t, stats.Unified.Score)
 	require.Equal(t, "realtime_blend", stats.Unified.Source)
 	require.Equal(t, 98, *stats.Unified.Score)
+	require.Equal(t, 3, stats.ScoreVersion)
+}
+
+func TestApplyAccountQualityRobustScore(t *testing.T) {
+	window := func(p50TTFT, p90TTFT, p50TPS, p10TPS float64, generationSamples int64) AccountQualityWindow {
+		meanTTFT := 100000.0
+		meanDuration := 40000.0
+		return AccountQualityWindow{
+			SampleCount:                  10,
+			FirstTokenSampleCount:        10,
+			AverageFirstTokenMs:          &meanTTFT,
+			AverageDurationMs:            &meanDuration,
+			P50FirstTokenMs:              &p50TTFT,
+			P90FirstTokenMs:              &p90TTFT,
+			GenerationSampleCount:        generationSamples,
+			P50GenerationTokensPerSecond: &p50TPS,
+			P10GenerationTokensPerSecond: &p10TPS,
+		}
+	}
+
+	t.Run("isolated extreme TTFT tail is bounded after per-percentile scoring", func(t *testing.T) {
+		input := window(2000, 90000, 50, 20, 10)
+		result := applyAccountQualityScore(input)
+
+		require.Equal(t, 78, *result.QualityScore)
+		require.Equal(t, accountQualityBasisTTFTGeneration, result.ScoreBasis)
+		require.InDelta(t, 19600, *result.RoutingFirstTokenMs, 0.001)
+		require.InDelta(t, 44, *result.RoutingGenerationTokensPerSecond, 0.001)
+		require.Equal(t, input.AverageFirstTokenMs, result.AverageFirstTokenMs)
+		require.Equal(t, input.AverageDurationMs, result.AverageDurationMs)
+	})
+
+	t.Run("repeated high latency remains bad", func(t *testing.T) {
+		result := applyAccountQualityScore(window(60000, 60000, 50, 20, 10))
+
+		require.Equal(t, 31, *result.QualityScore)
+		require.Equal(t, "C", result.QualityGrade)
+	})
+
+	t.Run("slow generation lowers otherwise identical quality", func(t *testing.T) {
+		fast := applyAccountQualityScore(window(2000, 4000, 70, 70, 10))
+		slow := applyAccountQualityScore(window(2000, 4000, 10, 10, 10))
+
+		require.Greater(t, *fast.QualityScore, *slow.QualityScore)
+		require.GreaterOrEqual(t, *fast.QualityScore-*slow.QualityScore, 25)
+	})
+
+	t.Run("insufficient throughput samples use a capped TTFT fallback", func(t *testing.T) {
+		result := applyAccountQualityScore(window(500, 700, 70, 70, 2))
+
+		require.Equal(t, accountQualityTTFTOnlyMax, *result.QualityScore)
+		require.Equal(t, accountQualityBasisTTFTOnly, result.ScoreBasis)
+		require.Nil(t, result.RoutingGenerationTokensPerSecond)
+	})
+
+	t.Run("invalid robust evidence is ignored", func(t *testing.T) {
+		nan := math.NaN()
+		inf := math.Inf(1)
+		negative := -1.0
+		validTTFT := 1000.0
+		validTPS := 40.0
+
+		invalidTTFT := window(validTTFT, validTTFT, validTPS, validTPS, 10)
+		invalidTTFT.P50FirstTokenMs = &negative
+		invalidTTFT.P50GenerationTokensPerSecond = &nan
+		invalidTTFT.P10GenerationTokensPerSecond = &inf
+		result := applyAccountQualityScore(invalidTTFT)
+		require.Nil(t, result.QualityScore)
+
+		invalidTPS := window(validTTFT, validTTFT, validTPS, validTPS, 10)
+		invalidTPS.P10GenerationTokensPerSecond = &negative
+		result = applyAccountQualityScore(invalidTPS)
+		require.Equal(t, accountQualityTTFTOnlyMax, *result.QualityScore)
+		require.Equal(t, accountQualityBasisTTFTOnly, result.ScoreBasis)
+	})
+
+	t.Run("extreme TTFT tail and slow generation both affect the tradeoff", func(t *testing.T) {
+		fastGenerationWithTail := applyAccountQualityScore(window(2500, 60000, 55, 30, 10))
+		fastTTFTWithSlowGeneration := applyAccountQualityScore(window(1000, 6000, 14, 10, 10))
+
+		require.NotEqual(t, *fastGenerationWithTail.QualityScore, *fastTTFTWithSlowGeneration.QualityScore)
+		require.Less(t, *fastGenerationWithTail.QualityScore, 90)
+		require.Less(t, *fastTTFTWithSlowGeneration.QualityScore, 90)
+	})
+}
+
+func TestDisplayAndSchedulerQualityScoresAlign(t *testing.T) {
+	p50TTFT, p90TTFT := 1800.0, 12000.0
+	p50TPS, p10TPS := 42.0, 18.0
+	window := AccountQualityWindow{
+		SampleCount:                  10,
+		FirstTokenSampleCount:        10,
+		P50FirstTokenMs:              &p50TTFT,
+		P90FirstTokenMs:              &p90TTFT,
+		GenerationSampleCount:        10,
+		P50GenerationTokensPerSecond: &p50TPS,
+		P10GenerationTokensPerSecond: &p10TPS,
+	}
+
+	display := applyAccountQualityScore(window)
+	scheduler := applySmartSchedulerQualityScore(window)
+	require.Equal(t, display.QualityScore, scheduler.QualityScore)
+	require.Equal(t, display.QualityGrade, scheduler.QualityGrade)
+	require.Equal(t, display.RoutingFirstTokenMs, scheduler.RoutingFirstTokenMs)
+	require.Equal(t, display.RoutingGenerationTokensPerSecond, scheduler.RoutingGenerationTokensPerSecond)
+	require.Equal(t, accountQualityBasisTTFTGeneration, display.ScoreBasis)
+	require.Equal(t, smartSchedulerBasisTTFTGeneration, scheduler.ScoreBasis)
+}
+
+func TestRobustQualityRoundedReplayAnalogs(t *testing.T) {
+	score := func(meanTTFT, p50TTFT, p90TTFT, p50TPS, p10TPS float64, samples, generationSamples int64) int {
+		duration := 35000.0
+		window := applyAccountQualityScore(AccountQualityWindow{
+			SampleCount:                  samples,
+			FirstTokenSampleCount:        samples,
+			AverageFirstTokenMs:          &meanTTFT,
+			AverageDurationMs:            &duration,
+			P50FirstTokenMs:              &p50TTFT,
+			P90FirstTokenMs:              &p90TTFT,
+			GenerationSampleCount:        generationSamples,
+			P50GenerationTokensPerSecond: &p50TPS,
+			P10GenerationTokensPerSecond: &p10TPS,
+		})
+		require.NotNil(t, window.QualityScore)
+		return *window.QualityScore
+	}
+
+	averageShocked := score(10300, 1900, 19000, 22, 7, 71, 69)
+	goodTTFTSlowGeneration := score(2800, 900, 1400, 17, 3.5, 100, 100)
+	persistentlySlowTTFT := score(90000, 36500, 206500, 52, 35, 23, 13)
+
+	require.Greater(t, averageShocked, 60, "the raw mean must not dominate robust TTFT evidence")
+	require.Less(t, goodTTFTSlowGeneration, 85, "slow generation must demote otherwise excellent TTFT")
+	require.Less(t, persistentlySlowTTFT, 50, "persistent slow TTFT must remain poor despite fast generation")
 }
 
 func TestBuildAccountUnifiedQuality(t *testing.T) {

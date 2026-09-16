@@ -2,6 +2,7 @@ package handler
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -37,14 +38,19 @@ func NewModelPlazaHandler(
 	}
 }
 
-// modelPlazaOfficialPricing 官方参考价（按模型平台标注 USD/CNY；与计费目录同源）。
+// modelPlazaOfficialPricing 官方参考价，数值与来源币种必须成对保留。
 type modelPlazaOfficialPricing struct {
-	Currency          string   `json:"currency"`
-	InputPrice        *float64 `json:"input_price"`
-	OutputPrice       *float64 `json:"output_price"`
-	CacheWritePrice   *float64 `json:"cache_write_price"`
-	CacheWrite1hPrice *float64 `json:"cache_write_1h_price,omitempty"`
-	CacheReadPrice    *float64 `json:"cache_read_price"`
+	Currency          string                             `json:"currency"`
+	PriceBasis        string                             `json:"price_basis,omitempty"`
+	SourceURL         string                             `json:"source_url,omitempty"`
+	VerifiedAt        string                             `json:"verified_at,omitempty"`
+	ReferenceNote     string                             `json:"reference_note,omitempty"`
+	DisplayTiers      []service.PlazaOfficialDisplayTier `json:"display_tiers,omitempty"`
+	InputPrice        *float64                           `json:"input_price"`
+	OutputPrice       *float64                           `json:"output_price"`
+	CacheWritePrice   *float64                           `json:"cache_write_price"`
+	CacheWrite1hPrice *float64                           `json:"cache_write_1h_price,omitempty"`
+	CacheReadPrice    *float64                           `json:"cache_read_price"`
 	// Intervals 官方长上下文阶梯，仅多档模型给出。
 	Intervals []userPricingIntervalDTO `json:"intervals,omitempty"`
 }
@@ -278,18 +284,22 @@ func toModelPlazaTimePricing(p *service.TimePricingSchedule) *modelPlazaTimePric
 }
 
 // toModelPlazaOfficialPricing 转换官方参考价；币种是展示元数据，不参与计费。
-// 模型广场按模型平台展示币种：国产模型显示 CNY，海外模型显示 USD。
-// 计价源的真实币种/依据保留在服务层用于审计，不让它改变站内展示语义。
+// 不允许只按平台替换币种符号；不合约的来源留空，不能伪装为已核实官方价。
 func toModelPlazaOfficialPricing(p *service.PlazaOfficialPricing, platform string) *modelPlazaOfficialPricing {
 	if p == nil {
 		return nil
 	}
-	// platform is authoritative for public catalog presentation. The source
-	// currency in p may differ when an upstream publishes a domestic model in
-	// USD, but that must not leak into the site's platform-based display.
-	currency := service.PricingCurrencyForPlatform(platform)
+	currency := strings.ToUpper(strings.TrimSpace(p.Currency))
+	if currency != service.PricingCurrencyForPlatform(platform) {
+		return nil
+	}
 	return &modelPlazaOfficialPricing{
 		Currency:          currency,
+		PriceBasis:        p.PriceBasis,
+		SourceURL:         p.SourceURL,
+		VerifiedAt:        p.VerifiedAt,
+		ReferenceNote:     p.ReferenceNote,
+		DisplayTiers:      p.DisplayTiers,
 		InputPrice:        p.InputPrice,
 		OutputPrice:       p.OutputPrice,
 		CacheWritePrice:   p.CacheWritePrice,

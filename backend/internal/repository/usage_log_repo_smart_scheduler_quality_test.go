@@ -36,7 +36,7 @@ func TestUsageLogRepositoryGetSmartSchedulerQualityStatsBatch(t *testing.T) {
 		int64(18), lastSuccess,
 	)
 
-	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*requested_model.*inbound_endpoint.*PERCENTILE_CONT\(0\.5\).*PERCENTILE_CONT\(0\.9\).*generation_tokens_per_second`).
+	mock.ExpectQuery(`(?s)WITH successful AS MATERIALIZED.*output_tokens >= 32.*first_token_ms >= 0.*duration_ms - ul\.first_token_ms >= 1000.*request_type <> 6.*stream = TRUE.*sub2api-channel-monitor/.*requested_model.*inbound_endpoint.*quality_input AS.*request_rank <= 100.*PERCENTILE_CONT\(0\.5\).*PERCENTILE_CONT\(0\.9\).*generation_tokens_per_second`).
 		WithArgs(pq.Array(accountIDs), start, realtimeStart, end, "gpt-5", "/v1/responses").
 		WillReturnRows(rows)
 

@@ -9,7 +9,20 @@ import type { UserPricingInterval, UserSupportedModelPricing } from './channels'
 
 /** 官方参考价（按模型平台显示 USD/CNY；字段缺失 = 目录未覆盖）。 */
 export interface PlazaOfficialPricing {
+  /** Vendor labels only; these tiers never define numeric billing boundaries. */
+  display_tiers?: Array<{
+    label: string
+    input_price: number | null
+    output_price: number | null
+    cache_read_price: number | null
+  }>
   currency?: 'USD' | 'CNY'
+  /** Human-readable source basis, for example an official list-price schedule. */
+  price_basis?: string | null
+  /** Conditions on the reference value, for example off-peak-only pricing. */
+  reference_note?: string | null
+  source_url?: string | null
+  verified_at?: string | null
   input_price: number | null
   output_price: number | null
   /** 5m 缓存写入（= LiteLLM cache_creation）。 */
