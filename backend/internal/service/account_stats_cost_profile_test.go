@@ -29,8 +29,8 @@ func TestAccountCostProfileReconcilesFlashBillWithoutRepricingBarePro(t *testing
 	proTokens := UsageTokens{InputTokens: 1786, OutputTokens: 1333, CacheReadTokens: 45056}
 	pro := resolveAccountStatsCost(context.Background(), cs, bs, 1, 10, "deepseek-v4-pro", proTokens, 1, 0.002099948, "", peak)
 	require.NotNil(t, pro)
-	require.InDelta(t, 0.009618664, *pro, 1e-12)
-	require.InDelta(t, 0.0014427996, *pro*0.15, 1e-12)
+	require.InDelta(t, 0.0655818, *pro, 1e-12)
+	require.InDelta(t, 0.00983727, *pro*0.15, 1e-12)
 	require.InDelta(t, 0.3086730324, *flash*0.15+0.0339545844, 1e-12)
 }
 

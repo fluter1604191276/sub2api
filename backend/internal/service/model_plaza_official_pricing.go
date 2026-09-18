@@ -12,10 +12,10 @@ func (s *ModelPlazaService) domesticOfficialPricing(model string) (*PlazaOfficia
 	}
 	reference := func(input, output, cache float64, source, note string) *PlazaOfficialPricing {
 		return &PlazaOfficialPricing{
-			Currency: "CNY", PriceBasis: "Official China pricing (CNY)",
+			Currency: "CNY", PriceBasis: "Official China peak pricing (CNY)",
 			InputPrice: nonZeroPtr(input / 1e6), OutputPrice: nonZeroPtr(output / 1e6),
 			CacheReadPrice: nonZeroPtr(cache / 1e6), SourceURL: source,
-			VerifiedAt: "2026-09-17", ReferenceNote: note,
+			VerifiedAt: "2026-09-18", ReferenceNote: note,
 		}
 	}
 	const glmSource = "https://open.bigmodel.cn/pricing"
@@ -34,12 +34,13 @@ func (s *ModelPlazaService) domesticOfficialPricing(model string) (*PlazaOfficia
 			{Label: "32K+", InputPrice: high.InputPrice, OutputPrice: high.OutputPrice, CacheReadPrice: high.CacheReadPrice},
 		}
 		return low, true
-	case "deepseek-flash", "deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp":
-		return reference(1, 4, .02, deepseekSource,
-			"V4.1 Flash 低谷价；北京时间工作日 09:00-12:00、14:00-18:00 为两倍高峰价，其余时段及周末为低谷价。"), true
+	case "deepseek-flash", "deepseek-v4.1-flash", "deepseek-v4.1-flash-0910",
+		"deepseek-v4-flash", "deepseek-v4-flash-0731", "deepseek-v4-flash-vision-exp":
+		return reference(2, 8, .04, deepseekSource,
+			"V4.1 Flash 官方峰价；本站统一以峰价为基础，不启用 DeepSeek 峰谷分时折扣。"), true
 	case "deepseek-v4-pro", "deepseek-v4-pro-0813":
-		return reference(4.5, 13.5, .15, deepseekSource,
-			"V4 Pro 0813 低谷价；北京时间工作日 09:00-12:00、14:00-18:00 为两倍高峰价，其余时段及周末为低谷价。"), true
+		return reference(9, 27, .30, deepseekSource,
+			"V4 Pro 0813 官方峰价；本站统一以峰价为基础，不启用 DeepSeek 峰谷分时折扣。"), true
 	}
 	if platform == PlatformDeepseek {
 		// A reseller's date suffix is not evidence of an official model alias.

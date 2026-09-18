@@ -17,10 +17,12 @@ func TestDomesticOfficialPricingVerifiedReferences(t *testing.T) {
 	}{
 		{"glm-5.2", 8, 28, 2}, {"glm-5.3", 8, 28, 2},
 		{"glm-5.3-flash", .8, 2.8, .23}, {"glm-5.1", 6, 24, 1.3},
-		{"deepseek-flash", 1, 4, .02}, {"deepseek-v4.1-flash", 1, 4, .02},
-		{"deepseek-v4-flash", 1, 4, .02}, {"deepseek-v4-flash-vision-exp", 1, 4, .02},
-		{"deepseek-v4-pro", 4.5, 13.5, .15},
-		{"deepseek-v4-pro-0813", 4.5, 13.5, .15},
+		{"deepseek-flash", 2, 8, .04}, {"deepseek-v4.1-flash", 2, 8, .04},
+		{"deepseek-v4.1-flash-0910", 2, 8, .04},
+		{"deepseek-v4-flash", 2, 8, .04}, {"deepseek-v4-flash-0731", 2, 8, .04},
+		{"deepseek-v4-flash-vision-exp", 2, 8, .04},
+		{"deepseek-v4-pro", 9, 27, .30},
+		{"deepseek-v4-pro-0813", 9, 27, .30},
 	} {
 		t.Run(tc.model, func(t *testing.T) {
 			got := svc.lookupOfficialPricing(context.Background(), tc.model, map[string]*PlazaOfficialPricing{})
@@ -30,7 +32,7 @@ func TestDomesticOfficialPricingVerifiedReferences(t *testing.T) {
 			require.InDelta(t, tc.output, *got.OutputPrice*1e6, 1e-10)
 			require.InDelta(t, tc.cache, *got.CacheReadPrice*1e6, 1e-10)
 			require.Contains(t, got.SourceURL, "https://")
-			require.Equal(t, "2026-09-17", got.VerifiedAt)
+			require.Equal(t, "2026-09-18", got.VerifiedAt)
 		})
 	}
 }
@@ -50,9 +52,9 @@ func TestDomesticOfficialPricingConditionsAreExplicit(t *testing.T) {
 	require.Empty(t, glm.Intervals, "display labels must not invent billing boundaries")
 	require.Contains(t, lookup("glm-5.3-flash").ReferenceNote, "09-09")
 	for _, model := range []string{"deepseek-flash", "deepseek-v4-pro"} {
-		require.Contains(t, lookup(model).ReferenceNote, "09:00-12:00")
-		require.Contains(t, lookup(model).ReferenceNote, "14:00-18:00")
-		require.Contains(t, lookup(model).ReferenceNote, "两倍")
+		require.Contains(t, lookup(model).ReferenceNote, "峰价")
+		require.Contains(t, lookup(model).ReferenceNote, "不启用")
+		require.Empty(t, lookup(model).DisplayTiers)
 	}
 }
 
@@ -61,10 +63,10 @@ func TestDomesticOfficialPricingDoesNotGuessOrMutateBilling(t *testing.T) {
 	svc := &ModelPlazaService{billingService: billing}
 	before, err := billing.GetModelPricing("deepseek-v4.1-flash")
 	require.NoError(t, err)
-	for _, model := range []string{"deepseek-unknown", "deepseek-v4.1-flash-0910", "deepseek-v4-flash-0731", "glm-unknown"} {
+	for _, model := range []string{"deepseek-unknown", "deepseek-v4.1-flash-9999", "glm-unknown"} {
 		require.Nil(t, svc.lookupOfficialPricing(context.Background(), model, map[string]*PlazaOfficialPricing{}), model)
 	}
-	for _, model := range []string{"deepseek-flash", "deepseek-v4.1-flash", "glm-5.2"} {
+	for _, model := range []string{"deepseek-flash", "deepseek-v4.1-flash", "deepseek-v4.1-flash-0910", "deepseek-v4-flash-0731", "glm-5.2"} {
 		require.NotNil(t, svc.lookupOfficialPricing(context.Background(), model, map[string]*PlazaOfficialPricing{}))
 	}
 	after, err := billing.GetModelPricing("deepseek-v4.1-flash")

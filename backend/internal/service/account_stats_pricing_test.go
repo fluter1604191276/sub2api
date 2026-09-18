@@ -754,16 +754,13 @@ func TestTryModelFilePricing_WithCacheTokens(t *testing.T) {
 	require.InDelta(t, 0.95, *result, 1e-12)
 }
 
-func TestTryModelFilePricing_DeepSeekPeakPricing(t *testing.T) {
-	weekday := func(hour, minute int) time.Time {
-		return time.Date(2026, time.August, 24, hour, minute, 0, 0, time.UTC)
-	}
+func TestTryModelFilePricing_DeepSeekFixedPeakPricing(t *testing.T) {
 	for _, model := range []struct {
 		name                          string
 		input, output, cacheReadPrice float64
 	}{
-		{"deepseek-v4-flash", 2.2e-7, 6.6e-7, 7e-9},
-		{"deepseek-v4-pro", 6.6e-7, 1.98e-6, 2.2e-8},
+		{"deepseek-v4-flash", 2e-6, 8e-6, 0.04e-6},
+		{"deepseek-v4-pro", 9e-6, 27e-6, 0.30e-6},
 	} {
 		for _, usage := range []struct {
 			name   string
@@ -780,24 +777,17 @@ func TestTryModelFilePricing_DeepSeekPeakPricing(t *testing.T) {
 				baseCost := float64(tokens.InputTokens)*model.input +
 					float64(tokens.OutputTokens)*model.output + float64(tokens.CacheReadTokens)*model.cacheReadPrice
 				for _, slot := range []struct {
-					name       string
-					at         time.Time
-					multiplier float64
+					name string
+					at   time.Time
 				}{
-					{"before_morning_peak", weekday(0, 59), 1},
-					{"morning_peak_start", weekday(1, 0), 2},
-					{"morning_peak_last_minute", weekday(3, 59), 2},
-					{"morning_peak_end", weekday(4, 0), 1},
-					{"afternoon_peak_start", weekday(6, 0), 2},
-					{"afternoon_peak_last_minute", weekday(9, 59), 2},
-					{"afternoon_peak_end", weekday(10, 0), 1},
-					{"saturday", time.Date(2026, time.August, 22, 2, 0, 0, 0, time.UTC), 1},
-					{"sunday", time.Date(2026, time.August, 23, 7, 0, 0, 0, time.UTC), 1},
+					{"previous_peak_window", time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC)},
+					{"previous_off_peak_window", time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)},
+					{"weekend", time.Date(2026, time.August, 22, 2, 0, 0, 0, time.UTC)},
 				} {
 					t.Run(slot.name, func(t *testing.T) {
 						cost := tryModelFilePricing(bs, model.name, tokens, "", slot.at)
 						require.NotNil(t, cost)
-						require.InDelta(t, baseCost*slot.multiplier, *cost, 1e-12)
+						require.InDelta(t, baseCost, *cost, 1e-12)
 					})
 				}
 			})
@@ -806,7 +796,7 @@ func TestTryModelFilePricing_DeepSeekPeakPricing(t *testing.T) {
 }
 
 func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
-	peak := time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC)
+	pricingAt := time.Date(2026, time.August, 24, 2, 0, 0, 0, time.UTC)
 	for _, tt := range []struct {
 		name         string
 		customRule   bool
@@ -814,7 +804,7 @@ func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
 		noChannel    bool
 		want         float64
 	}{
-		{name: "catalog", want: 1000 * 2.2e-7 * 2},
+		{name: "catalog", want: 1000 * 2e-6},
 		{name: "custom_rule", customRule: true, want: 1},
 		{name: "custom_rule_before_customer_price", customRule: true, applyPricing: true, want: 1},
 		{name: "customer_price", applyPricing: true, want: 0.75},
@@ -841,7 +831,7 @@ func TestResolveAccountStatsCost_DeepSeekPricingPriority(t *testing.T) {
 				groupID = 99
 			}
 			cost := resolveAccountStatsCost(context.Background(), cs, newTestBillingService(),
-				1, groupID, "deepseek-v4-flash", UsageTokens{InputTokens: 1000}, 1, 0.75, "", peak)
+				1, groupID, "deepseek-v4-flash", UsageTokens{InputTokens: 1000}, 1, 0.75, "", pricingAt)
 			if tt.noChannel {
 				require.Nil(t, cost)
 				return

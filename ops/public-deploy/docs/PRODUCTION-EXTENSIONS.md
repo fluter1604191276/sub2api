@@ -79,6 +79,12 @@ token rows remain fail-closed. Resolved `Currency`/`PriceBasis` metadata is for
 display and audit; it never converts or changes the site's unified billing math.
 See `extensions/20260915-pricing-currency-semantics.md`.
 
+DeepSeek public pricing is deliberately simpler: the default and public channel
+price cards use the verified China-region peak prices as the sole base card, and
+do not apply a request-time peak/off-peak multiplier. Group discounts are applied
+to that peak base. Account-specific cost profiles remain a separate upstream-cost
+contract and are not rewritten by this public-price change.
+
 Catalog-only domestic official references and streaming quality v3 are described
 in `extensions/20260917-pricing-quality.md`. Reference prices must not overwrite
 configured customer or account-cost prices. Quality uses bounded percentile scores
