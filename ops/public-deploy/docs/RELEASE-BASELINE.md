@@ -11,26 +11,28 @@ development from this document's old path after production has changed.
 Use `ops/public-deploy/create-production-derived-worktree.sh` to bootstrap the
 next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
-## Current Production Baseline (2026-09-13)
+## Current Production Baseline (2026-09-18)
 
-Verified switch completed at approximately 13:09 UTC. This block supersedes
+Verified switch completed on 2026-09-18 Asia/Shanghai. This block supersedes
 the historical 2026-09-09 baseline below.
 
 ~~~text
 SSH alias: fluterapi-prod
 Role: production
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.2.4-currency-20260913-r1
-Image ID: sha256:13daa766e72ce58b14574143a27b8c7915e56a68ee75905422dfc8a87fc01775
-Revision: 5d4f620ba397ebe9d6c65b8919771f9e07219183
-Source snapshot: c827f70b90bf70f04f63ed8b90c0640d0cee0bfcb42ce14c0be385d8b7ad13d2
-Manifest: /www/sub2api-builds/release-manifests/20260913-pricing-display-currency-r1/release-manifest.json
-Rollback config: /www/sub2api/backups/pre-switch-currency-20260913T125838Z
-Database archive: /www/sub2api/backups/pre-switch-currency-20260913T125838Z/sub2api.sql
-Previous image: fluter/sub2api:fluter-0.2.4-official-catalog-20260913-r2
-Post-switch checks: healthy, /health 200, admin boundary 401, model plaza 200, root 200
-Local exact source: .worktrees/production-currency-20260913
-Local evidence: .release-evidence/20260913-pricing-display-currency-r1
+Image: fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1
+Image ID: sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4
+Revision: 3be979bebe408c9732b590f3095d42f2a084a46f
+Source snapshot: b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca
+Manifest: /tmp/release-manifest-authorized-20260917.json on VPS; local evidence `.release-evidence/20260917-pricing-quality/release-manifest-authorized.json`
+Rollback config: /www/sub2api/backups/release-pricing-quality-20260918T030800Z
+Database archive: /www/sub2api/backups/sub2api-backup-20260918T025700Z.tar.gz
+Previous image: fluter/sub2api:fluter-0.2.4-currency-20260915-r3
+Previous digest: sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d
+Post-switch checks: healthy, `/health` 200, setup status completed, admin boundary 401, available channels 200, model plaza 200, root/docs 200
+Other services: PostgreSQL, Redis and Caddy were not restarted
+Local exact source: `.worktrees/pricing-quality-20260917`
+Local evidence: `.release-evidence/20260917-pricing-quality`
 ~~~
 
 Native image capability gate, isolated authenticated smoke, public application

@@ -8,15 +8,16 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline (2026-09-13)
+## Production Baseline (2026-09-18)
 
-Current image: `fluter/sub2api:fluter-0.2.4-currency-20260913-r1`.
-Current revision: `5d4f620ba397ebe9d6c65b8919771f9e07219183`.
-Current image ID: `sha256:13daa766e72ce58b14574143a27b8c7915e56a68ee75905422dfc8a87fc01775`.
-Source snapshot: `c827f70b90bf70f04f63ed8b90c0640d0cee0bfcb42ce14c0be385d8b7ad13d2`.
-Exact local source: `.worktrees/production-currency-20260913` (detached, preserved).
-Evidence: `.release-evidence/20260913-pricing-display-currency-r1`.
-Remote manifest: `/www/sub2api-builds/release-manifests/20260913-pricing-display-currency-r1/release-manifest.json`.
+Current image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
+Current revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
+Current image ID: `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
+Source snapshot: `b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca`.
+Exact local source: `.worktrees/pricing-quality-20260917` (clean, preserved).
+Evidence: `.release-evidence/20260917-pricing-quality`.
+Remote manifest: `/tmp/release-manifest-authorized-20260917.json` (verified on VPS; original manifest retained locally).
+Rollback image: `fluter/sub2api:fluter-0.2.4-currency-20260915-r3` with digest `sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d`.
 See RELEASE-BASELINE.md for remote manifest and rollback paths.
 
 The next development line must derive from this live-verified revision, not
