@@ -11,45 +11,45 @@ development from this document's old path after production has changed.
 Use `ops/public-deploy/create-production-derived-worktree.sh` to bootstrap the
 next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
-## Current Production Baseline (2026-09-18)
+## Current Production Baseline (2026-09-19)
 
-Verified switch completed on 2026-09-18 Asia/Shanghai. This block supersedes
+The live identity and health were re-verified read-only on 2026-09-19
+Asia/Shanghai. This block supersedes the earlier pricing-quality baseline and
 the historical 2026-09-09 baseline below.
 
 ~~~text
 SSH alias: fluterapi-prod
 Role: production
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1
-Image ID: sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4
-Revision: 3be979bebe408c9732b590f3095d42f2a084a46f
-Source snapshot: b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca
-Manifest: /tmp/release-manifest-authorized-20260917.json on VPS; local evidence `.release-evidence/20260917-pricing-quality/release-manifest-authorized.json`
-Rollback config: /www/sub2api/backups/release-pricing-quality-20260918T030800Z
-Database archive: /www/sub2api/backups/sub2api-backup-20260918T025700Z.tar.gz
-Previous image: fluter/sub2api:fluter-0.2.4-currency-20260915-r3
-Previous digest: sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d
-Post-switch checks: healthy, `/health` 200, setup status completed, admin boundary 401, available channels 200, model plaza 200, root/docs 200
+Image: fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1
+Image ID: sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09
+Revision: 39abf42abcce5d0d50e05673050704265da9c8c7
+Source snapshot: 6972b4a33283ea71a7f0fb328522ddeb13640b50962b2f868de2ff059ca08c62
+Manifest: project-container `.release-evidence/20260918-deepseek-fixed-peak/release-manifest.json`
+Rollback config: /www/sub2api/backups/20260919-deepseek-fixed-peak
+Pre-switch database archive: /www/sub2api/backups/sub2api-backup-20260918T155108Z.tar.gz
+Latest automatic archive observed: /www/sub2api/backups/sub2api-backup-20260919T034415Z.tar.gz
+Previous image: fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1
+Previous image ID: sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4
+Live checks: role `production`; application, PostgreSQL and Redis healthy; public `/health` returned 200 with `{"status":"ok"}`
 Other services: PostgreSQL, Redis and Caddy were not restarted
-Local exact source: `.worktrees/pricing-quality-20260917`
-Local evidence: `.release-evidence/20260917-pricing-quality`
+Local exact source: `.worktrees/production-39abf42-exact`
+Local evidence: project-container `.release-evidence/20260918-deepseek-fixed-peak`
 ~~~
 
-Native image capability gate, isolated authenticated smoke, public application
-pages and admin authentication boundary passed. No paid upstream end-to-end
-request was executed. Other service containers were not restarted.
+The retained release manifest records backend, frontend, diff, protocol-fixture
+and image-smoke checks as passed. It also records smart scheduling, scheduled
+probes, quality/cache telemetry, pricing calibration, model sync, catalog and
+Responses-tool compatibility evidence. Native Responses is still required for
+terminal/custom-tool end-to-end support; bridge routes remain explicitly partial.
 
-Daily bill migrations 234/235 and actual usage correlation were verified in an
-isolated full application. Account-rate costs use immutable usage snapshots;
-historical uncorrelated spending remains unverified. Budget reservations and
-user billing are unchanged. Prior image and configuration are retained.
+The current release fixes DeepSeek public pricing to one peak-price base. It
+does not mean the official v0.2.7 code has been merged. Prior image,
+configuration and database archives remain the rollback set.
 
-In the previous smart-primary-score release, the first switch automatically rolled back because the smoke script incorrectly
-assumed the static homepage domain exposed /health, and urllib received 403.
-Verified existing routes use api.fluterapi.top/health (GET 200), while
-fluterapi.top/health returns 404. Corrected curl checks passed on the retry.
-Internal Docker smoke networks must be tested using their internal address;
-published host ports were unreachable despite a healthy application.
+For the pending official upgrade, use the production-derived line documented in
+`UPGRADE-0.2.7-PREFLIGHT.md`. No v0.2.7 merge, migration, image build or
+production switch has occurred during preflight.
 
 ## Historical Production Baseline (2026-09-09)
 

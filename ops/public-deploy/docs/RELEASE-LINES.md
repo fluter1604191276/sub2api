@@ -8,21 +8,42 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline (2026-09-18)
+## Production Baseline (2026-09-19)
 
-Current image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
-Current revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
-Current image ID: `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
-Source snapshot: `b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca`.
-Exact local source: `.worktrees/pricing-quality-20260917` (clean, preserved).
-Evidence: `.release-evidence/20260917-pricing-quality`.
-Remote manifest: `/tmp/release-manifest-authorized-20260917.json` (verified on VPS; original manifest retained locally).
-Rollback image: `fluter/sub2api:fluter-0.2.4-currency-20260915-r3` with digest `sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d`.
-See RELEASE-BASELINE.md for remote manifest and rollback paths.
+Current image: `fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1`.
+Current revision: `39abf42abcce5d0d50e05673050704265da9c8c7`.
+Current image ID: `sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09`.
+Source snapshot: `6972b4a33283ea71a7f0fb328522ddeb13640b50962b2f868de2ff059ca08c62`.
+Exact local source: `.worktrees/production-39abf42-exact` (detached, preserved).
+Evidence: project-container `.release-evidence/20260918-deepseek-fixed-peak`.
+Manifest: project-container `.release-evidence/20260918-deepseek-fixed-peak/release-manifest.json`.
+Pre-switch recovery directory: `/www/sub2api/backups/20260919-deepseek-fixed-peak`.
+Rollback image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1` with image ID `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
+Latest automatic archive observed during preflight: `/www/sub2api/backups/sub2api-backup-20260919T034415Z.tar.gz`.
+See RELEASE-BASELINE.md for verification and rollback details.
 
 The next development line must derive from this live-verified revision, not
 the historical line below. Documentation commits after this revision do not
 change the deployed image identity.
+
+## Active Upgrade Preparation (v0.2.7)
+
+```text
+Base image: fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1
+Base image ID: sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09
+Base revision: 39abf42abcce5d0d50e05673050704265da9c8c7
+Branch: prep/v0.2.7-from-production-20260919
+Worktree: .worktrees/upgrade-v0.2.7-20260919
+Official tag: v0.2.7 (aea725f2ea644d5592d0bbb1d63b607efa7e200a)
+Official VERSION sync: 1a9d49e16f7a22c432b428fce4af8d731f1fa364
+State: preflight only; no merge, image build, migration or production switch
+```
+
+Read `UPGRADE-0.2.7-PREFLIGHT.md` before touching this line. The official tag
+still contains source VERSION `0.2.5`; a correct source build must include the
+pinned VERSION sync commit and prove the compiled version. The prepared line is
+not an approved candidate until conflicts, restored-database migrations and the
+full production-extension gate pass.
 
 ## Historical Production Baseline (2026-09-09)
 
