@@ -30,6 +30,7 @@ Every release manifest must record the status and evidence for each capability b
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
 | ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
 | official-024-compatibility | Official Sub2API v0.2.4 behavior retained alongside site-specific extensions | official compatibility record, backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
+| official-027-compatibility | Official Sub2API v0.2.7 protocol, plugin, DeepSeek alias, quota-window and catalog compatibility layered onto the production-derived custom line | `UPGRADE-0.2.7-PREFLIGHT.md`, generated Wire, backend/frontend full suites, migration rehearsal and capability smoke | Protocol, model availability, plugin host, quota state, scheduling | Candidate only; not released |
 
 ## Status Semantics
 
