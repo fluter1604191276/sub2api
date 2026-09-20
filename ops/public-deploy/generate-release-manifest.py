@@ -36,7 +36,7 @@ CAPABILITY_IDS = (
     "channel-monitor-budget",
     "smart-probe-modes",
     "account-model-sync-preview",
-    "official-024-compatibility",
+    "official-027-compatibility",
     "public-catalog-contract",
 )
 

@@ -70,12 +70,12 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             del manifest["capabilities"][capability]
             self.assertIn(f"capability {capability} is missing", verify.validate_manifest_structure(manifest))
 
-    def test_official_024_compatibility_requires_authentic_version_evidence(self):
-        self.assertIn("official-024-compatibility", verify.REQUIRED_CAPABILITIES)
-        self.assertIn("official-024-compatibility", manifest_generator.CAPABILITY_IDS)
+    def test_official_027_compatibility_requires_authentic_version_evidence(self):
+        self.assertIn("official-027-compatibility", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("official-027-compatibility", manifest_generator.CAPABILITY_IDS)
         self.assertIn(
             verify.OFFICIAL_VERSION_FILE,
-            verify.CAPABILITY_FILES["official-024-compatibility"],
+            verify.CAPABILITY_FILES["official-027-compatibility"],
         )
         repo_root = SCRIPT_DIR.parents[1]
         self.assertEqual(
@@ -94,7 +94,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         finally:
             verify.file_text = original_file_text
         self.assertIn(
-            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.4'",
+            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.7'",
             errors,
         )
 
@@ -313,12 +313,12 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertTrue(processes)
         self.assertIsNotNone(processes[0].poll())
 
-    def test_official_024_image_smoke_requires_version_and_route_markers(self):
-        complete = verify.inspect_binary_capabilities(b"0.2.4 model-allowlist-candidates")
-        self.assertEqual("present", complete["official-024-compatibility"]["status"])
+    def test_official_027_image_smoke_requires_version_and_route_markers(self):
+        complete = verify.inspect_binary_capabilities(b"0.2.7 model-allowlist-candidates")
+        self.assertEqual("present", complete["official-027-compatibility"]["status"])
 
-        tag_only = verify.inspect_binary_capabilities(b"official-024-candidate")
-        self.assertEqual("missing", tag_only["official-024-compatibility"]["status"])
+        tag_only = verify.inspect_binary_capabilities(b"official-027-candidate")
+        self.assertEqual("missing", tag_only["official-027-compatibility"]["status"])
 
     def test_public_catalog_contract_is_required_with_source_and_image_evidence(self):
         capability = "public-catalog-contract"
