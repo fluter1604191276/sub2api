@@ -8,21 +8,33 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline (2026-09-18)
+## Production Baseline (2026-09-22)
 
-Current image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
-Current revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
-Current image ID: `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
-Source snapshot: `b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca`.
-Exact local source: `.worktrees/pricing-quality-20260917` (clean, preserved).
-Evidence: `.release-evidence/20260917-pricing-quality`.
-Remote manifest: `/tmp/release-manifest-authorized-20260917.json` (verified on VPS; original manifest retained locally).
-Rollback image: `fluter/sub2api:fluter-0.2.4-currency-20260915-r3` with digest `sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d`.
-See RELEASE-BASELINE.md for remote manifest and rollback paths.
+Current image: `fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1`.
+Current revision: `3b43110cedabce5c6bcb0966f5f082dae624e054`.
+Current image ID: `sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7`.
+Source snapshot: `6a031974e8b6dcd80cbab85dafe7cde2e179c42a5631967babdf2d0ad0ddc7fb`.
+Exact local source: `.worktrees/passive-capability-observation-20260922` (candidate source, preserved).
+Evidence: `ops/public-deploy/release-manifests/20260922-account-groups-r1` (ignored local release evidence).
+Remote manifest: `/www/sub2api-builds/release-manifests/20260922-account-groups-r1.json`.
+Rollback image: `fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1` with digest `sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09`.
+Rollback config: `/www/sub2api/backups/pre-switch-account-groups-20260922T093617Z`.
+Database archive: `/www/sub2api/backups/sub2api-backup-20260922T093730Z.tar.gz`.
 
-The next development line must derive from this live-verified revision, not
-the historical line below. Documentation commits after this revision do not
-change the deployed image identity.
+Post-switch checks: production role, container healthy, `/health` 200, API
+available channels/model plaza 200, unauthenticated admin boundary 401,
+capability tables present, and no recent fatal/migration errors. PostgreSQL,
+Redis and Caddy were not restarted. The next development line must derive from
+this live-verified revision; documentation commits after it do not change the
+deployed image identity.
+
+## Historical Production Baseline (2026-09-18)
+
+Image: `fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1`.
+Revision: `39abf42abcce5d0d50e05673050704265da9c8c7`.
+Image ID: `sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09`.
+Source snapshot: `6972b4a33283ea71a7f0fb328522ddeb13640b50962b2f868de2ff059ca08c62`.
+Rollback predecessor: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
 
 ## Historical Production Baseline (2026-09-09)
 

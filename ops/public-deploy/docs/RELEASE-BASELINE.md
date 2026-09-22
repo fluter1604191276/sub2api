@@ -11,28 +11,28 @@ development from this document's old path after production has changed.
 Use `ops/public-deploy/create-production-derived-worktree.sh` to bootstrap the
 next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
-## Current Production Baseline (2026-09-18)
+## Current Production Baseline (2026-09-22)
 
-Verified switch completed on 2026-09-18 Asia/Shanghai. This block supersedes
-the historical 2026-09-09 baseline below.
+Verified switch completed on 2026-09-22 Asia/Shanghai. This block supersedes
+the historical 2026-09-18 and 2026-09-09 baselines below.
 
 ~~~text
 SSH alias: fluterapi-prod
 Role: production
 Directory: /www/sub2api
-Image: fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1
-Image ID: sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4
-Revision: 3be979bebe408c9732b590f3095d42f2a084a46f
-Source snapshot: b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca
-Manifest: /tmp/release-manifest-authorized-20260917.json on VPS; local evidence `.release-evidence/20260917-pricing-quality/release-manifest-authorized.json`
-Rollback config: /www/sub2api/backups/release-pricing-quality-20260918T030800Z
-Database archive: /www/sub2api/backups/sub2api-backup-20260918T025700Z.tar.gz
-Previous image: fluter/sub2api:fluter-0.2.4-currency-20260915-r3
-Previous digest: sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d
-Post-switch checks: healthy, `/health` 200, setup status completed, admin boundary 401, available channels 200, model plaza 200, root/docs 200
+Image: fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1
+Image ID: sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7
+Revision: 3b43110cedabce5c6bcb0966f5f082dae624e054
+Source snapshot: 6a031974e8b6dcd80cbab85dafe7cde2e179c42a5631967babdf2d0ad0ddc7fb
+Manifest: /www/sub2api-builds/release-manifests/20260922-account-groups-r1.json on VPS; local evidence `ops/public-deploy/release-manifests/20260922-account-groups-r1/release-manifest.json`
+Rollback config: /www/sub2api/backups/pre-switch-account-groups-20260922T093617Z
+Database archive: /www/sub2api/backups/sub2api-backup-20260922T093730Z.tar.gz
+Previous image: fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1
+Previous digest: sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09
+Post-switch checks: healthy, `/health` 200, API available channels 200, API model plaza 200, unauthenticated admin boundary 401, capability tables present, and no recent fatal/migration errors
 Other services: PostgreSQL, Redis and Caddy were not restarted
-Local exact source: `.worktrees/pricing-quality-20260917`
-Local evidence: `.release-evidence/20260917-pricing-quality`
+Local exact source: `.worktrees/passive-capability-observation-20260922`
+Local evidence: `ops/public-deploy/release-manifests/20260922-account-groups-r1`
 ~~~
 
 Native image capability gate, isolated authenticated smoke, public application
@@ -44,12 +44,30 @@ isolated full application. Account-rate costs use immutable usage snapshots;
 historical uncorrelated spending remains unverified. Budget reservations and
 user billing are unchanged. Prior image and configuration are retained.
 
+The 2026-09-22 release adds the compact account-list group metadata fix and
+retains the passive account capability observation migration. The account
+capability tables are additive; application rollback does not require a
+destructive reverse migration.
+
 In the previous smart-primary-score release, the first switch automatically rolled back because the smoke script incorrectly
 assumed the static homepage domain exposed /health, and urllib received 403.
 Verified existing routes use api.fluterapi.top/health (GET 200), while
 fluterapi.top/health returns 404. Corrected curl checks passed on the retry.
 Internal Docker smoke networks must be tested using their internal address;
 published host ports were unreachable despite a healthy application.
+
+## Historical Production Baseline (2026-09-18)
+
+~~~text
+SSH alias: fluterapi-prod
+Role: production
+Directory: /www/sub2api
+Image: fluter/sub2api:fluter-0.2.4-deepseek-fixed-peak-20260918-r1
+Image ID: sha256:c8b2ad2879da22cc76f1b33026035ffcc361119c8c6b86af7bea857567233c09
+Revision: 39abf42abcce5d0d50e05673050704265da9c8c7
+Source snapshot: 6972b4a33283ea71a7f0fb328522ddeb13640b50962b2f868de2ff059ca08c62
+Previous image: fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1
+~~
 
 ## Historical Production Baseline (2026-09-09)
 
