@@ -44,6 +44,7 @@ REQUIRED_CAPABILITIES = (
     "account-model-sync-preview",
     "official-024-compatibility",
     "public-catalog-contract",
+    "passive-capability-observation",
 )
 
 OFFICIAL_VERSION = "0.2.4"
@@ -262,6 +263,22 @@ CAPABILITY_FILES = {
         "backend/internal/handler/model_plaza_handler.go",
         "backend/internal/handler/model_plaza_handler_test.go",
     ),
+    "passive-capability-observation": (
+        "backend/internal/service/account_capability.go",
+        "backend/internal/service/account_capability_test.go",
+        "backend/internal/repository/usage_log_repo_capability.go",
+        "backend/internal/repository/usage_log_repo_capability_test.go",
+        "backend/migrations/239_account_capability_observations.sql",
+        "backend/internal/service/account_usage_service.go",
+        "backend/internal/service/gateway_forward.go",
+        "backend/internal/service/openai_gateway_forward.go",
+        "backend/internal/handler/admin/account_handler.go",
+        "backend/internal/server/routes/admin.go",
+        "frontend/src/api/admin/accounts.ts",
+        "frontend/src/types/index.ts",
+        "frontend/src/views/admin/AccountsView.vue",
+        "ops/public-deploy/docs/extensions/20260922-passive-capability-observation.md",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -325,6 +342,11 @@ IMAGE_CAPABILITY_MARKERS = {
         "configured_not_live",
         "before_group_multiplier",
         "unavailable_fallback_to_group",
+    ),
+    "passive-capability-observation": (
+        "capability-stats/batch",
+        "tool_roundtrip_observed",
+        "terminal_not_supported",
     ),
 }
 

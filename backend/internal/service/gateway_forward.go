@@ -93,6 +93,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
 	}
+	defer func() {
+		model := parsed.Model
+		requestID := ""
+		if result != nil {
+			if result.UpstreamModel != "" {
+				model = result.UpstreamModel
+			}
+			requestID = result.RequestID
+		}
+		ObserveCapabilityAttempt(ctx, c, s.usageLogRepo, account, parsed.Body.Bytes(), model, requestID, err == nil && result != nil)
+	}()
 	// Anthropic Fast is requested with speed=fast rather than OpenAI's
 	// service_tier. Attach it at this shared boundary so passthrough, OAuth and
 	// partial-stream results all use the same billing and usage-log path.

@@ -18,9 +18,20 @@ import (
 )
 
 // Forward forwards request to OpenAI API
-func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, err error) {
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
+	defer func() {
+		model := gjson.GetBytes(body, "model").String()
+		requestID := ""
+		if result != nil {
+			if result.UpstreamModel != "" {
+				model = result.UpstreamModel
+			}
+			requestID = result.RequestID
+		}
+		ObserveCapabilityAttempt(ctx, c, s.usageLogRepo, account, body, model, requestID, err == nil && result != nil)
+	}()
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	}

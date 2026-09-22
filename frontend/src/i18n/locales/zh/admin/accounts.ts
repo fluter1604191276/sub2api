@@ -121,6 +121,7 @@ export default {
         schedulable: '调度',
         todayStats: '今日统计',
         cacheHitRate: '24h缓存命中率',
+        capabilityStatus: '工具能力',
         unifiedQuality: '综合评分',
         realtimeQualityStats: '1h质量',
         qualityStats: '24h质量',
@@ -178,6 +179,25 @@ export default {
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       cacheHitRateTooltip: '近24小时 {requests} 次请求 · 未缓存 {input} · 创建缓存 {creation} · 读取缓存 {read}',
+      capability: {
+        hint: '仅根据真实用户请求中的工具往返和明确上游工具错误被动汇总，不包含探针，不影响调度、评分、账号状态或计费。未知表示暂无足够证据；降级表示成功与失败混合；异常表示连续失败且尚无成功恢复证据。',
+        tool: '工具',
+        roundtrip: '工具往返',
+        clientTool: '客户端工具',
+        terminal: '终端',
+        toolShort: '工具',
+        terminalShort: '终端',
+        samples: '{count} 样本',
+        unavailable: '数据未就绪',
+        noReason: '无原因',
+        statusTitle: '{capability}：{state} · {samples} 样本 · 成功 {success} · 失败 {failure} · 最近原因 {reason} · 更新时间 {updated}',
+        states: {
+          capable: '正常',
+          degraded: '降级',
+          unsupported: '异常',
+          unknown: '未知'
+        }
+      },
       ollamaCloud: {
         title: 'Ollama Cloud 用量',
         sessionSecurityHint: '浏览器会话会加密落库，且只发送到固定的 Ollama 官方设置页。',

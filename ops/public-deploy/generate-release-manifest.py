@@ -38,6 +38,7 @@ CAPABILITY_IDS = (
     "account-model-sync-preview",
     "official-024-compatibility",
     "public-catalog-contract",
+    "passive-capability-observation",
 )
 
 

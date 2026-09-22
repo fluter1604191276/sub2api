@@ -418,6 +418,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/today-stats/batch", h.Admin.Account.GetBatchTodayStats)
 		accounts.POST("/cache-hit-stats/batch", h.Admin.Account.GetBatchCacheHitStats)
 		accounts.POST("/quality-stats/batch", h.Admin.Account.GetBatchQualityStats)
+		accounts.POST("/capability-stats/batch", h.Admin.Account.GetBatchCapabilityStats)
 		accounts.POST("/:id/clear-rate-limit", h.Admin.Account.ClearRateLimit)
 		accounts.POST("/:id/reset-quota", h.Admin.Account.ResetQuota)
 		accounts.GET("/:id/temp-unschedulable", h.Admin.Account.GetTempUnschedulable)

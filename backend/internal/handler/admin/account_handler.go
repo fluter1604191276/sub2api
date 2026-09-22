@@ -2840,6 +2840,34 @@ func (h *AccountHandler) GetBatchQualityStats(c *gin.Context) {
 	response.Success(c, payload)
 }
 
+// GetBatchCapabilityStats returns display-only passive tool capability
+// summaries. It never changes scheduling, account status, or quality scores.
+// POST /api/v1/admin/accounts/capability-stats/batch
+func (h *AccountHandler) GetBatchCapabilityStats(c *gin.Context) {
+	var req BatchTodayStatsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	accountIDs := normalizeInt64IDList(req.AccountIDs)
+	if len(accountIDs) == 0 {
+		response.Success(c, gin.H{"stats": map[string]any{}})
+		return
+	}
+	if h.accountUsageService == nil {
+		response.InternalError(c, "Account usage service is unavailable")
+		return
+	}
+	stats, err := h.accountUsageService.GetCapabilitySummaryBatch(c.Request.Context(), accountIDs)
+	if err != nil {
+		// Capability data is advisory. A missing table during a rolling upgrade
+		// should not make the account page unusable.
+		response.Success(c, gin.H{"stats": map[string]any{}, "available": false})
+		return
+	}
+	response.Success(c, gin.H{"stats": stats, "available": true})
+}
+
 // SetSchedulableRequest represents the request body for setting schedulable status
 type SetSchedulableRequest struct {
 	Schedulable bool `json:"schedulable"`

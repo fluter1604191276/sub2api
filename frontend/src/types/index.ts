@@ -1429,6 +1429,26 @@ export interface AccountQualityStats extends AccountQualityPeriod {
   score_version: number
 }
 
+export type AccountCapabilityState = 'unknown' | 'capable' | 'degraded' | 'unsupported' | string
+
+export interface AccountCapabilityStatus {
+  state: AccountCapabilityState
+  sample_count: number
+  success_count: number
+  failure_count: number
+  last_success_at?: string | null
+  last_failure_at?: string | null
+  last_reason?: string
+  updated_at?: string | null
+}
+
+export interface AccountCapabilitySummary {
+  function_tool: AccountCapabilityStatus
+  tool_roundtrip: AccountCapabilityStatus
+  client_tool: AccountCapabilityStatus
+  terminal_contract: AccountCapabilityStatus
+}
+
 export interface SmartSchedulerLoad {
   current_concurrency: number
   waiting_count: number

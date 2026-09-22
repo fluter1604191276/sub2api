@@ -88,6 +88,10 @@ type accountCacheHitStatsBatchReader interface {
 	GetAccountCacheHitStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.CacheHitStats, error)
 }
 
+type accountCapabilityBatchReader interface {
+	GetAccountCapabilitySummaryBatch(ctx context.Context, accountIDs []int64) (map[int64]AccountCapabilitySummary, error)
+}
+
 // apiUsageCache 缓存从 Anthropic API 获取的使用率数据（utilization, resets_at）
 // 同时支持缓存错误响应（负缓存），防止 429 等错误导致的重试风暴
 type apiUsageCache struct {
@@ -1510,6 +1514,43 @@ func (s *AccountUsageService) GetCacheHitStatsBatch(ctx context.Context, account
 			result[accountID] = stats
 		} else {
 			result[accountID] = &usagestats.CacheHitStats{}
+		}
+	}
+	return result, nil
+}
+
+// GetCapabilitySummaryBatch is display-only. A repository built without the
+// optional capability tables returns an unknown summary instead of breaking
+// account management or gateway traffic during a rolling upgrade.
+func (s *AccountUsageService) GetCapabilitySummaryBatch(ctx context.Context, accountIDs []int64) (map[int64]AccountCapabilitySummary, error) {
+	result := make(map[int64]AccountCapabilitySummary, len(accountIDs))
+	unique := make([]int64, 0, len(accountIDs))
+	seen := make(map[int64]struct{}, len(accountIDs))
+	for _, id := range accountIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+		result[id] = UnknownAccountCapabilitySummary()
+	}
+	if len(unique) == 0 {
+		return result, nil
+	}
+	reader, ok := s.usageLogRepo.(accountCapabilityBatchReader)
+	if !ok {
+		return result, nil
+	}
+	stats, err := reader.GetAccountCapabilitySummaryBatch(ctx, unique)
+	if err != nil {
+		return nil, fmt.Errorf("get account capability summaries failed: %w", err)
+	}
+	for _, id := range unique {
+		if summary, ok := stats[id]; ok {
+			result[id] = summary
 		}
 	}
 	return result, nil

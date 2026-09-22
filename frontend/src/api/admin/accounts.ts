@@ -27,6 +27,7 @@ import type {
   UpstreamBillingProbeSettings,
   UpstreamBillingRatesResponse,
   AccountQualityStats,
+  AccountCapabilitySummary,
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
@@ -604,6 +605,18 @@ export async function getBatchQualityStats(accountIds: number[]): Promise<BatchA
   return data
 }
 
+export interface BatchAccountCapabilityStatsResponse {
+  stats: Record<string, AccountCapabilitySummary>
+  available?: boolean
+}
+
+export async function getBatchCapabilityStats(accountIds: number[]): Promise<BatchAccountCapabilityStatsResponse> {
+  const { data } = await apiClient.post<BatchAccountCapabilityStatsResponse>('/admin/accounts/capability-stats/batch', {
+    account_ids: accountIds
+  })
+  return data
+}
+
 /**
  * Set account schedulable status
  * @param id - Account ID
@@ -1175,6 +1188,7 @@ export const accountsAPI = {
   getTodayStats,
   getBatchTodayStats,
   getBatchCacheHitStats,
+  getBatchCapabilityStats,
   getBatchQualityStats,
   clearRateLimit,
   recoverState,

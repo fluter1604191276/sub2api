@@ -335,6 +335,38 @@
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
+          <template #header-capability_status="{ column }">
+            <div class="flex items-center gap-1">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.capability.hint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-capability_status="{ row }">
+            <div
+              v-if="capabilityStatsLoading && !capabilityStatsByAccountId[String(row.id)]"
+              class="h-5 w-24 animate-pulse rounded bg-gray-200 dark:bg-gray-700"
+            />
+            <div v-else-if="capabilityStatsError && !capabilityStatsByAccountId[String(row.id)]" class="text-xs text-red-500">-</div>
+            <div
+              v-else-if="capabilityStatsByAccountId[String(row.id)]"
+              class="flex min-w-[9rem] flex-col gap-1"
+              :title="formatCapabilitySummaryTitle(capabilityStatsByAccountId[String(row.id)]!)"
+            >
+              <div class="flex flex-wrap items-center gap-1">
+                <span :class="['inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', capabilityStatusClass(capabilityStatsByAccountId[String(row.id)]!.function_tool.state)]">
+                  {{ t('admin.accounts.capability.toolShort') }} {{ capabilityStatusLabel(capabilityStatsByAccountId[String(row.id)]!.function_tool.state) }}
+                </span>
+                <span :class="['inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium', capabilityStatusClass(capabilityStatsByAccountId[String(row.id)]!.terminal_contract.state)]">
+                  {{ t('admin.accounts.capability.terminalShort') }} {{ capabilityStatusLabel(capabilityStatsByAccountId[String(row.id)]!.terminal_contract.state) }}
+                </span>
+              </div>
+              <span class="text-[10px] text-gray-400 dark:text-gray-500">
+                {{ t('admin.accounts.capability.samples', { count: capabilityTotalSamples(capabilityStatsByAccountId[String(row.id)]!) }) }}
+                <span v-if="!capabilityStatsAvailable"> · {{ t('admin.accounts.capability.unavailable') }}</span>
+              </span>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
           <template #header-unified_quality="{ column }">
             <div class="flex items-center">
               <span>{{ column.label }}</span>
@@ -613,7 +645,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo } from '@/types'
+import type { Account, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, AccountCapabilityStatus, AccountCapabilitySummary, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -731,7 +763,7 @@ const accountToolsDropdownStyle = computed(() => ({
   width: `${accountToolsDropdownPosition.width}px`
 }))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'cache_hit_rate', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'cache_hit_rate', 'capability_status', 'proxy', 'notes', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
 // One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
 const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
@@ -804,7 +836,30 @@ const cacheHitStatsLoading = ref(false)
 const cacheHitStatsError = ref<string | null>(null)
 const cacheHitStatsReqSeq = ref(0)
 const pendingCacheHitStatsRefresh = ref(false)
+const capabilityStatsByAccountId = ref<Record<string, AccountCapabilitySummary>>({})
+const capabilityStatsLoading = ref(false)
+const capabilityStatsError = ref<string | null>(null)
+const capabilityStatsAvailable = ref(true)
+const capabilityStatsReqSeq = ref(0)
 const usageManualRefreshToken = ref(0)
+
+const defaultCapabilityStatus = (): AccountCapabilityStatus => ({
+  state: 'unknown',
+  sample_count: 0,
+  success_count: 0,
+  failure_count: 0,
+  last_success_at: null,
+  last_failure_at: null,
+  last_reason: '',
+  updated_at: null
+})
+
+const defaultCapabilitySummary = (): AccountCapabilitySummary => ({
+  function_tool: defaultCapabilityStatus(),
+  tool_roundtrip: defaultCapabilityStatus(),
+  client_tool: defaultCapabilityStatus(),
+  terminal_contract: defaultCapabilityStatus()
+})
 
 const hasFutureAccountTimestamp = (value: string | null | undefined): boolean => {
   if (!value) return false
@@ -1078,6 +1133,47 @@ const refreshCacheHitStatsBatch = async () => {
   }
 }
 
+const refreshCapabilityStatsBatch = async () => {
+  if (hiddenColumns.has('capability_status')) {
+    capabilityStatsLoading.value = false
+    capabilityStatsError.value = null
+    return
+  }
+
+  const accountIDs = accounts.value.map(account => account.id)
+  const reqSeq = ++capabilityStatsReqSeq.value
+  if (accountIDs.length === 0) {
+    capabilityStatsByAccountId.value = {}
+    capabilityStatsAvailable.value = true
+    capabilityStatsError.value = null
+    capabilityStatsLoading.value = false
+    return
+  }
+
+  capabilityStatsLoading.value = true
+  capabilityStatsError.value = null
+  try {
+    const result = await adminAPI.accounts.getBatchCapabilityStats(accountIDs)
+    if (reqSeq !== capabilityStatsReqSeq.value) return
+    const serverStats = result.stats ?? {}
+    const nextStats: Record<string, AccountCapabilitySummary> = {}
+    for (const accountID of accountIDs) {
+      nextStats[String(accountID)] = serverStats[String(accountID)] ?? defaultCapabilitySummary()
+    }
+    capabilityStatsByAccountId.value = nextStats
+    capabilityStatsAvailable.value = result.available !== false
+  } catch (error) {
+    if (reqSeq !== capabilityStatsReqSeq.value) return
+    capabilityStatsAvailable.value = false
+    capabilityStatsError.value = 'Failed'
+    console.error('Failed to load account capability stats:', error)
+  } finally {
+    if (reqSeq === capabilityStatsReqSeq.value) {
+      capabilityStatsLoading.value = false
+    }
+  }
+}
+
 const refreshAccountQualityBatch = async () => {
   if (
     hiddenColumns.has('unified_quality')
@@ -1274,6 +1370,11 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account cache hit stats after showing column:', error)
     })
   }
+  if (key === 'capability_status' && wasHidden) {
+    refreshCapabilityStatsBatch().catch((error) => {
+      console.error('Failed to load account capability stats after showing column:', error)
+    })
+  }
   if (
     (key === 'unified_quality' || key === 'quality_stats' || key === 'quality_stats_1h')
     && wasHidden
@@ -1402,6 +1503,7 @@ const load = async (options: AccountLoadOptions = {}) => {
   await Promise.all([
     options.refreshTodayStats === false ? Promise.resolve() : refreshTodayStatsBatch(),
     refreshCacheHitStatsBatch(),
+    refreshCapabilityStatsBatch(),
     refreshAccountQualityBatch()
   ])
 }
@@ -1413,7 +1515,7 @@ const reload = async () => {
   pendingTodayStatsRefresh.value = false
   pendingCacheHitStatsRefresh.value = false
   await baseReload()
-  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshAccountQualityBatch()])
+  await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshCapabilityStatsBatch(), refreshAccountQualityBatch()])
 }
 
 const buildUpstreamBillingRateFilters = () => {
@@ -1726,7 +1828,7 @@ const refreshAccountsIncrementally = async () => {
     }
     upstreamBillingNow.value = Date.now()
 
-    await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshAccountQualityBatch()])
+    await Promise.all([refreshTodayStatsBatch(), refreshCacheHitStatsBatch(), refreshCapabilityStatsBatch(), refreshAccountQualityBatch()])
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -2076,6 +2178,50 @@ function formatCacheHitStatsTitle(stats: CacheHitStats): string {
   })
 }
 
+function capabilityStatusLabel(state: string | undefined): string {
+  switch (state) {
+    case 'capable': return t('admin.accounts.capability.states.capable')
+    case 'degraded': return t('admin.accounts.capability.states.degraded')
+    case 'unsupported': return t('admin.accounts.capability.states.unsupported')
+    default: return t('admin.accounts.capability.states.unknown')
+  }
+}
+
+function capabilityStatusClass(state: string | undefined): string {
+  switch (state) {
+    case 'capable': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+    case 'degraded': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+    case 'unsupported': return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300'
+    default: return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
+  }
+}
+
+function capabilityTotalSamples(summary: AccountCapabilitySummary): number {
+  return [summary.function_tool, summary.tool_roundtrip, summary.client_tool, summary.terminal_contract]
+    .reduce((total, status) => total + Number(status?.sample_count || 0), 0)
+}
+
+function formatCapabilityStatusTitle(label: string, status: AccountCapabilityStatus): string {
+  return t('admin.accounts.capability.statusTitle', {
+    capability: label,
+    state: capabilityStatusLabel(status.state),
+    samples: formatNumber(status.sample_count),
+    success: formatNumber(status.success_count),
+    failure: formatNumber(status.failure_count),
+    reason: status.last_reason || t('admin.accounts.capability.noReason'),
+    updated: status.updated_at ? formatDateTime(status.updated_at) : '-'
+  })
+}
+
+function formatCapabilitySummaryTitle(summary: AccountCapabilitySummary): string {
+  return [
+    formatCapabilityStatusTitle(t('admin.accounts.capability.tool'), summary.function_tool),
+    formatCapabilityStatusTitle(t('admin.accounts.capability.roundtrip'), summary.tool_roundtrip),
+    formatCapabilityStatusTitle(t('admin.accounts.capability.clientTool'), summary.client_tool),
+    formatCapabilityStatusTitle(t('admin.accounts.capability.terminal'), summary.terminal_contract)
+  ].join('\n')
+}
+
 function getAntigravityTierClass(row: any): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
@@ -2098,6 +2244,7 @@ const allColumns = computed(() => {
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false },
     { key: 'cache_hit_rate', label: t('admin.accounts.columns.cacheHitRate'), sortable: false },
+    { key: 'capability_status', label: t('admin.accounts.columns.capabilityStatus'), sortable: false },
     { key: 'unified_quality', label: t('admin.accounts.columns.unifiedQuality'), sortable: false },
     { key: 'quality_stats_1h', label: t('admin.accounts.columns.realtimeQualityStats'), sortable: false },
     { key: 'quality_stats', label: t('admin.accounts.columns.qualityStats'), sortable: false }

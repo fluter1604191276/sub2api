@@ -226,6 +226,7 @@ export default {
         schedulable: 'Schedulable',
         todayStats: 'Today Stats',
         cacheHitRate: '24h Cache Hit Rate',
+        capabilityStatus: 'Tool Capability',
         unifiedQuality: 'Overall Quality',
         realtimeQualityStats: '1h Quality',
         qualityStats: '24h Quality',
@@ -283,6 +284,25 @@ export default {
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       cacheHitRateTooltip: 'Last 24h: {requests} requests · uncached {input} · created {creation} · read {read}',
+      capability: {
+        hint: 'Passive evidence from real user tool round-trips and explicit upstream tool errors. Probes are excluded. This never changes scheduling, scores, account state, or billing. Unknown means insufficient evidence; degraded means mixed outcomes; unsupported means repeated failures without a successful recovery sample.',
+        tool: 'Tool',
+        roundtrip: 'Tool round-trip',
+        clientTool: 'Client tool',
+        terminal: 'Terminal',
+        toolShort: 'Tool',
+        terminalShort: 'Terminal',
+        samples: '{count} samples',
+        unavailable: 'data unavailable',
+        noReason: 'none',
+        statusTitle: '{capability}: {state} · {samples} samples · {success} success · {failure} failed · last reason {reason} · updated {updated}',
+        states: {
+          capable: 'OK',
+          degraded: 'Degraded',
+          unsupported: 'Unsupported',
+          unknown: 'Unknown'
+        }
+      },
       ollamaCloud: {
         title: 'Ollama Cloud usage',
         sessionSecurityHint: 'The browser session is encrypted at rest and sent only to the fixed official settings URL.',

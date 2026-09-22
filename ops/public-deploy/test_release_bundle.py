@@ -64,7 +64,7 @@ def valid_manifest() -> dict:
 class ReleaseManifestStructureTests(unittest.TestCase):
     def test_new_smart_operations_are_required_by_both_manifest_tools(self):
         self.assertEqual(set(verify.REQUIRED_CAPABILITIES), set(manifest_generator.CAPABILITY_IDS))
-        for capability in ("channel-monitor-bulk-interval", "channel-monitor-budget", "smart-probe-modes", "account-model-sync-preview"):
+        for capability in ("channel-monitor-bulk-interval", "channel-monitor-budget", "smart-probe-modes", "account-model-sync-preview", "passive-capability-observation"):
             self.assertIn(capability, verify.IMAGE_CAPABILITY_MARKERS)
             manifest = valid_manifest()
             del manifest["capabilities"][capability]
@@ -338,6 +338,18 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             b"configured_not_live before_group_multiplier"
         )
         self.assertEqual("missing", incomplete[capability]["status"])
+
+    def test_passive_capability_observation_is_required_with_source_and_image_evidence(self):
+        capability = "passive-capability-observation"
+        self.assertIn(capability, verify.REQUIRED_CAPABILITIES)
+        self.assertIn(capability, manifest_generator.CAPABILITY_IDS)
+        repo_root = SCRIPT_DIR.parents[1]
+        self.assertTrue(
+            all((repo_root / relative).is_file() for relative in verify.CAPABILITY_FILES[capability])
+        )
+        complete = b"capability-stats/batch tool_roundtrip_observed terminal_not_supported"
+        results = verify.inspect_binary_capabilities(complete)
+        self.assertEqual("present", results[capability]["status"])
 
     def test_scheduler_source_requires_complete_routing_implementation(self):
         self.assertIn(
