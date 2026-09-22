@@ -1330,9 +1330,18 @@ export interface Account {
   parent_chatgpt_account_id?: string
 }
 
+// AccountListGroup is the minimal group projection returned with each compact
+// admin account-list row. It is intentionally compatible with GroupBadge,
+// while avoiding the full group configuration object on every row.
+export type AccountListGroup = Pick<Group, 'id' | 'name' | 'platform' | 'subscription_type' | 'rate_multiplier'>
+
 // The admin account list may return this compact shape when lite=1. Detail
 // operations still use Account from /admin/accounts/:id.
-export type AccountListItem = Omit<Account, 'groups'>
+export type AccountListItem = Omit<Account, 'groups'> & {
+  // The compact response only populates the fields used by the table, but
+  // keep the public type compatible with Account for existing row actions.
+  groups?: Group[]
+}
 
 export interface AccountSchedulerGroupScore {
   group_id?: number | null

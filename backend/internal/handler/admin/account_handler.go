@@ -203,8 +203,8 @@ type AccountWithConcurrency struct {
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
-// for lite=1. It embeds dto.AccountListItem instead of the full dto.Account,
-// so groups/account_groups never appear in the list payload.
+// for lite=1. It embeds dto.AccountListItem instead of the full dto.Account;
+// the compact item retains only lightweight group metadata for the table.
 type AccountListItemWithConcurrency struct {
 	*dto.AccountListItem
 	CurrentConcurrency int                          `json:"current_concurrency"`
@@ -795,6 +795,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 			accountResponse = h.accountListResponseFromService(acc)
 			if h.isSimpleMode() {
 				accountResponse.GroupIDs = filterSimpleModeGroupIDs(accountResponse.GroupIDs, simpleModeCompositeServiceGroupIDs(acc))
+				accountResponse.Groups = filterSimpleModeGroups(accountResponse.Groups)
 			}
 		}
 		item := AccountWithConcurrency{
@@ -869,6 +870,19 @@ func (h *AccountHandler) List(c *gin.Context) {
 	}
 
 	response.Paginated(c, result, total, page, pageSize)
+}
+
+func filterSimpleModeGroups(groups []*dto.Group) []*dto.Group {
+	visible := make([]*dto.Group, 0, len(groups))
+	for _, group := range groups {
+		if group != nil && group.Platform == service.PlatformComposite {
+			continue
+		}
+		if group != nil {
+			visible = append(visible, group)
+		}
+	}
+	return visible
 }
 
 func buildAccountsListETag[T any](

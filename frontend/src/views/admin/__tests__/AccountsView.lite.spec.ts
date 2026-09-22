@@ -198,6 +198,30 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it('prefers all inline groups from the compact row when the catalog is incomplete', async () => {
+    listAccounts.mockResolvedValue({
+      items: [{
+        ...listRow,
+        group_ids: [7, 8],
+        groups: [
+          { id: 7, name: 'codex primary', platform: 'openai' },
+          { id: 8, name: 'codex fallback', platform: 'openai' }
+        ]
+      }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    getAllGroups.mockResolvedValue([{ id: 7, name: 'codex primary', platform: 'openai' }])
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="account-groups"]').text()).toBe('codex primary,codex fallback')
+    wrapper.unmount()
+  })
+
   it('keeps the action menu open during internal scrolling but closes it on table scrolling', async () => {
     const wrapper = mountView(false)
     await flushPromises()

@@ -645,7 +645,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { Account, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, AccountCapabilityStatus, AccountCapabilitySummary, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo } from '@/types'
+import type { Account, AccountListGroup, AccountListItem, AccountPlatform, AccountQualityStats, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, CacheHitStats, AccountCapabilityStatus, AccountCapabilitySummary, ClaudeModel, UpstreamBillingProbeSnapshot, AccountUsageInfo } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -731,9 +731,8 @@ const exportingData = ref(false)
 const probingUpstreamBilling = reactive(new Set<number>())
 const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
 
-const accountGroupsForRow = (row: AccountListItem): AdminGroup[] => {
-  const hydratedGroups = (row as Account & { groups?: AdminGroup[] }).groups
-  if (hydratedGroups?.length) return hydratedGroups
+const accountGroupsForRow = (row: AccountListItem): AccountListGroup[] => {
+  if (row.groups?.length) return row.groups
   const groupIDs = row.group_ids ?? []
   return groupIDs
     .map((groupID) => groups.value.find((group) => group.id === groupID))

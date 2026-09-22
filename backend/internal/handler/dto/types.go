@@ -431,6 +431,20 @@ type AccountListItem struct {
 
 	Proxy    *Proxy  `json:"proxy,omitempty"`
 	GroupIDs []int64 `json:"group_ids,omitempty"`
+	// Groups contains lightweight metadata needed to render every group in
+	// the admin account table without relying on a separate group cache.
+	Groups []*AccountListGroup `json:"groups,omitempty"`
+}
+
+// AccountListGroup is the minimal group projection needed by the admin
+// account table. Keep billing and routing configuration out of every account
+// row in the compact list response.
+type AccountListGroup struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	Platform         string  `json:"platform"`
+	SubscriptionType string  `json:"subscription_type"`
+	RateMultiplier   float64 `json:"rate_multiplier"`
 }
 
 type AccountGroup struct {

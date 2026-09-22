@@ -288,6 +288,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		SessionWindowEnd:        a.SessionWindowEnd,
 		SessionWindowStatus:     a.SessionWindowStatus,
 		GroupIDs:                a.GroupIDs,
+		Groups:                  groupsFromService(a.Groups),
 		ParentAccountID:         a.ParentAccountID,
 		QuotaDimension:          a.QuotaDimension,
 	}
@@ -499,7 +500,37 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		QuotaDimension: a.QuotaDimension, ParentEmail: a.ParentEmail, ParentPlanType: a.ParentPlanType,
 		ParentPrivacyMode: a.ParentPrivacyMode, ParentSubscriptionExpiresAt: a.ParentSubscriptionExpiresAt,
 		ParentChatGPTAccountID: a.ParentChatGPTAccountID, Proxy: a.Proxy, GroupIDs: a.GroupIDs,
+		Groups: shallowGroupsFromDTO(a.Groups),
 	}
+}
+
+func shallowGroupsFromDTO(groups []*Group) []*AccountListGroup {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]*AccountListGroup, 0, len(groups))
+	for _, group := range groups {
+		if group != nil {
+			out = append(out, &AccountListGroup{
+				ID: group.ID, Name: group.Name, Platform: group.Platform,
+				SubscriptionType: group.SubscriptionType, RateMultiplier: group.RateMultiplier,
+			})
+		}
+	}
+	return out
+}
+
+func groupsFromService(groups []*service.Group) []*Group {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([]*Group, 0, len(groups))
+	for _, group := range groups {
+		if group != nil {
+			out = append(out, GroupFromServiceShallow(group))
+		}
+	}
+	return out
 }
 
 func timeToUnixSeconds(value *time.Time) *int64 {

@@ -47,7 +47,7 @@ func TestAccountHandlerListLiteUsesCompactDTOAndETag(t *testing.T) {
 	require.Equal(t, float64(501), liteItem["id"])
 	require.Equal(t, []any{float64(groupID)}, liteItem["group_ids"])
 	require.Equal(t, true, liteItem["schedulable"])
-	require.NotContains(t, liteItem, "groups")
+	require.Contains(t, liteItem, "groups")
 	require.NotContains(t, liteItem, "account_groups")
 	credentials, ok := liteItem["credentials"].(map[string]any)
 	require.True(t, ok)
@@ -77,6 +77,44 @@ func TestAccountHandlerListLiteUsesCompactDTOAndETag(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recFull.Body.Bytes(), &fullPayload))
 	require.Contains(t, fullPayload.Data.Items[0], "groups")
 	require.Contains(t, fullPayload.Data.Items[0], "account_groups")
+}
+
+func TestAccountHandlerListLitePreservesAllAccountGroups(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+	now := time.Now().UTC()
+	adminSvc.accounts = []service.Account{{
+		ID: 502, Name: "multi-group-account", Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true, Concurrency: 1,
+		GroupIDs: []int64{77, 88},
+		Groups: []*service.Group{
+			{ID: 77, Name: "deepseek primary", Platform: service.PlatformDeepseek, Status: service.StatusActive},
+			{ID: 88, Name: "deepseek fallback", Platform: service.PlatformDeepseek, Status: service.StatusActive},
+		},
+		CreatedAt: now, UpdatedAt: now,
+	}}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&lite=1", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var payload struct {
+		Data struct {
+			Items []struct {
+				GroupIDs []int64 `json:"group_ids"`
+				Groups   []struct {
+					ID   int64  `json:"id"`
+					Name string `json:"name"`
+				} `json:"groups"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Len(t, payload.Data.Items, 1)
+	require.Equal(t, []int64{77, 88}, payload.Data.Items[0].GroupIDs)
+	require.Len(t, payload.Data.Items[0].Groups, 2)
+	require.Equal(t, "deepseek primary", payload.Data.Items[0].Groups[0].Name)
+	require.Equal(t, "deepseek fallback", payload.Data.Items[0].Groups[1].Name)
 }
 
 func TestAccountHandlerListLiteStaysBelowResponseBudget(t *testing.T) {
