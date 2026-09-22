@@ -11,11 +11,11 @@ Billing impact: none
 Scheduling impact: account selection
 Client protocol impact: OpenAI Responses | Chat Completions | Anthropic
 Upstream version/base commit: current production-derived candidate base `3b43110cedabce5c6bcb0966f5f082dae624e054`; candidate branch `feature/stream-sticky-escape-20260922`。
-Tests/fixtures: `go test ./internal/service -count=1` passed; targeted semantic-output, idempotency, cancellation exemption, Responses bridge, Anthropic bridge, and raw Chat truncation fixtures passed; `git diff --check` required before commit。
-Image smoke evidence: pending candidate image build; must verify stream capability markers and isolated Responses/Chat/Anthropic sticky-escape smoke before any production switch。
-First release manifest: pending candidate manifest。
+Tests/fixtures: `go test ./internal/service -count=1` passed; `go test ./...` passed; targeted semantic-output, idempotency, cancellation exemption, Responses bridge, Anthropic bridge, and raw Chat truncation fixtures passed; release verifier tests 29/29 passed; `git diff --check` passed。
+Image smoke evidence: candidate `fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r2` was inspected as linux/amd64; container marker smoke passed for scheduler, including `openai_stream_sticky_escape`; container `--version` reported the candidate commit. Full authenticated production smoke and live traffic validation remain pending because production was not switched。
+First release manifest: `/Users/fluter_claw/Documents/study_project/sub2api/.release-evidence/20260923-stream-sticky-escape/release-manifest.json` (secret-free; allow_release=true)。
 Rollback note: restore the previous application image only; no database rollback is required. Keep the previous image and Compose/configuration backup until post-switch protocol and routing smoke passes。
-Owner/status: fluter / candidate, production not switched。
+Owner/status: fluter / candidate verified, production not switched。
 ```
 
 ## Behavior boundary
