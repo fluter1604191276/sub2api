@@ -931,6 +931,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	firstChunk := true
 	clientDisconnected := false
 	clientOutputStarted := false
+	semanticOutputSeen := false
 	var streamFailoverErr error
 	var streamNonFailoverErr error
 	terminalEventType := ""
@@ -1010,6 +1011,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		eventType := strings.TrimSpace(event.Type)
 		isBareErrorEvent := eventType == "error"
 		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
+		if !isTerminalEvent && openAIStreamDataStartsClientOutput(payload, eventType) {
+			semanticOutputSeen = true
+		}
 		if isTerminalEvent {
 			terminalEventType = eventType
 			if event.Response != nil {
@@ -1169,6 +1173,16 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			return result, fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
 		message := "OpenAI messages stream ended before a terminal event"
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			upstreamModel,
+			errors.New(message),
+			semanticOutputSeen,
+			clientDisconnected,
+			false,
+			"missing_terminal",
+		)
 		if !clientOutputStarted {
 			return result, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
 		}
@@ -1204,6 +1218,16 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		}
 		if err := scanner.Err(); err != nil {
 			handleScanErr(err)
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				upstreamModel,
+				err,
+				semanticOutputSeen,
+				clientDisconnected,
+				false,
+				"read_error",
+			)
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", err)
 		}
 		if frame, ok := parser.Finish(); ok {
@@ -1277,6 +1301,16 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			if ev.err != nil {
 				handleScanErr(ev.err)
+				s.handleCommittedOpenAIStreamDisconnect(
+					c,
+					account,
+					upstreamModel,
+					ev.err,
+					semanticOutputSeen,
+					clientDisconnected,
+					false,
+					"read_error",
+				)
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete: %w", ev.err)
 			}
 			lastDataAt = time.Now()
@@ -1305,7 +1339,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				zap.String("model", originalModel),
 				zap.Duration("interval", streamInterval),
 			)
-			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+			streamErr := fmt.Errorf("stream data interval timeout")
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				upstreamModel,
+				streamErr,
+				semanticOutputSeen,
+				clientDisconnected,
+				false,
+				"data_interval_timeout",
+			)
+			return resultWithUsage(), streamErr
 
 		case <-keepaliveCh:
 			if clientDisconnected {

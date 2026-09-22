@@ -10,7 +10,7 @@ Every release manifest must record the status and evidence for each capability b
 
 | ID | Capability | Required evidence | Risk surface | Current status |
 | --- | --- | --- | --- | --- |
-| scheduler | Smart account scheduling, sticky-session escape, exploration, score-aware selection | gateway_scheduling.go, scheduler tests, admin settings/routes | Routing, availability, session affinity | Required |
+| scheduler | Smart account scheduling, sticky-session escape, exploration, score-aware selection | gateway_scheduling.go, openai_gateway_passthrough.go, openai gateway stream handlers, scheduler and sticky-escape tests, admin settings/routes | Routing, availability, session affinity | Required |
 | scheduled-probe | Scheduled probe plans, budget/attribution, result handling, scheduler linkage | scheduled_test_runner_service.go, scheduled_test_service.go, scheduled_test_handler.go, probe tests | Upstream cost, account availability | Required |
 | quality-score | Account/group 1h and 24h quality score, grade, first-token and duration metrics | account stats service/repository, AccountsView.vue, relevant API/routes/tests | Scheduling decisions, operator visibility | Required |
 | cache-hit-rate | Rolling 24h cache-hit statistics in account management | GetBatchCacheHitStats, account_usage_service.go, account API/UI/tests | Cost analysis, pricing decisions | Required |
@@ -121,6 +121,18 @@ temporarily disappears from the active-channel candidate list.
 This setting must not be reused as a source for channel pricing, model mappings,
 group routing, user billing, upstream cost accounting, probes, monitoring, or
 smart scheduling.
+
+## Committed Stream Disconnect Boundary
+
+When an OpenAI Responses, Chat Completions, Anthropic bridge, or Responses
+passthrough stream has already emitted semantic model output but ends before a
+valid terminal event, the gateway marks only the current account+model pair
+temporarily unavailable and removes both current and legacy sticky-session
+bindings for the current group/session. The partial response is never replayed
+or concatenated with another account. Client cancellation, context cancellation,
+normal terminal events, and local scanner-size limits do not penalize the account.
+This is a next-request routing recovery action; it does not change billing,
+probe records, or account configuration.
 
 ## Required Release Records
 

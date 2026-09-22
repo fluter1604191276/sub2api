@@ -399,10 +399,21 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 		flushPending("Client disconnected during final flush, returning collected usage")
 		if !sawTerminalEvent {
+			missingTerminalErr := errors.New("stream usage incomplete: missing terminal event")
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				mappedModel,
+				missingTerminalErr,
+				responsesSemanticOutputSeen,
+				clientDisconnected,
+				false,
+				"missing_terminal",
+			)
 			if openAIStreamClientOutputStarted(c, clientOutputStarted) && !clientDisconnected {
-				s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
+				s.recordOpenAIProxyStreamDisconnect(account, missingTerminalErr, upstreamRequestID)
 			}
-			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
+			return resultWithUsage(), missingTerminalErr
 		}
 		if sawFailedEvent {
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
@@ -453,6 +464,16 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			sendErrorEvent("response_too_large")
 			return resultWithUsage(), scanErr, true
 		}
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			mappedModel,
+			scanErr,
+			responsesSemanticOutputSeen,
+			clientDisconnected,
+			false,
+			"read_error",
+		)
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
@@ -902,6 +923,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if clientDisconnected {
 				return resultWithUsage(), fmt.Errorf("stream usage incomplete after timeout")
 			}
+			streamErr := fmt.Errorf("stream data interval timeout")
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				mappedModel,
+				streamErr,
+				responsesSemanticOutputSeen,
+				clientDisconnected,
+				false,
+				"data_interval_timeout",
+			)
 			logger.LegacyPrintf("service.openai_gateway", "Stream data interval timeout: account=%d model=%s interval=%s", account.ID, originalModel, streamInterval)
 			// 处理流超时，可能标记账户为临时不可调度或错误状态
 			if s.rateLimitService != nil {
@@ -918,7 +950,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				}
 			}
 			sendErrorEvent("stream_timeout")
-			return resultWithUsage(), fmt.Errorf("stream data interval timeout")
+			return resultWithUsage(), streamErr
 
 		case <-firstOutputCh:
 			if firstOutputProgressObserved {

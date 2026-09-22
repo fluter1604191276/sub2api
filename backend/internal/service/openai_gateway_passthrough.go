@@ -1690,6 +1690,8 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 
 const openAIStreamRecoverySessionHashKey = "openai_stream_recovery_session_hash"
 
+const openAIStreamStickyEscapeHandledKey = "openai_stream_sticky_escape_handled"
+
 func rememberOpenAIStreamRecoverySession(c *gin.Context, sessionHash string) {
 	if c == nil || strings.TrimSpace(sessionHash) == "" {
 		return
@@ -1729,6 +1731,85 @@ func (s *OpenAIGatewayService) clearStickyAfterOpenAIFailover(c *gin.Context, fa
 	if sessionHash := openAIStreamRecoverySession(c, s); sessionHash != "" {
 		_ = s.deleteStickySessionAccountIDAllFormats(c.Request.Context(), groupID, sessionHash)
 	}
+}
+
+// handleCommittedOpenAIStreamDisconnect prevents a new request from being
+// routed back to an account whose stream produced semantic output and then
+// ended without a valid terminal event. The current response cannot be
+// replayed after semantic output, so this deliberately only prepares the next
+// request: cool the account+model pair and remove the sticky binding for the
+// current group/session.
+//
+// Keep client cancellation, normal terminal tails, and local scanner limits
+// out of account health. A Gin context may pass through more than one stream
+// cleanup path, so the mutation is request-idempotent.
+func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
+	c *gin.Context,
+	account *Account,
+	canonicalModel string,
+	streamErr error,
+	semanticOutputStarted bool,
+	clientDisconnected bool,
+	terminalSeen bool,
+	reason string,
+) {
+	if s == nil || account == nil || !semanticOutputStarted || clientDisconnected || terminalSeen {
+		return
+	}
+	if errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) || errors.Is(streamErr, bufio.ErrTooLong) {
+		return
+	}
+	if c == nil || c.Request == nil {
+		return
+	}
+	if c.Request.Context().Err() != nil {
+		return
+	}
+	if handled, _ := c.Get(openAIStreamStickyEscapeHandledKey); handled == true {
+		return
+	}
+	c.Set(openAIStreamStickyEscapeHandledKey, true)
+
+	model := strings.TrimSpace(canonicalModel)
+	if model == "" {
+		if value, ok := c.Get(OpsUpstreamModelKey); ok {
+			model, _ = value.(string)
+			model = strings.TrimSpace(model)
+		}
+	}
+	if model != "" {
+		model = canonicalOpenAIAccountSchedulingModel(account, model)
+	}
+	decision := s.forceBlockOpenAIAccountModel(account, model, time.Now(), openAICommittedStreamFailureCooldown)
+
+	apiKey := getAPIKeyFromContext(c)
+	var groupID *int64
+	if apiKey != nil {
+		groupID = apiKey.GroupID
+	}
+	sessionHash := openAIStreamRecoverySession(c, s)
+	var stickyErr error
+	if sessionHash != "" {
+		stickyErr = s.deleteStickySessionAccountIDAllFormats(c.Request.Context(), groupID, sessionHash)
+	}
+
+	log := logger.FromContext(c.Request.Context()).With(
+		zap.String("component", "service.openai_gateway"),
+		zap.Int64("account_id", account.ID),
+		zap.String("canonical_model", openAIAccountModelTransientModel(model)),
+		zap.String("sticky_escape_reason", strings.TrimSpace(reason)),
+		zap.Int64("group_id", derefGroupID(groupID)),
+		zap.Bool("session_present", sessionHash != ""),
+		zap.Int64("cooldown_ms", decision.Cooldown.Milliseconds()),
+	)
+	if streamErr != nil {
+		log = log.With(zap.Error(streamErr))
+	}
+	if stickyErr != nil {
+		log.Warn("openai_stream_sticky_escape_delete_failed", zap.Error(stickyErr))
+		return
+	}
+	log.Info("openai_stream_sticky_escape")
 }
 
 func (s *OpenAIGatewayService) handleCommittedOpenAIStreamFailure(c *gin.Context, account *Account, canonicalModel string, payload []byte, message string) {
@@ -2318,6 +2399,16 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, err)
 			return resultWithUsage(), err
 		}
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			mappedModel,
+			err,
+			semanticOutputSeen,
+			clientDisconnected,
+			false,
+			"read_error",
+		)
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			msg := "OpenAI stream disconnected before completion"
 			if errText := strings.TrimSpace(err.Error()); errText != "" {
@@ -2342,6 +2433,17 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 	}
 	if !clientDisconnected && !sawDone && !sawTerminalEvent && ctx.Err() == nil {
+		missingTerminalErr := errors.New("stream usage incomplete: missing terminal event")
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			mappedModel,
+			missingTerminalErr,
+			semanticOutputSeen,
+			clientDisconnected,
+			false,
+			"missing_terminal",
+		)
 		logger.FromContext(ctx).With(
 			zap.String("component", "service.openai_gateway"),
 			zap.Int64("account_id", account.ID),
@@ -2351,8 +2453,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			return resultWithUsage(),
 				s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
 		}
-		s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
-		return resultWithUsage(), errors.New("stream usage incomplete: missing terminal event")
+		s.recordOpenAIProxyStreamDisconnect(account, missingTerminalErr, upstreamRequestID)
+		return resultWithUsage(), missingTerminalErr
 	}
 	if (sawDone || sawTerminalEvent) && !sawFailedEvent {
 		s.clearOpenAIProxyStreamDisconnect(account)

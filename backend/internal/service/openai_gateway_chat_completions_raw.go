@@ -292,6 +292,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var firstTokenMs *int
 	clientDisconnected := false
 	clientOutputStarted := false
+	semanticOutputSeen := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
@@ -335,6 +336,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			trimmedPayload := strings.TrimSpace(payload)
 			terminal.ObserveDataLine(trimmedPayload)
 			if trimmedPayload != "[DONE]" {
+				semanticOutputSeen = semanticOutputSeen || openAIChatChunkHasSemanticOutput(trimmedPayload)
 				webSearchUsage.ObserveJSON([]byte(payload))
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
@@ -417,6 +419,16 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		}
 		// 已写出语义字节：无法再 failover，改为带类型的上游错误。handler 会据此
 		// 补发 SSE error 帧并把本次请求计入 SLA 失败。
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			upstreamModel,
+			cause,
+			semanticOutputSeen,
+			clientDisconnected,
+			false,
+			"truncated_stream",
+		)
 		recordOpenAIRawStreamTruncation(c, account, requestID, cause, "http_error")
 		return resultWithUsage(), newOpenAIUpstreamStreamReadError(cause)
 	}
@@ -481,6 +493,40 @@ func isOpenAIChatUsageOnlyStreamChunk(payload string) bool {
 	}
 	choices := gjson.Get(payload, "choices")
 	return choices.Exists() && choices.IsArray() && len(choices.Array()) == 0
+}
+
+// openAIChatChunkHasSemanticOutput distinguishes model content/tool data from
+// role-only, finish-only, and usage-only Chat Completions chunks. A streamed
+// account should escape sticky routing only after the client could have seen
+// real model output.
+func openAIChatChunkHasSemanticOutput(payload string) bool {
+	trimmed := strings.TrimSpace(payload)
+	if trimmed == "" || trimmed == "[DONE]" || !gjson.Valid(trimmed) || isOpenAIChatUsageOnlyStreamChunk(trimmed) {
+		return false
+	}
+	for _, choice := range gjson.Get(trimmed, "choices").Array() {
+		delta := choice.Get("delta")
+		if !delta.Exists() || !delta.IsObject() {
+			continue
+		}
+		for _, path := range []string{"content", "reasoning_content", "reasoning", "refusal"} {
+			if strings.TrimSpace(delta.Get(path).String()) != "" {
+				return true
+			}
+		}
+		if strings.TrimSpace(delta.Get("function_call.name").String()) != "" ||
+			strings.TrimSpace(delta.Get("function_call.arguments").String()) != "" {
+			return true
+		}
+		for _, toolCall := range delta.Get("tool_calls").Array() {
+			if strings.TrimSpace(toolCall.Get("id").String()) != "" ||
+				strings.TrimSpace(toolCall.Get("function.name").String()) != "" ||
+				strings.TrimSpace(toolCall.Get("function.arguments").String()) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // extractCCStreamUsage 从单个 CC 流式 chunk 的 payload 中提取 usage 字段。
