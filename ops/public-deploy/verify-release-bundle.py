@@ -59,6 +59,12 @@ CAPABILITY_FILES = {
         "backend/internal/service/openai_account_scheduler.go",
         "backend/internal/service/smart_scheduler_routing.go",
         "backend/internal/service/smart_scheduler_preview.go",
+        "backend/internal/service/openai_gateway_passthrough.go",
+        "backend/internal/service/openai_gateway_response_handling.go",
+        "backend/internal/service/openai_gateway_chat_completions.go",
+        "backend/internal/service/openai_gateway_chat_completions_raw.go",
+        "backend/internal/service/openai_gateway_messages.go",
+        "backend/internal/service/openai_stream_sticky_escape_test.go",
         "backend/internal/service/smart_scheduler_routing_integration_test.go",
         "backend/internal/service/scheduler_snapshot_service.go",
         "backend/internal/service/scheduler_layered_filter_test.go",
@@ -302,7 +308,11 @@ REQUIRED_TESTS = (
 # They are deliberately small, stable runtime symbols/log labels rather than
 # version strings, so a stale or partially merged image cannot pass on its tag.
 IMAGE_CAPABILITY_MARKERS = {
-    "scheduler": ("smart_scheduler", "sticky.smart_scheduler_switched"),
+    "scheduler": (
+        "smart_scheduler",
+        "sticky.smart_scheduler_switched",
+        "openai_stream_sticky_escape",
+    ),
     "scheduled-probe": ("scheduled-test-plans", "recovery_probe"),
     "quality-score": ("quality_score", "quality_grade"),
     "cache-hit-rate": ("cache_hit_rate",),

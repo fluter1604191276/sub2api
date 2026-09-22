@@ -212,7 +212,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertEqual("snapshot-1", inspected["source_snapshot_label"])
 
     def test_binary_capability_smoke_requires_runtime_markers(self):
-        payload = b"smart_scheduler sticky.smart_scheduler_switched recovery_probe scheduled-test-plans"
+        payload = b"smart_scheduler sticky.smart_scheduler_switched openai_stream_sticky_escape recovery_probe scheduled-test-plans"
         results = verify.inspect_binary_capabilities(payload)
         self.assertEqual("present", results["scheduler"]["status"])
         self.assertEqual("present", results["scheduled-probe"]["status"])
@@ -238,6 +238,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             verify.stream_container_markers = lambda container, markers, timeout: {
                 "smart_scheduler",
                 "sticky.smart_scheduler_switched",
+                "openai_stream_sticky_escape",
             }
             results = verify.inspect_image_capabilities("example/image:test")
         finally:
