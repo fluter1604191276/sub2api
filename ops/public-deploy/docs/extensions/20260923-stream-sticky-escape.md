@@ -11,9 +11,9 @@ Billing impact: none
 Scheduling impact: account+model temporary cooldown, current group/session sticky deletion, and same-account retry avoidance for qualifying stream failures.
 Client protocol impact: OpenAI Responses | Chat Completions | Anthropic bridge
 Tests/fixtures: backend/internal/service/openai_stream_sticky_escape_test.go; backend/internal/service/api_key_auth_cache_smart_scheduler_test.go; backend/internal/service/admin_service_group_test.go; backend/internal/handler/admin/group_handler_smart_scheduler_test.go; frontend/src/views/admin/__tests__/GroupsView.smartSchedulerPreview.spec.ts
-Image smoke evidence: pending candidate image build; production has not been switched for this change.
+Image smoke evidence: production image fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r4, image ID sha256:4d4cc10e1720c3f789129c5ec3f4d122bd8f46904684e0c5a21e62d99fdad8c1; image capability verifier passed; production /health returned {"status":"ok"}, unauthenticated admin groups returned 401, and the public HTTPS health endpoint returned 200. PostgreSQL contains groups.stream_sticky_escape_enabled after startup migration.
 Rollback note: switch the group setting off to restore legacy sticky/same-account retry behavior. Full code rollback may restore the previous application image; migration 240 may remain because its defaulted column is backward compatible.
-Owner/status: fluter / candidate implementation, verification pending.
+Owner/status: fluter / released to production on 2026-09-23; image identity and release evidence are recorded in RELEASE-BASELINE.md and .release-evidence/20260923-stream-sticky-escape/release-manifest-r4.json.
 ```
 
 ## Behavior

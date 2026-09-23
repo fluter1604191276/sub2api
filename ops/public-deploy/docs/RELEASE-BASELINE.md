@@ -11,7 +11,37 @@ development from this document's old path after production has changed.
 Use `ops/public-deploy/create-production-derived-worktree.sh` to bootstrap the
 next line and `ops/public-deploy/check-production-baseline.sh` to verify it.
 
-## Current Production Baseline (2026-09-18)
+## Current Production Baseline (2026-09-23)
+
+Verified switch completed on 2026-09-23 Asia/Shanghai. This block supersedes
+the historical 2026-09-18 baseline below.
+
+~~~text
+SSH alias: fluterapi-prod
+Role: production
+Directory: /www/sub2api
+Image: fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r4
+Image ID: sha256:4d4cc10e1720c3f789129c5ec3f4d122bd8f46904684e0c5a21e62d99fdad8c1
+Revision: 06d2674d660a65abb8f2bb0a63b6e032eb35c937
+Source snapshot: 96be23952093ee5181bb05e2b180f8b92de0c18acc646b9365379f5cdb13b0bc
+Manifest: .release-evidence/20260923-stream-sticky-escape/release-manifest-r4.json (SHA-256 1948b5191d6d5e5543a6ea96db51e0d142ebe7192071ae8132afa007185259f3)
+Rollback image: fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1
+Rollback image ID: sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7
+Rollback Compose: /www/sub2api/backups/docker-compose.pre-sticky-escape-20260923.yml
+Database/config/data backup: /www/sub2api/backups/sub2api-backup-20260923T034236Z.tar.gz
+Post-switch checks: healthy, /health JSON status ok, unauthenticated admin groups 401, api.fluterapi.top/health 200, migration column present, production traffic seen on Responses/Chat Completions/Anthropic routes
+Other services: PostgreSQL and Redis stayed healthy; Caddy was not restarted
+Local exact source: project/.worktrees/stream-sticky-escape-20260922, branch feature/stream-sticky-escape-20260922
+Local evidence: .release-evidence/20260923-stream-sticky-escape
+~~~
+
+The candidate was transferred to the production host over SSH after Docker Hub
+push timed out. Its remote image ID, revision and source snapshot match the
+local verified manifest. Production logs also contained usage-log insert
+timeouts during active traffic; this is recorded as an operational follow-up,
+not attributed to this routing change. No paid test request was run.
+
+## Historical Production Baseline (2026-09-18)
 
 Verified switch completed on 2026-09-18 Asia/Shanghai. This block supersedes
 the historical 2026-09-09 baseline below.

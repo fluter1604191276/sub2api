@@ -8,7 +8,19 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
-## Production Baseline (2026-09-18)
+## Production Baseline (2026-09-23)
+
+Current image: fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r4.
+Current revision: 06d2674d660a65abb8f2bb0a63b6e032eb35c937.
+Current image ID: sha256:4d4cc10e1720c3f789129c5ec3f4d122bd8f46904684e0c5a21e62d99fdad8c1.
+Source snapshot: 96be23952093ee5181bb05e2b180f8b92de0c18acc646b9365379f5cdb13b0bc.
+Exact local source: project/.worktrees/stream-sticky-escape-20260922 (clean, preserved).
+Evidence: .release-evidence/20260923-stream-sticky-escape/release-manifest-r4.json.
+Rollback image: fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1 with image ID sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7.
+Backup: /www/sub2api/backups/sub2api-backup-20260923T034236Z.tar.gz; rollback Compose is retained beside it.
+The stream sticky escape group control is available under Admin -> Groups -> Smart Scheduler.
+
+## Historical Production Baseline (2026-09-18)
 
 Current image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
 Current revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
