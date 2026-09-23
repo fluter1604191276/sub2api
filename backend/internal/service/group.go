@@ -140,6 +140,11 @@ type Group struct {
 	// SmartSchedulerEnabled 仅接管通过既有准入检查后的候选排序。
 	// 默认关闭；关闭或评分失败时必须完整保留原调度行为。
 	SmartSchedulerEnabled bool
+	// StreamStickyEscapeEnabled controls the candidate-local recovery action after
+	// a committed stream disconnect. It is independent from smart scheduling:
+	// the setting is shown in the smart-scheduler panel but only gates the
+	// stream escape/cooldown behavior.
+	StreamStickyEscapeEnabled bool
 
 	// RecoveryProbe* 控制分组级恢复探针。探针只针对一小时没有真实使用记录的
 	// active + 手工可调度账号，结果按 group/account/model 隔离，不写入用户质量统计。

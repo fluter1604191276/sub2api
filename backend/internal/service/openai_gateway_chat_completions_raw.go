@@ -415,7 +415,24 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		)
 		if !clientOutputStarted {
 			// 响应头尚未提交：可以透明换号重试，客户端不会看到半截流。
-			return nil, newOpenAIRawStreamTruncatedFailoverError(c, account, requestID, cause)
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				upstreamModel,
+				cause,
+				semanticOutputSeen,
+				clientOutputStarted,
+				clientDisconnected,
+				false,
+				"truncated_stream",
+			)
+			return nil, newOpenAIRawStreamTruncatedFailoverError(
+				c,
+				account,
+				requestID,
+				cause,
+				s.openAIStreamStickyEscapeEnabled(c),
+			)
 		}
 		// 已写出语义字节：无法再 failover，改为带类型的上游错误。handler 会据此
 		// 补发 SSE error 帧并把本次请求计入 SLA 失败。
@@ -425,6 +442,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			upstreamModel,
 			cause,
 			semanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"truncated_stream",

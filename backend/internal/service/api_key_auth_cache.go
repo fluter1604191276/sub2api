@@ -145,6 +145,10 @@ type APIKeyAuthGroupSnapshot struct {
 	// review. Gateway hot paths materialize Group from this auth snapshot, so
 	// omitting it silently disables smart scheduling after the first cache fill.
 	SmartSchedulerEnabled bool `json:"smart_scheduler_enabled"`
+	// StreamStickyEscapeEnabled controls the group-level stream recovery switch.
+	// It must be cached with the group because gateway requests normally use the
+	// materialized auth snapshot instead of reloading the group from the DB.
+	StreamStickyEscapeEnabled bool `json:"stream_sticky_escape_enabled"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

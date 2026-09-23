@@ -62,6 +62,11 @@ const messages: Record<string, string> = {
   'admin.groups.smartScheduler.disableAction': 'Disable smart scheduling',
   'admin.groups.smartScheduler.toggleHint': 'When disabled, requests use the original scheduler. If scoring is abnormal, routing automatically falls back.',
   'admin.groups.smartScheduler.toggleSuccess': 'Smart scheduler setting updated',
+  'admin.groups.smartScheduler.streamStickyEscape.title': 'Sticky escape after stream disconnect',
+  'admin.groups.smartScheduler.streamStickyEscape.description': 'Disconnect recovery behavior.',
+  'admin.groups.smartScheduler.streamStickyEscape.enabled': 'Enabled (switch after disconnect)',
+  'admin.groups.smartScheduler.streamStickyEscape.disabled': 'Disabled (keep current sticky)',
+  'admin.groups.smartScheduler.streamStickyEscape.toggleSuccess': 'Stream disconnect sticky escape setting updated',
   'admin.groups.smartScheduler.recoveryProbe.title': 'Recovery probe',
   'admin.groups.smartScheduler.recoveryProbe.description': 'Off by default. When enabled, lightweight tests probe isolated or long-idle accounts. The idle threshold is fixed at 1h.',
   'admin.groups.smartScheduler.recoveryProbe.enabled': 'Probe enabled',
@@ -734,6 +739,29 @@ describe('admin GroupsView smart scheduler preview', () => {
       smart_scheduler_enabled: true,
     }))
     expect(showSuccess).toHaveBeenCalledWith('Smart scheduler setting updated')
+    wrapper.unmount()
+  })
+
+  it('defaults the stream disconnect escape switch on for legacy responses and persists changes', async () => {
+    const wrapper = await mountLoadedView()
+
+    await openSmartSchedulerPreview(wrapper)
+
+    const toggle = wrapper.get('[data-testid="stream-sticky-escape-toggle"]')
+    expect(toggle.attributes('aria-pressed')).toBe('true')
+    expect(toggle.text()).toContain('Enabled (switch after disconnect)')
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(updateGroup).toHaveBeenCalledWith(42, {
+      stream_sticky_escape_enabled: false,
+    })
+    expect(toggle.attributes('aria-pressed')).toBe('false')
+    expect(toggle.text()).toContain('Disabled (keep current sticky)')
+    expect(showSuccess).toHaveBeenCalledWith(
+      'Stream disconnect sticky escape setting updated',
+    )
     wrapper.unmount()
   })
 

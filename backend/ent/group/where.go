@@ -350,6 +350,11 @@ func SmartSchedulerEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldSmartSchedulerEnabled, v))
 }
 
+// StreamStickyEscapeEnabled applies equality check predicate on the "stream_sticky_escape_enabled" field. It's identical to StreamStickyEscapeEnabledEQ.
+func StreamStickyEscapeEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldStreamStickyEscapeEnabled, v))
+}
+
 // RecoveryProbeEnabled applies equality check predicate on the "recovery_probe_enabled" field. It's identical to RecoveryProbeEnabledEQ.
 func RecoveryProbeEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldRecoveryProbeEnabled, v))
@@ -2713,6 +2718,16 @@ func SmartSchedulerEnabledEQ(v bool) predicate.Group {
 // SmartSchedulerEnabledNEQ applies the NEQ predicate on the "smart_scheduler_enabled" field.
 func SmartSchedulerEnabledNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldSmartSchedulerEnabled, v))
+}
+
+// StreamStickyEscapeEnabledEQ applies the EQ predicate on the "stream_sticky_escape_enabled" field.
+func StreamStickyEscapeEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldStreamStickyEscapeEnabled, v))
+}
+
+// StreamStickyEscapeEnabledNEQ applies the NEQ predicate on the "stream_sticky_escape_enabled" field.
+func StreamStickyEscapeEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldStreamStickyEscapeEnabled, v))
 }
 
 // RecoveryProbeEnabledEQ applies the EQ predicate on the "recovery_probe_enabled" field.

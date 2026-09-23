@@ -12,6 +12,7 @@ func TestAPIKeyAuthSnapshotSmartSchedulerRoundtrip(t *testing.T) {
 	svc := &APIKeyService{}
 	apiKey := profitAuthTestAPIKey()
 	apiKey.Group.SmartSchedulerEnabled = true
+	apiKey.Group.StreamStickyEscapeEnabled = true
 
 	snapshot := svc.snapshotFromAPIKey(context.Background(), apiKey)
 	require.NotNil(t, snapshot)
@@ -29,4 +30,6 @@ func TestAPIKeyAuthSnapshotSmartSchedulerRoundtrip(t *testing.T) {
 	require.True(t, used)
 	require.NotNil(t, materialized.Group)
 	require.True(t, materialized.Group.SmartSchedulerEnabled)
+	require.True(t, snapshot.Group.StreamStickyEscapeEnabled)
+	require.True(t, materialized.Group.StreamStickyEscapeEnabled)
 }

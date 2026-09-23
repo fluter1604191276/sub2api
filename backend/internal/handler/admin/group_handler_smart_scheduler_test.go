@@ -20,6 +20,13 @@ type smartSchedulerGroupAdminServiceStub struct {
 	updateInput *service.UpdateGroupInput
 }
 
+func streamStickyEscapeEnabledOrDefault(value *bool) bool {
+	if value == nil {
+		return true
+	}
+	return *value
+}
+
 func (s *smartSchedulerGroupAdminServiceStub) CreateGroup(_ context.Context, input *service.CreateGroupInput) (*service.Group, error) {
 	s.createInput = input
 	return &service.Group{
@@ -29,6 +36,7 @@ func (s *smartSchedulerGroupAdminServiceStub) CreateGroup(_ context.Context, inp
 		Status:                            service.StatusActive,
 		RateMultiplier:                    input.RateMultiplier,
 		SmartSchedulerEnabled:             input.SmartSchedulerEnabled,
+		StreamStickyEscapeEnabled:         streamStickyEscapeEnabledOrDefault(input.StreamStickyEscapeEnabled),
 		RecoveryProbeEnabled:              input.RecoveryProbeEnabled,
 		RecoveryProbeMode:                 input.RecoveryProbeMode,
 		RecoveryProbeModel:                input.RecoveryProbeModel,
@@ -46,12 +54,13 @@ func (s *smartSchedulerGroupAdminServiceStub) UpdateGroup(_ context.Context, id 
 		enabled = *input.SmartSchedulerEnabled
 	}
 	return &service.Group{
-		ID:                    id,
-		Name:                  input.Name,
-		Platform:              service.PlatformOpenAI,
-		Status:                service.StatusActive,
-		RateMultiplier:        1,
-		SmartSchedulerEnabled: enabled,
+		ID:                        id,
+		Name:                      input.Name,
+		Platform:                  service.PlatformOpenAI,
+		Status:                    service.StatusActive,
+		RateMultiplier:            1,
+		SmartSchedulerEnabled:     enabled,
+		StreamStickyEscapeEnabled: streamStickyEscapeEnabledOrDefault(input.StreamStickyEscapeEnabled),
 	}, nil
 }
 
@@ -101,6 +110,26 @@ func TestGroupHandlerUpdateBindsAndReturnsSmartSchedulerEnabled(t *testing.T) {
 	require.NotNil(t, svc.updateInput.SmartSchedulerEnabled)
 	require.True(t, *svc.updateInput.SmartSchedulerEnabled)
 	require.Contains(t, recorder.Body.String(), `"smart_scheduler_enabled":true`)
+}
+
+func TestGroupHandlerUpdateBindsAndReturnsStreamStickyEscapeEnabled(t *testing.T) {
+	svc := &smartSchedulerGroupAdminServiceStub{}
+	router := setupSmartSchedulerGroupRouter(svc)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/admin/groups/101",
+		strings.NewReader(`{"stream_sticky_escape_enabled":false}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.NotNil(t, svc.updateInput)
+	require.NotNil(t, svc.updateInput.StreamStickyEscapeEnabled)
+	require.False(t, *svc.updateInput.StreamStickyEscapeEnabled)
+	require.Contains(t, recorder.Body.String(), `"stream_sticky_escape_enabled":false`)
 }
 
 func TestGroupHandlerCreateBindsAndReturnsRecoveryProbeConfig(t *testing.T) {

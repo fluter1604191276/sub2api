@@ -920,6 +920,20 @@ func (_c *GroupCreate) SetNillableSmartSchedulerEnabled(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (_c *GroupCreate) SetStreamStickyEscapeEnabled(v bool) *GroupCreate {
+	_c.mutation.SetStreamStickyEscapeEnabled(v)
+	return _c
+}
+
+// SetNillableStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableStreamStickyEscapeEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetStreamStickyEscapeEnabled(*v)
+	}
+	return _c
+}
+
 // SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
 func (_c *GroupCreate) SetRecoveryProbeEnabled(v bool) *GroupCreate {
 	_c.mutation.SetRecoveryProbeEnabled(v)
@@ -1381,6 +1395,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultSmartSchedulerEnabled
 		_c.mutation.SetSmartSchedulerEnabled(v)
 	}
+	if _, ok := _c.mutation.StreamStickyEscapeEnabled(); !ok {
+		v := group.DefaultStreamStickyEscapeEnabled
+		_c.mutation.SetStreamStickyEscapeEnabled(v)
+	}
 	if _, ok := _c.mutation.RecoveryProbeEnabled(); !ok {
 		v := group.DefaultRecoveryProbeEnabled
 		_c.mutation.SetRecoveryProbeEnabled(v)
@@ -1618,6 +1636,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.SmartSchedulerEnabled(); !ok {
 		return &ValidationError{Name: "smart_scheduler_enabled", err: errors.New(`ent: missing required field "Group.smart_scheduler_enabled"`)}
+	}
+	if _, ok := _c.mutation.StreamStickyEscapeEnabled(); !ok {
+		return &ValidationError{Name: "stream_sticky_escape_enabled", err: errors.New(`ent: missing required field "Group.stream_sticky_escape_enabled"`)}
 	}
 	if _, ok := _c.mutation.RecoveryProbeEnabled(); !ok {
 		return &ValidationError{Name: "recovery_probe_enabled", err: errors.New(`ent: missing required field "Group.recovery_probe_enabled"`)}
@@ -1944,6 +1965,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.SmartSchedulerEnabled(); ok {
 		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
 		_node.SmartSchedulerEnabled = value
+	}
+	if value, ok := _c.mutation.StreamStickyEscapeEnabled(); ok {
+		_spec.SetField(group.FieldStreamStickyEscapeEnabled, field.TypeBool, value)
+		_node.StreamStickyEscapeEnabled = value
 	}
 	if value, ok := _c.mutation.RecoveryProbeEnabled(); ok {
 		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)
@@ -3214,6 +3239,18 @@ func (u *GroupUpsert) SetSmartSchedulerEnabled(v bool) *GroupUpsert {
 // UpdateSmartSchedulerEnabled sets the "smart_scheduler_enabled" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateSmartSchedulerEnabled() *GroupUpsert {
 	u.SetExcluded(group.FieldSmartSchedulerEnabled)
+	return u
+}
+
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (u *GroupUpsert) SetStreamStickyEscapeEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldStreamStickyEscapeEnabled, v)
+	return u
+}
+
+// UpdateStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateStreamStickyEscapeEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldStreamStickyEscapeEnabled)
 	return u
 }
 
@@ -4712,6 +4749,20 @@ func (u *GroupUpsertOne) SetSmartSchedulerEnabled(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateSmartSchedulerEnabled() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateSmartSchedulerEnabled()
+	})
+}
+
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (u *GroupUpsertOne) SetStreamStickyEscapeEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStreamStickyEscapeEnabled(v)
+	})
+}
+
+// UpdateStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateStreamStickyEscapeEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStreamStickyEscapeEnabled()
 	})
 }
 
@@ -6410,6 +6461,20 @@ func (u *GroupUpsertBulk) SetSmartSchedulerEnabled(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateSmartSchedulerEnabled() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateSmartSchedulerEnabled()
+	})
+}
+
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (u *GroupUpsertBulk) SetStreamStickyEscapeEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStreamStickyEscapeEnabled(v)
+	})
+}
+
+// UpdateStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateStreamStickyEscapeEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStreamStickyEscapeEnabled()
 	})
 }
 

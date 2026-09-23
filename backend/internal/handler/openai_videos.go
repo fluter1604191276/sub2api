@@ -191,7 +191,7 @@ func (h *OpenAIGatewayHandler) VideoGenerations(c *gin.Context) {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, account.GetMappedModel(parsed.Model), false, nil)
-				if failoverErr.RetryableOnSameAccount {
+				if failoverErr.ShouldRetrySameAccount() {
 					retryLimit := account.GetPoolModeRetryCount()
 					if sameAccountRetryCount[account.ID] < retryLimit {
 						sameAccountRetryCount[account.ID]++

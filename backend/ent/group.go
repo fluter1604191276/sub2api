@@ -154,6 +154,8 @@ type Group struct {
 	ProfitSafetyBuffer float64 `json:"profit_safety_buffer,omitempty"`
 	// 是否允许智能调度接管本分组的账号候选排序；默认关闭
 	SmartSchedulerEnabled bool `json:"smart_scheduler_enabled,omitempty"`
+	// 是否在流式断流或缺失终止事件后逃逸当前粘性账号；默认开启
+	StreamStickyEscapeEnabled bool `json:"stream_sticky_escape_enabled,omitempty"`
 	// 是否对本分组中一小时无真实使用记录的账号执行恢复探针；默认关闭
 	RecoveryProbeEnabled bool `json:"recovery_probe_enabled,omitempty"`
 	// 恢复探针模式：manual 固定间隔，smart 按连续失败次数退避
@@ -286,7 +288,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case group.FieldVideoModelPrices, group.FieldModelPricing, group.FieldModelRouting, group.FieldSupportedModelScopes, group.FieldMessagesDispatchModelConfig, group.FieldModelAllowlist, group.FieldCodexModelsManifestConfig, group.FieldReasoningEffortMappings, group.FieldPoolModeRetryStatusCodes, group.FieldCustomErrorCodes:
 			values[i] = new([]byte)
-		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled, group.FieldSmartSchedulerEnabled, group.FieldRecoveryProbeEnabled, group.FieldPoolModeEnabled, group.FieldCustomErrorCodesEnabled:
+		case group.FieldPeakRateEnabled, group.FieldIsExclusive, group.FieldAllowImageGeneration, group.FieldAllowBatchImageGeneration, group.FieldImageRateIndependent, group.FieldVideoRateIndependent, group.FieldLongContextPricingEnabled, group.FieldClaudeCodeOnly, group.FieldModelRoutingEnabled, group.FieldMcpXMLInject, group.FieldAllowMessagesDispatch, group.FieldAllowLive, group.FieldForceOpenaiFast, group.FieldFreeOpenaiFast, group.FieldRequireOauthOnly, group.FieldRequirePrivacySet, group.FieldProfitControlEnabled, group.FieldSmartSchedulerEnabled, group.FieldStreamStickyEscapeEnabled, group.FieldRecoveryProbeEnabled, group.FieldPoolModeEnabled, group.FieldCustomErrorCodesEnabled:
 			values[i] = new(sql.NullBool)
 		case group.FieldRateMultiplier, group.FieldPeakRateMultiplier, group.FieldDailyLimitUsd, group.FieldWeeklyLimitUsd, group.FieldMonthlyLimitUsd, group.FieldImageRateMultiplier, group.FieldImagePrice1k, group.FieldImagePrice2k, group.FieldImagePrice4k, group.FieldBatchImageDiscountMultiplier, group.FieldBatchImageHoldMultiplier, group.FieldVideoRateMultiplier, group.FieldVideoPrice480p, group.FieldVideoPrice720p, group.FieldVideoPrice1080p, group.FieldWebSearchPricePerCall, group.FieldSearchPricePer1k, group.FieldAudioRealtimePricePerMin, group.FieldAudioTtsPricePerMillionChars, group.FieldAudioSttPricePerHour, group.FieldProfitMinMargin, group.FieldProfitSafetyBuffer:
 			values[i] = new(sql.NullFloat64)
@@ -754,6 +756,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.SmartSchedulerEnabled = value.Bool
 			}
+		case group.FieldStreamStickyEscapeEnabled:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field stream_sticky_escape_enabled", values[i])
+			} else if value.Valid {
+				_m.StreamStickyEscapeEnabled = value.Bool
+			}
 		case group.FieldRecoveryProbeEnabled:
 			if value, ok := values[i].(*sql.NullBool); !ok {
 				return fmt.Errorf("unexpected type %T for field recovery_probe_enabled", values[i])
@@ -1147,6 +1155,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("smart_scheduler_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.SmartSchedulerEnabled))
+	builder.WriteString(", ")
+	builder.WriteString("stream_sticky_escape_enabled=")
+	builder.WriteString(fmt.Sprintf("%v", _m.StreamStickyEscapeEnabled))
 	builder.WriteString(", ")
 	builder.WriteString("recovery_probe_enabled=")
 	builder.WriteString(fmt.Sprintf("%v", _m.RecoveryProbeEnabled))

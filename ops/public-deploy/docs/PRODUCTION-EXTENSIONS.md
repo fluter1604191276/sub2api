@@ -134,6 +134,14 @@ normal terminal events, and local scanner-size limits do not penalize the accoun
 This is a next-request routing recovery action; it does not change billing,
 probe records, or account configuration.
 
+This behavior has two gates: deployment-wide
+`gateway.openai_scheduler.sticky_escape_enabled` and per-group
+`stream_sticky_escape_enabled`. Both must be enabled. The group switch is stored
+by migration `240_group_stream_sticky_escape.sql`, defaults to enabled, and is
+managed from **Groups -> Smart Scheduler -> Sticky escape after stream
+disconnect**. Disabling it preserves legacy sticky and same-account retry
+behavior for that group without changing the smart-scheduler master switch.
+
 ## Required Release Records
 
 发布记录至少要能回答四个问题：这次镜像由哪个源码快照构建、包含哪些二开、每项二开如何验证、失败时恢复哪个镜像和 Compose。登记文件、release manifest 和测试输出必须随候选版本保存；不能只依赖 Codex 会话上下文或个人记忆。

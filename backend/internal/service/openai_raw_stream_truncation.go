@@ -85,6 +85,7 @@ func newOpenAIRawStreamTruncatedFailoverError(
 	account *Account,
 	upstreamRequestID string,
 	cause error,
+	avoidSameAccountRetry bool,
 ) *UpstreamFailoverError {
 	recordOpenAIRawStreamTruncation(c, account, upstreamRequestID, cause, "failover")
 
@@ -93,9 +94,10 @@ func newOpenAIRawStreamTruncatedFailoverError(
 		headers.Set("x-request-id", id)
 	}
 	return &UpstreamFailoverError{
-		StatusCode:      http.StatusBadGateway,
-		ResponseBody:    openAIRawStreamTruncatedErrorBody(cause),
-		ResponseHeaders: headers,
+		StatusCode:            http.StatusBadGateway,
+		ResponseBody:          openAIRawStreamTruncatedErrorBody(cause),
+		ResponseHeaders:       headers,
+		AvoidSameAccountRetry: avoidSameAccountRetry,
 	}
 }
 

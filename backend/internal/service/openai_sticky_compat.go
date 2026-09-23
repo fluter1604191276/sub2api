@@ -36,6 +36,21 @@ func DeriveSessionHashFromSeed(seed string) string {
 	return currentHash
 }
 
+// SetOpenAIStreamRecoverySessionFromSeed records both sticky-session formats
+// for a handler-resolved seed. This is needed when a protocol-specific
+// session signal (for example Claude Code's session header) overrides the
+// content-derived hash after GenerateSessionHash has already attached a
+// different legacy hash to the request context.
+func SetOpenAIStreamRecoverySessionFromSeed(c *gin.Context, seed string) string {
+	currentHash, legacyHash := deriveOpenAISessionHashes(seed)
+	if currentHash == "" {
+		return ""
+	}
+	attachOpenAILegacySessionHashToGin(c, legacyHash)
+	SetOpenAIStreamRecoverySession(c, currentHash)
+	return currentHash
+}
+
 func deriveOpenAISessionHashes(sessionID string) (currentHash string, legacyHash string) {
 	normalized := strings.TrimSpace(sessionID)
 	if normalized == "" {

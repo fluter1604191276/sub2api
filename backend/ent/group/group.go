@@ -150,6 +150,8 @@ const (
 	FieldProfitSafetyBuffer = "profit_safety_buffer"
 	// FieldSmartSchedulerEnabled holds the string denoting the smart_scheduler_enabled field in the database.
 	FieldSmartSchedulerEnabled = "smart_scheduler_enabled"
+	// FieldStreamStickyEscapeEnabled holds the string denoting the stream_sticky_escape_enabled field in the database.
+	FieldStreamStickyEscapeEnabled = "stream_sticky_escape_enabled"
 	// FieldRecoveryProbeEnabled holds the string denoting the recovery_probe_enabled field in the database.
 	FieldRecoveryProbeEnabled = "recovery_probe_enabled"
 	// FieldRecoveryProbeMode holds the string denoting the recovery_probe_mode field in the database.
@@ -316,6 +318,7 @@ var Columns = []string{
 	FieldProfitMinMargin,
 	FieldProfitSafetyBuffer,
 	FieldSmartSchedulerEnabled,
+	FieldStreamStickyEscapeEnabled,
 	FieldRecoveryProbeEnabled,
 	FieldRecoveryProbeMode,
 	FieldRecoveryProbeModel,
@@ -475,6 +478,8 @@ var (
 	DefaultProfitSafetyBuffer float64
 	// DefaultSmartSchedulerEnabled holds the default value on creation for the "smart_scheduler_enabled" field.
 	DefaultSmartSchedulerEnabled bool
+	// DefaultStreamStickyEscapeEnabled holds the default value on creation for the "stream_sticky_escape_enabled" field.
+	DefaultStreamStickyEscapeEnabled bool
 	// DefaultRecoveryProbeEnabled holds the default value on creation for the "recovery_probe_enabled" field.
 	DefaultRecoveryProbeEnabled bool
 	// DefaultRecoveryProbeMode holds the default value on creation for the "recovery_probe_mode" field.
@@ -796,6 +801,11 @@ func ByProfitSafetyBuffer(opts ...sql.OrderTermOption) OrderOption {
 // BySmartSchedulerEnabled orders the results by the smart_scheduler_enabled field.
 func BySmartSchedulerEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSmartSchedulerEnabled, opts...).ToFunc()
+}
+
+// ByStreamStickyEscapeEnabled orders the results by the stream_sticky_escape_enabled field.
+func ByStreamStickyEscapeEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStreamStickyEscapeEnabled, opts...).ToFunc()
 }
 
 // ByRecoveryProbeEnabled orders the results by the recovery_probe_enabled field.

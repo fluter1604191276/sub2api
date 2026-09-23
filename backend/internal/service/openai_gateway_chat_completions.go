@@ -505,12 +505,39 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 
 	finalResponse, usage, acc, webSearchCalls, err := s.readOpenAICompatBufferedTerminal(resp, c, "openai chat_completions buffered", requestID)
 	if err != nil {
-		return nil, s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
+		failoverErr := s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, err)
+		var readErr *openAICompatBufferedReadError
+		var upstreamFailoverErr *UpstreamFailoverError
+		if errors.As(failoverErr, &upstreamFailoverErr) && errors.As(err, &readErr) {
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				upstreamModel,
+				readErr.cause,
+				false,
+				false,
+				false,
+				false,
+				"buffered_read_error",
+			)
+		}
+		return nil, failoverErr
 	}
 
 	if finalResponse == nil {
-		writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Upstream stream ended without a terminal response event")
-		return nil, fmt.Errorf("upstream stream ended without terminal event")
+		streamErr := errors.New("stream usage incomplete: missing terminal event")
+		s.handleCommittedOpenAIStreamDisconnect(
+			c,
+			account,
+			upstreamModel,
+			streamErr,
+			false,
+			false,
+			false,
+			false,
+			"buffered_missing_terminal",
+		)
+		return nil, s.newOpenAIStreamDisconnectFailoverError(c, account, false, requestID, nil, streamErr.Error(), resp.Header)
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
@@ -643,7 +670,7 @@ func (s *OpenAIGatewayService) newOpenAICompatBufferedReadFailoverError(
 	if resp != nil {
 		responseHeaders = resp.Header
 	}
-	failoverErr := s.newOpenAIStreamFailoverError(c, account, false, requestID, payload, message, responseHeaders)
+	failoverErr := s.newOpenAIStreamDisconnectFailoverError(c, account, false, requestID, payload, message, responseHeaders)
 	// 保留稳定错误码，确保重试耗尽后客户端和错误透传规则仍能识别传输故障。
 	failoverErr.ResponseBody = payload
 	return failoverErr
@@ -947,6 +974,21 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if refusalDetector.IsSilentRefusal() {
 				return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
 			}
+			if terminalEventType == "" {
+				streamErr := errors.New("stream usage incomplete: missing terminal event")
+				s.handleCommittedOpenAIStreamDisconnect(
+					c,
+					account,
+					upstreamModel,
+					streamErr,
+					semanticOutputSeen,
+					clientOutputStarted,
+					clientDisconnected,
+					false,
+					"missing_terminal",
+				)
+				return resultWithUsage(), s.newOpenAIStreamDisconnectFailoverError(c, account, false, requestID, nil, streamErr.Error())
+			}
 			if len(pendingSSE) > 0 {
 				writeStreamHeaders()
 				for _, pending := range pendingSSE {
@@ -996,6 +1038,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			upstreamModel,
 			streamErr,
 			semanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"missing_terminal",
@@ -1040,6 +1083,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				upstreamModel,
 				err,
 				semanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"read_error",
@@ -1125,6 +1169,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 					upstreamModel,
 					ev.err,
 					semanticOutputSeen,
+					openAIStreamClientOutputStarted(c, clientOutputStarted),
 					clientDisconnected,
 					false,
 					"read_error",
@@ -1167,6 +1212,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				upstreamModel,
 				streamErr,
 				semanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"data_interval_timeout",

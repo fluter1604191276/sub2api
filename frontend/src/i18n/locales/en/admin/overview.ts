@@ -859,6 +859,13 @@ export default {
           recommended: 'Restore recommended',
           saved: 'Sticky escape policy saved'
         },
+        streamStickyEscape: {
+          title: 'Sticky escape after stream disconnect',
+          description: 'When enabled, an abnormal disconnect or missing terminal event cools the current account and clears this session sticky binding so the next request can switch accounts. Client cancellation and normal completion do not trigger it. When disabled, the existing sticky and same-account retry behavior remains.',
+          enabled: 'Enabled (switch after disconnect)',
+          disabled: 'Disabled (keep current sticky)',
+          toggleSuccess: 'Stream disconnect sticky escape setting updated'
+        },
         recoveryProbe: {
           title: 'Recovery probe',
           description: 'Off by default. When enabled, lightweight tests probe isolated or long-idle accounts. The idle threshold is fixed at 1h.',

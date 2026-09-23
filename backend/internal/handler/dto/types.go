@@ -178,6 +178,7 @@ type AdminGroup struct {
 	ProfitMinMargin                   float64                       `json:"profit_min_margin"`
 	ProfitSafetyBuffer                float64                       `json:"profit_safety_buffer"`
 	SmartSchedulerEnabled             bool                          `json:"smart_scheduler_enabled"`
+	StreamStickyEscapeEnabled         bool                          `json:"stream_sticky_escape_enabled"`
 	RecoveryProbeEnabled              bool                          `json:"recovery_probe_enabled"`
 	RecoveryProbeMode                 string                        `json:"recovery_probe_mode"`
 	RecoveryProbeModel                string                        `json:"recovery_probe_model"`

@@ -637,6 +637,13 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		CustomErrorCodesEnabled:         input.CustomErrorCodesEnabled,
 		CustomErrorCodes:                customErrorCodes,
 	}
+	// Existing candidate behavior remains the default for new groups, while an
+	// explicit false from the admin UI/API must remain distinguishable from an
+	// omitted field.
+	group.StreamStickyEscapeEnabled = true
+	if input.StreamStickyEscapeEnabled != nil {
+		group.StreamStickyEscapeEnabled = *input.StreamStickyEscapeEnabled
+	}
 	group.ApplyRecoveryProbeConfig(recoveryProbeConfig)
 	sanitizeGroupMessagesDispatchFields(group)
 	sanitizeGroupOpenAIFast(group)
@@ -905,6 +912,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.SmartSchedulerEnabled != nil {
 		group.SmartSchedulerEnabled = *input.SmartSchedulerEnabled
+	}
+	if input.StreamStickyEscapeEnabled != nil {
+		group.StreamStickyEscapeEnabled = *input.StreamStickyEscapeEnabled
 	}
 	if input.PoolModeEnabled != nil {
 		group.PoolModeEnabled = input.PoolModeEnabled

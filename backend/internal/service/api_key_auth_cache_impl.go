@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: group model_allowlist field (renamed from models_list_config, enforcing semantics)
+const apiKeyAuthSnapshotVersion = 25 // v25: group stream sticky escape switch
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -436,6 +436,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitMinMargin:                 apiKey.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
 			SmartSchedulerEnabled:           apiKey.Group.SmartSchedulerEnabled,
+			StreamStickyEscapeEnabled:       apiKey.Group.StreamStickyEscapeEnabled,
 		}
 	}
 	return snapshot
@@ -539,6 +540,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ProfitMinMargin:                 snapshot.Group.ProfitMinMargin,
 			ProfitSafetyBuffer:              snapshot.Group.ProfitSafetyBuffer,
 			SmartSchedulerEnabled:           snapshot.Group.SmartSchedulerEnabled,
+			StreamStickyEscapeEnabled:       snapshot.Group.StreamStickyEscapeEnabled,
 		}
 	}
 	s.compileAPIKeyIPRules(apiKey)

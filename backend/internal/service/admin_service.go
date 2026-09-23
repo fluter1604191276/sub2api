@@ -311,6 +311,9 @@ type CreateGroupInput struct {
 	ProfitMinMargin                   *float64
 	ProfitSafetyBuffer                *float64
 	SmartSchedulerEnabled             bool
+	// nil means omitted and preserves the database/default policy; an explicit
+	// false is supported so the administrator can disable stream escape.
+	StreamStickyEscapeEnabled         *bool
 	RecoveryProbeEnabled              bool
 	RecoveryProbeMode                 string
 	RecoveryProbeModel                string
@@ -405,6 +408,7 @@ type UpdateGroupInput struct {
 	ProfitMinMargin                   *float64
 	ProfitSafetyBuffer                *float64
 	SmartSchedulerEnabled             *bool
+	StreamStickyEscapeEnabled         *bool
 	RecoveryProbeEnabled              *bool
 	RecoveryProbeMode                 *string
 	RecoveryProbeModel                *string

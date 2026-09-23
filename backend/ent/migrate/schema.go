@@ -971,6 +971,7 @@ var (
 		{Name: "profit_min_margin", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "profit_safety_buffer", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "smart_scheduler_enabled", Type: field.TypeBool, Default: false},
+		{Name: "stream_sticky_escape_enabled", Type: field.TypeBool, Default: true},
 		{Name: "recovery_probe_enabled", Type: field.TypeBool, Default: false},
 		{Name: "recovery_probe_mode", Type: field.TypeString, Size: 16, Default: "smart"},
 		{Name: "recovery_probe_model", Type: field.TypeString, Size: 200, Default: ""},

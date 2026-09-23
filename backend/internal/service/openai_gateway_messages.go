@@ -1179,12 +1179,13 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			upstreamModel,
 			errors.New(message),
 			semanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"missing_terminal",
 		)
 		if !clientOutputStarted {
-			return result, s.newOpenAIStreamFailoverError(c, account, false, requestID, nil, message)
+			return result, s.newOpenAIStreamDisconnectFailoverError(c, account, false, requestID, nil, message)
 		}
 		s.recordOpenAIMessagesStreamUpstreamError(c, account, requestID, "stream_missing_terminal", message)
 		return result, fmt.Errorf("stream usage incomplete: missing terminal event")
@@ -1224,6 +1225,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				upstreamModel,
 				err,
 				semanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"read_error",
@@ -1307,6 +1309,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					upstreamModel,
 					ev.err,
 					semanticOutputSeen,
+					openAIStreamClientOutputStarted(c, clientOutputStarted),
 					clientDisconnected,
 					false,
 					"read_error",
@@ -1346,6 +1349,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				upstreamModel,
 				streamErr,
 				semanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"data_interval_timeout",

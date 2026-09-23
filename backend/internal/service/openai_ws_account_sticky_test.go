@@ -125,6 +125,42 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 	require.Zero(t, boundAccountID)
 }
 
+func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RuntimeStreamBlockMiss(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(23)
+	account := Account{
+		ID:          121,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Extra: map[string]any{
+			"openai_apikey_responses_websockets_v2_enabled": true,
+		},
+	}
+	cache := &stubGatewayCache{}
+	store := NewOpenAIWSStateStore(cache)
+	svc := &OpenAIGatewayService{
+		accountRepo:          stubOpenAIAccountRepo{accounts: []Account{account}},
+		cache:                cache,
+		cfg:                  newOpenAIWSV2TestConfig(),
+		concurrencyService:   NewConcurrencyService(stubConcurrencyCache{}),
+		openaiWSStateStore:   store,
+		openaiModelTransient: newOpenAIAccountModelTransientState(32),
+	}
+
+	require.NoError(t, store.BindResponseAccount(ctx, groupID, "resp_prev_stream_block", account.ID, time.Hour))
+	svc.forceBlockOpenAIAccountModel(&account, "gpt-5.6-sol", time.Now(), openAICommittedStreamFailureCooldown)
+
+	selection, err := svc.SelectAccountByPreviousResponseID(ctx, &groupID, "resp_prev_stream_block", "gpt-5.6-sol", nil, false)
+	require.NoError(t, err)
+	require.Nil(t, selection, "a committed stream failure must escape previous_response_id affinity")
+	boundAccountID, getErr := store.GetResponseAccount(ctx, groupID, "resp_prev_stream_block")
+	require.NoError(t, getErr)
+	require.Zero(t, boundAccountID)
+}
+
 func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheckRateLimitedMiss(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(24)

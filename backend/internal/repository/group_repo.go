@@ -156,6 +156,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
 		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
+		SetStreamStickyEscapeEnabled(groupIn.StreamStickyEscapeEnabled).
 		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
 		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
 		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).
@@ -353,6 +354,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetProfitMinMargin(groupIn.ProfitMinMargin).
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
 		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
+		SetStreamStickyEscapeEnabled(groupIn.StreamStickyEscapeEnabled).
 		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
 		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
 		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).

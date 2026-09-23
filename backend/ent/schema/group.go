@@ -306,6 +306,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("smart_scheduler_enabled").
 			Default(false).
 			Comment("是否允许智能调度接管本分组的账号候选排序；默认关闭"),
+		field.Bool("stream_sticky_escape_enabled").
+			Default(true).
+			Comment("是否在流式断流或缺失终止事件后逃逸当前粘性账号；默认开启"),
 		field.Bool("recovery_probe_enabled").
 			Default(false).
 			Comment("是否对本分组中一小时无真实使用记录的账号执行恢复探针；默认关闭"),

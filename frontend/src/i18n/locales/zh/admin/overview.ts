@@ -852,6 +852,13 @@ export default {
           recommended: '恢复推荐默认',
           saved: '粘性逃逸策略已保存'
         },
+        streamStickyEscape: {
+          title: '流式断流后粘性逃逸',
+          description: '开启后，异常断流或缺失终止事件会冷却当前账号并清理本次会话粘性，使下一次请求切换其他账号；客户端主动取消和正常结束不触发。关闭后保留原粘性与同账号重试行为。',
+          enabled: '已开启（断流会切换）',
+          disabled: '已关闭（保持原粘性）',
+          toggleSuccess: '流式断流粘性逃逸设置已更新'
+        },
         recoveryProbe: {
           title: '恢复探针',
           description: '默认关闭。开启后对隔离或长时间空闲账号发起轻量测试，idle threshold 固定为 1h。',

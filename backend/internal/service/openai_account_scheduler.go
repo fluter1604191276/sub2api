@@ -530,6 +530,11 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil
 	}
 	if !s.isAccountRequestCompatible(ctx, account, req) {
+		// A runtime model cooldown is intentionally short-lived, but retaining the
+		// durable sticky binding here defeats the cooldown on every continuation.
+		// Clear it before falling through to load-aware selection so the next
+		// request can actually choose a different account.
+		clearBinding()
 		return nil, false, nil
 	}
 	if !s.isAccountTransportCompatible(account, req.RequiredTransport) {

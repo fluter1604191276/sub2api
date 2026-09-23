@@ -588,6 +588,8 @@ func TestAdminService_CreateGroup_SmartSchedulerDefaultsOffAndCanEnable(t *testi
 	require.NoError(t, err)
 	require.False(t, defaultGroup.SmartSchedulerEnabled)
 	require.False(t, repo.created.SmartSchedulerEnabled)
+	require.True(t, defaultGroup.StreamStickyEscapeEnabled)
+	require.True(t, repo.created.StreamStickyEscapeEnabled)
 
 	enabledGroup, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
 		Name:                  "smart-enabled",
@@ -598,17 +600,20 @@ func TestAdminService_CreateGroup_SmartSchedulerDefaultsOffAndCanEnable(t *testi
 	require.NoError(t, err)
 	require.True(t, enabledGroup.SmartSchedulerEnabled)
 	require.True(t, repo.created.SmartSchedulerEnabled)
+	require.True(t, enabledGroup.StreamStickyEscapeEnabled)
+	require.True(t, repo.created.StreamStickyEscapeEnabled)
 }
 
 func TestAdminService_UpdateGroup_SmartSchedulerTriState(t *testing.T) {
 	existing := &Group{
-		ID:                    1,
-		Name:                  "smart-update",
-		Platform:              PlatformOpenAI,
-		RateMultiplier:        1,
-		Status:                StatusActive,
-		SubscriptionType:      SubscriptionTypeStandard,
-		SmartSchedulerEnabled: true,
+		ID:                        1,
+		Name:                      "smart-update",
+		Platform:                  PlatformOpenAI,
+		RateMultiplier:            1,
+		Status:                    StatusActive,
+		SubscriptionType:          SubscriptionTypeStandard,
+		SmartSchedulerEnabled:     true,
+		StreamStickyEscapeEnabled: true,
 	}
 	repo := &groupRepoStubForAdmin{getByID: existing}
 	svc := &adminServiceImpl{groupRepo: repo}
@@ -617,12 +622,30 @@ func TestAdminService_UpdateGroup_SmartSchedulerTriState(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, unchanged.SmartSchedulerEnabled)
 	require.True(t, repo.updated.SmartSchedulerEnabled)
+	require.True(t, unchanged.StreamStickyEscapeEnabled)
+	require.True(t, repo.updated.StreamStickyEscapeEnabled)
 
 	disabled := false
 	updated, err := svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{SmartSchedulerEnabled: &disabled})
 	require.NoError(t, err)
 	require.False(t, updated.SmartSchedulerEnabled)
 	require.False(t, repo.updated.SmartSchedulerEnabled)
+
+	disabledSticky := false
+	updated, err = svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{
+		StreamStickyEscapeEnabled: &disabledSticky,
+	})
+	require.NoError(t, err)
+	require.False(t, updated.StreamStickyEscapeEnabled)
+	require.False(t, repo.updated.StreamStickyEscapeEnabled)
+
+	enabledSticky := true
+	updated, err = svc.UpdateGroup(context.Background(), existing.ID, &UpdateGroupInput{
+		StreamStickyEscapeEnabled: &enabledSticky,
+	})
+	require.NoError(t, err)
+	require.True(t, updated.StreamStickyEscapeEnabled)
+	require.True(t, repo.updated.StreamStickyEscapeEnabled)
 }
 
 func TestAdminService_UpdateGroup_ClearsPoolErrorPolicyOverrides(t *testing.T) {

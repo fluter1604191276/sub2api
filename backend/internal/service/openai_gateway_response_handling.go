@@ -388,7 +388,19 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
-			return resultWithUsage(), s.newOpenAIStreamFailoverError(
+			missingTerminalErr := errors.New("stream usage incomplete: missing terminal event")
+			s.handleCommittedOpenAIStreamDisconnect(
+				c,
+				account,
+				mappedModel,
+				missingTerminalErr,
+				responsesSemanticOutputSeen,
+				false,
+				clientDisconnected,
+				false,
+				"missing_terminal",
+			)
+			return resultWithUsage(), s.newOpenAIStreamDisconnectFailoverError(
 				c,
 				account,
 				false,
@@ -406,6 +418,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				mappedModel,
 				missingTerminalErr,
 				responsesSemanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"missing_terminal",
@@ -470,6 +483,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			mappedModel,
 			scanErr,
 			responsesSemanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"read_error",
@@ -479,7 +493,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if errText := strings.TrimSpace(scanErr.Error()); errText != "" {
 				msg += ": " + errText
 			}
-			return resultWithUsage(), s.newOpenAIStreamFailoverError(c, account, false, upstreamRequestID, nil, msg), true
+			return resultWithUsage(), s.newOpenAIStreamDisconnectFailoverError(c, account, false, upstreamRequestID, nil, msg), true
 		}
 		// 客户端已断开时，上游出错仅影响体验，不影响计费；返回已收集 usage
 		if clientDisconnected {
@@ -930,6 +944,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				mappedModel,
 				streamErr,
 				responsesSemanticOutputSeen,
+				openAIStreamClientOutputStarted(c, clientOutputStarted),
 				clientDisconnected,
 				false,
 				"data_interval_timeout",

@@ -1693,7 +1693,12 @@ func TestOpenAIStreamingPostOutputOverloadClearsStickyAndCoolsOnlyFailingAccount
 		"openai:" + legacyHash:  account.ID,
 	}}
 	svc := &OpenAIGatewayService{
-		cfg:                  &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+			OpenAIScheduler: config.GatewayOpenAISchedulerConfig{
+				StickyEscapeEnabled: true,
+			},
+		}},
 		cache:                cache,
 		openaiModelTransient: newOpenAIAccountModelTransientState(128),
 	}
@@ -1702,7 +1707,13 @@ func TestOpenAIStreamingPostOutputOverloadClearsStickyAndCoolsOnlyFailingAccount
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	c.Request.Header.Set("session_id", "session-overloaded")
-	c.Set("api_key", &APIKey{GroupID: &groupID})
+	c.Set("api_key", &APIKey{
+		GroupID: &groupID,
+		Group: &Group{
+			ID:                        groupID,
+			StreamStickyEscapeEnabled: true,
+		},
+	})
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Body: io.NopCloser(strings.NewReader(strings.Join([]string{

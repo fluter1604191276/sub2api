@@ -1232,6 +1232,20 @@ func (_u *GroupUpdate) SetNillableSmartSchedulerEnabled(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (_u *GroupUpdate) SetStreamStickyEscapeEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetStreamStickyEscapeEnabled(v)
+	return _u
+}
+
+// SetNillableStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableStreamStickyEscapeEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetStreamStickyEscapeEnabled(*v)
+	}
+	return _u
+}
+
 // SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
 func (_u *GroupUpdate) SetRecoveryProbeEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetRecoveryProbeEnabled(v)
@@ -2160,6 +2174,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.SmartSchedulerEnabled(); ok {
 		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.StreamStickyEscapeEnabled(); ok {
+		_spec.SetField(group.FieldStreamStickyEscapeEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.RecoveryProbeEnabled(); ok {
 		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)
@@ -3736,6 +3753,20 @@ func (_u *GroupUpdateOne) SetNillableSmartSchedulerEnabled(v *bool) *GroupUpdate
 	return _u
 }
 
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (_u *GroupUpdateOne) SetStreamStickyEscapeEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetStreamStickyEscapeEnabled(v)
+	return _u
+}
+
+// SetNillableStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableStreamStickyEscapeEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetStreamStickyEscapeEnabled(*v)
+	}
+	return _u
+}
+
 // SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
 func (_u *GroupUpdateOne) SetRecoveryProbeEnabled(v bool) *GroupUpdateOne {
 	_u.mutation.SetRecoveryProbeEnabled(v)
@@ -4694,6 +4725,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.SmartSchedulerEnabled(); ok {
 		_spec.SetField(group.FieldSmartSchedulerEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.StreamStickyEscapeEnabled(); ok {
+		_spec.SetField(group.FieldStreamStickyEscapeEnabled, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.RecoveryProbeEnabled(); ok {
 		_spec.SetField(group.FieldRecoveryProbeEnabled, field.TypeBool, value)

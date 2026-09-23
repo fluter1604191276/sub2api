@@ -282,6 +282,7 @@ type CreateGroupRequest struct {
 	ProfitMinMargin                   *float64                      `json:"profit_min_margin"`
 	ProfitSafetyBuffer                *float64                      `json:"profit_safety_buffer"`
 	SmartSchedulerEnabled             bool                          `json:"smart_scheduler_enabled"`
+	StreamStickyEscapeEnabled         *bool                         `json:"stream_sticky_escape_enabled"`
 	RecoveryProbeEnabled              bool                          `json:"recovery_probe_enabled"`
 	RecoveryProbeMode                 string                        `json:"recovery_probe_mode"`
 	RecoveryProbeModel                string                        `json:"recovery_probe_model"`
@@ -370,6 +371,7 @@ type UpdateGroupRequest struct {
 	ProfitMinMargin                   *float64                      `json:"profit_min_margin"`
 	ProfitSafetyBuffer                *float64                      `json:"profit_safety_buffer"`
 	SmartSchedulerEnabled             *bool                         `json:"smart_scheduler_enabled"`
+	StreamStickyEscapeEnabled         *bool                         `json:"stream_sticky_escape_enabled"`
 	RecoveryProbeEnabled              *bool                         `json:"recovery_probe_enabled"`
 	RecoveryProbeMode                 *string                       `json:"recovery_probe_mode"`
 	RecoveryProbeModel                *string                       `json:"recovery_probe_model"`
@@ -839,6 +841,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ProfitMinMargin:                   req.ProfitMinMargin,
 		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
 		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		StreamStickyEscapeEnabled:         req.StreamStickyEscapeEnabled,
 		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
 		RecoveryProbeMode:                 req.RecoveryProbeMode,
 		RecoveryProbeModel:                req.RecoveryProbeModel,
@@ -1019,6 +1022,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ProfitMinMargin:                   req.ProfitMinMargin,
 		ProfitSafetyBuffer:                req.ProfitSafetyBuffer,
 		SmartSchedulerEnabled:             req.SmartSchedulerEnabled,
+		StreamStickyEscapeEnabled:         req.StreamStickyEscapeEnabled,
 		RecoveryProbeEnabled:              req.RecoveryProbeEnabled,
 		RecoveryProbeMode:                 req.RecoveryProbeMode,
 		RecoveryProbeModel:                req.RecoveryProbeModel,

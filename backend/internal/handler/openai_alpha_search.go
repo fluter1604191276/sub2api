@@ -216,7 +216,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			)
 			return
 		}
-		if failoverErr.RetryableOnSameAccount {
+		if failoverErr.ShouldRetrySameAccount() {
 			retryLimit := account.GetPoolModeRetryCount()
 			if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 				sameAccountRetryCount[account.ID]++

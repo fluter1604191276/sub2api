@@ -4455,6 +4455,34 @@
             </div>
           </div>
 
+          <div
+            class="flex flex-col gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600 sm:flex-row sm:items-start sm:justify-between"
+            data-testid="stream-sticky-escape-setting"
+          >
+            <div>
+              <div class="font-medium text-gray-900 dark:text-white">
+                {{ t("admin.groups.smartScheduler.streamStickyEscape.title") }}
+              </div>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.smartScheduler.streamStickyEscape.description") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="stream-sticky-escape-toggle"
+              class="btn btn-secondary flex-shrink-0"
+              :aria-pressed="streamStickyEscapeEnabled"
+              :disabled="streamStickyEscapeSaving"
+              @click="toggleStreamStickyEscape"
+            >
+              {{
+                streamStickyEscapeEnabled
+                  ? t("admin.groups.smartScheduler.streamStickyEscape.enabled")
+                  : t("admin.groups.smartScheduler.streamStickyEscape.disabled")
+              }}
+            </button>
+          </div>
+
           <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div class="font-medium text-gray-900 dark:text-white">
@@ -5724,6 +5752,7 @@ const smartSchedulerGroup = ref<AdminGroup | null>(null);
 const smartSchedulerPreview = ref<SmartSchedulerPreview | null>(null);
 const smartSchedulerLoading = ref(false);
 const smartSchedulerToggleLoading = ref(false);
+const streamStickyEscapeSaving = ref(false);
 const recoveryProbeSaving = ref(false);
 const recoveryProbeBillingLoading = ref(false);
 const recoveryProbeBillingSaving = ref(false);
@@ -5740,6 +5769,7 @@ const smartSchedulerReqSeq = ref(0);
 const stickyPolicySaving = ref(false);
 const stickyPolicy = reactive({ preset: 'recommended', target_score: 70, review_interval_seconds: 60, switch_cooldown_seconds: 120, quality_lead: 3, max_escapes: 3, escape_window_seconds: 3600, elite_confirmations: 2, primary_min_score: 0 });
 const recoveryProbeEnabled = ref(false);
+const streamStickyEscapeEnabled = ref(true);
 const recoveryProbeMode = ref<"manual" | "smart" | "high_frequency">("manual");
 const recoveryProbeModel = ref("");
 const recoveryProbeIntervalSeconds = ref(900);
@@ -7550,6 +7580,12 @@ const setRecoveryProbeFormFromGroup = (group: AdminGroup) => {
   );
 };
 
+const setStreamStickyEscapeFromGroup = (group: AdminGroup) => {
+  // The field was added after older admin responses were already in use;
+  // missing values therefore retain the enabled-by-default behavior.
+  streamStickyEscapeEnabled.value = group.stream_sticky_escape_enabled ?? true;
+};
+
 const applyRecommendedRecoveryProbeConfig = () => {
   recoveryProbeEnabled.value = false;
   recoveryProbeMode.value = "smart";
@@ -7633,7 +7669,7 @@ const recoveryProbePayload = (): UpdateGroupRequest => ({
   ),
 });
 
-const applyRecoveryProbeSettings = (
+const applyGroupSettings = (
   groupID: number,
   payload: UpdateGroupRequest,
 ) => {
@@ -7657,7 +7693,7 @@ const saveRecoveryProbeSettings = async () => {
   recoveryProbeSaving.value = true;
   try {
     await adminAPI.groups.update(group.id, payload);
-    applyRecoveryProbeSettings(group.id, payload);
+    applyGroupSettings(group.id, payload);
     appStore.showSuccess(
       t("admin.groups.smartScheduler.recoveryProbe.saveSuccess"),
     );
@@ -7701,6 +7737,7 @@ const handleSmartScheduler = async (group: AdminGroup) => {
   smartSchedulerModel.value = "";
   smartSchedulerEndpoint.value = "any";
   setRecoveryProbeFormFromGroup(group);
+  setStreamStickyEscapeFromGroup(group);
   setPoolErrorPolicyFormFromGroup(group);
   showSmartSchedulerModal.value = true;
   try { Object.assign(stickyPolicy, await adminAPI.groups.getSmartStickyPolicy(group.id)); } catch { /* legacy defaults remain */ }
@@ -7744,6 +7781,8 @@ const closeSmartSchedulerModal = () => {
   recoveryProbeBillingDailyBudgetUSD.value = 1;
   recoveryProbeBillingPerAttemptLimitUSD.value = 0.01;
   poolErrorPolicySaving.value = false;
+  streamStickyEscapeSaving.value = false;
+  streamStickyEscapeEnabled.value = true;
 };
 
 const loadSmartSchedulerPreview = async () => {
@@ -7819,6 +7858,32 @@ const toggleSmartSchedulerFromPreview = async () => {
     console.error("Error updating smart scheduler setting:", error);
   } finally {
     smartSchedulerToggleLoading.value = false;
+  }
+};
+
+const toggleStreamStickyEscape = async () => {
+  const group = smartSchedulerGroup.value;
+  if (!group || streamStickyEscapeSaving.value) return;
+
+  const nextEnabled = !streamStickyEscapeEnabled.value;
+  streamStickyEscapeSaving.value = true;
+  try {
+    const payload: UpdateGroupRequest = {
+      stream_sticky_escape_enabled: nextEnabled,
+    };
+    await adminAPI.groups.update(group.id, payload);
+    applyGroupSettings(group.id, payload);
+    streamStickyEscapeEnabled.value = nextEnabled;
+    appStore.showSuccess(
+      t("admin.groups.smartScheduler.streamStickyEscape.toggleSuccess"),
+    );
+  } catch (error: any) {
+    appStore.showError(
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
+    );
+    console.error("Error updating stream sticky escape setting:", error);
+  } finally {
+    streamStickyEscapeSaving.value = false;
   }
 };
 

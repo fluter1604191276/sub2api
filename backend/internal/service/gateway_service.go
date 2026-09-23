@@ -692,8 +692,14 @@ type UpstreamFailoverError struct {
 	SameAccountRetryDelay    time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
 	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
 	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
-	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	// AvoidSameAccountRetry marks an error whose retry is unsafe on the
+	// currently selected credential. It is intentionally separate from
+	// RetryableOnSameAccount: a transport stream failure may still be
+	// retryable, but the retry must start on another account so a broken
+	// sticky binding cannot pin the request in place.
+	AvoidSameAccountRetry    bool
+	RequestScopedTransient   bool // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
+	SafeToFailoverAfterWrite bool // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
 	Stage                    GatewayFailureStage
 	Scope                    GatewayFailureScope
 	Reason                   GatewayFailureReason
@@ -711,6 +717,13 @@ func (e *UpstreamFailoverError) Error() string {
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
 	return e != nil && e.NextAccountAction != NextAccountStop
+}
+
+// ShouldRetrySameAccount reports whether the request may be retried on the
+// currently selected account. Keep this decision centralized so callers do
+// not accidentally ignore transport-specific escape metadata.
+func (e *UpstreamFailoverError) ShouldRetrySameAccount() bool {
+	return e != nil && e.RetryableOnSameAccount && !e.AvoidSameAccountRetry
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

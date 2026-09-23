@@ -22265,6 +22265,7 @@ type GroupMutation struct {
 	profit_safety_buffer                     *float64
 	addprofit_safety_buffer                  *float64
 	smart_scheduler_enabled                  *bool
+	stream_sticky_escape_enabled             *bool
 	recovery_probe_enabled                   *bool
 	recovery_probe_mode                      *string
 	recovery_probe_model                     *string
@@ -25704,6 +25705,42 @@ func (m *GroupMutation) ResetSmartSchedulerEnabled() {
 	m.smart_scheduler_enabled = nil
 }
 
+// SetStreamStickyEscapeEnabled sets the "stream_sticky_escape_enabled" field.
+func (m *GroupMutation) SetStreamStickyEscapeEnabled(b bool) {
+	m.stream_sticky_escape_enabled = &b
+}
+
+// StreamStickyEscapeEnabled returns the value of the "stream_sticky_escape_enabled" field in the mutation.
+func (m *GroupMutation) StreamStickyEscapeEnabled() (r bool, exists bool) {
+	v := m.stream_sticky_escape_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldStreamStickyEscapeEnabled returns the old "stream_sticky_escape_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldStreamStickyEscapeEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldStreamStickyEscapeEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldStreamStickyEscapeEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldStreamStickyEscapeEnabled: %w", err)
+	}
+	return oldValue.StreamStickyEscapeEnabled, nil
+}
+
+// ResetStreamStickyEscapeEnabled resets all changes to the "stream_sticky_escape_enabled" field.
+func (m *GroupMutation) ResetStreamStickyEscapeEnabled() {
+	m.stream_sticky_escape_enabled = nil
+}
+
 // SetRecoveryProbeEnabled sets the "recovery_probe_enabled" field.
 func (m *GroupMutation) SetRecoveryProbeEnabled(b bool) {
 	m.recovery_probe_enabled = &b
@@ -26660,7 +26697,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 79)
+	fields := make([]string, 0, 80)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -26862,6 +26899,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.smart_scheduler_enabled != nil {
 		fields = append(fields, group.FieldSmartSchedulerEnabled)
 	}
+	if m.stream_sticky_escape_enabled != nil {
+		fields = append(fields, group.FieldStreamStickyEscapeEnabled)
+	}
 	if m.recovery_probe_enabled != nil {
 		fields = append(fields, group.FieldRecoveryProbeEnabled)
 	}
@@ -27040,6 +27080,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ProfitSafetyBuffer()
 	case group.FieldSmartSchedulerEnabled:
 		return m.SmartSchedulerEnabled()
+	case group.FieldStreamStickyEscapeEnabled:
+		return m.StreamStickyEscapeEnabled()
 	case group.FieldRecoveryProbeEnabled:
 		return m.RecoveryProbeEnabled()
 	case group.FieldRecoveryProbeMode:
@@ -27207,6 +27249,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldProfitSafetyBuffer(ctx)
 	case group.FieldSmartSchedulerEnabled:
 		return m.OldSmartSchedulerEnabled(ctx)
+	case group.FieldStreamStickyEscapeEnabled:
+		return m.OldStreamStickyEscapeEnabled(ctx)
 	case group.FieldRecoveryProbeEnabled:
 		return m.OldRecoveryProbeEnabled(ctx)
 	case group.FieldRecoveryProbeMode:
@@ -27708,6 +27752,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSmartSchedulerEnabled(v)
+		return nil
+	case group.FieldStreamStickyEscapeEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetStreamStickyEscapeEnabled(v)
 		return nil
 	case group.FieldRecoveryProbeEnabled:
 		v, ok := value.(bool)
@@ -28594,6 +28645,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldSmartSchedulerEnabled:
 		m.ResetSmartSchedulerEnabled()
+		return nil
+	case group.FieldStreamStickyEscapeEnabled:
+		m.ResetStreamStickyEscapeEnabled()
 		return nil
 	case group.FieldRecoveryProbeEnabled:
 		m.ResetRecoveryProbeEnabled()

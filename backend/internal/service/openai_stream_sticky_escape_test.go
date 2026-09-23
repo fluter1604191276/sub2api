@@ -36,13 +36,24 @@ func newStreamStickyEscapeFixture(t *testing.T, accountID int64) streamStickyEsc
 	service := &OpenAIGatewayService{
 		cache:                cache,
 		openaiModelTransient: newOpenAIAccountModelTransientState(32),
-		cfg:                  &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+		cfg: &config.Config{Gateway: config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize,
+			OpenAIScheduler: config.GatewayOpenAISchedulerConfig{
+				StickyEscapeEnabled: true,
+			},
+		}},
 	}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	attachOpenAILegacySessionHashToGin(c, legacyHash)
-	c.Set("api_key", &APIKey{GroupID: &groupID})
+	c.Set("api_key", &APIKey{
+		GroupID: &groupID,
+		Group: &Group{
+			ID:                        groupID,
+			StreamStickyEscapeEnabled: true,
+		},
+	})
 	c.Set(openAIStreamRecoverySessionHashKey, currentHash)
 	return streamStickyEscapeFixture{
 		service:     service,
@@ -73,6 +84,7 @@ func TestHandleCommittedOpenAIStreamDisconnectClearsStickyAndBlocksOnlyAccountMo
 		true,
 		false,
 		false,
+		false,
 		"read_error",
 	)
 
@@ -92,32 +104,96 @@ func TestHandleCommittedOpenAIStreamDisconnectClearsStickyAndBlocksOnlyAccountMo
 		true,
 		false,
 		false,
+		false,
 		"missing_terminal",
 	)
 	require.Equal(t, 1, fixture.cache.deletedSessions["openai:"+fixture.currentHash])
 	require.Equal(t, 1, fixture.cache.deletedSessions["openai:"+fixture.legacyHash])
 }
 
+func TestOpenAIStreamRecoverySessionAuthoritativeHashSurvivesForwardNormalization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	currentHash, currentLegacyHash := deriveOpenAISessionHashes("handler-session")
+	forwardHash, forwardLegacyHash := deriveOpenAISessionHashes("account-normalized-body")
+	require.NotEqual(t, currentHash, forwardHash)
+	require.NotEqual(t, currentLegacyHash, forwardLegacyHash)
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	attachOpenAILegacySessionHashToGin(c, currentLegacyHash)
+	SetOpenAIStreamRecoverySession(c, currentHash)
+
+	// Simulate Forward's old body-derived fallback. It must not replace the
+	// handler's routing identity while a failover reuses the same Gin context.
+	rememberOpenAIStreamRecoverySession(c, forwardHash)
+	recoveryHash, _ := c.Get(openAIStreamRecoverySessionHashKey)
+	require.Equal(t, currentHash, recoveryHash)
+	require.Equal(t, currentLegacyHash, openAILegacySessionHashFromContext(c.Request.Context()))
+
+	fixture := newStreamStickyEscapeFixture(t, 910061)
+	fixture.context = c
+	fixture.cache.sessionBindings = map[string]int64{
+		"openai:" + currentHash:       fixture.account.ID,
+		"openai:" + currentLegacyHash: fixture.account.ID,
+		"openai:" + forwardHash:       fixture.account.ID,
+		"openai:" + forwardLegacyHash: fixture.account.ID,
+	}
+	groupID := int64(91061)
+	c.Set("api_key", &APIKey{
+		GroupID: &groupID,
+		Group: &Group{
+			ID:                        groupID,
+			StreamStickyEscapeEnabled: true,
+		},
+	})
+
+	fixture.service.handleCommittedOpenAIStreamDisconnect(
+		c,
+		fixture.account,
+		"gpt-5.6-sol",
+		errors.New("upstream connection reset"),
+		true,
+		false,
+		false,
+		false,
+		"read_error",
+	)
+
+	require.Contains(t, fixture.cache.deletedSessions, "openai:"+currentHash)
+	require.Contains(t, fixture.cache.deletedSessions, "openai:"+currentLegacyHash)
+	require.NotContains(t, fixture.cache.deletedSessions, "openai:"+forwardHash)
+	require.NotContains(t, fixture.cache.deletedSessions, "openai:"+forwardLegacyHash)
+}
+
 func TestHandleCommittedOpenAIStreamDisconnectIgnoresNonUpstreamOrNonSemanticEnds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	account := &Account{ID: 910021, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	for _, tc := range []struct {
-		name               string
-		semanticOutput     bool
-		clientDisconnected bool
-		terminalSeen       bool
-		requestContext     context.Context
+		name                string
+		semanticOutput      bool
+		clientOutputStarted bool
+		clientDisconnected  bool
+		terminalSeen        bool
+		requestContext      context.Context
+		wantBlocked         bool
 	}{
-		{name: "no semantic output", requestContext: context.Background()},
-		{name: "client disconnected", semanticOutput: true, clientDisconnected: true, requestContext: context.Background()},
-		{name: "normal terminal", semanticOutput: true, terminalSeen: true, requestContext: context.Background()},
-		{name: "request canceled", semanticOutput: true, requestContext: canceledContext()},
+		{name: "no semantic output still escapes", requestContext: context.Background(), wantBlocked: true},
+		{name: "client disconnected", semanticOutput: true, clientOutputStarted: true, clientDisconnected: true, requestContext: context.Background()},
+		{name: "normal terminal", semanticOutput: true, clientOutputStarted: true, terminalSeen: true, requestContext: context.Background()},
+		{name: "request canceled", semanticOutput: true, clientOutputStarted: true, requestContext: canceledContext()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			svc := &OpenAIGatewayService{openaiModelTransient: newOpenAIAccountModelTransientState(32)}
+			svc := &OpenAIGatewayService{
+				openaiModelTransient: newOpenAIAccountModelTransientState(32),
+				cfg: &config.Config{Gateway: config.GatewayConfig{
+					OpenAIScheduler: config.GatewayOpenAISchedulerConfig{StickyEscapeEnabled: true},
+				}},
+			}
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(tc.requestContext)
+			c.Set("api_key", &APIKey{Group: &Group{StreamStickyEscapeEnabled: true}})
 
 			svc.handleCommittedOpenAIStreamDisconnect(
 				c,
@@ -125,14 +201,90 @@ func TestHandleCommittedOpenAIStreamDisconnectIgnoresNonUpstreamOrNonSemanticEnd
 				"gpt-5.6-sol",
 				errors.New("stream ended"),
 				tc.semanticOutput,
+				tc.clientOutputStarted,
 				tc.clientDisconnected,
 				tc.terminalSeen,
 				"test",
 			)
 
-			require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
+			require.Equal(t, tc.wantBlocked, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.6-sol"))
 		})
 	}
+}
+
+func TestHandleCommittedOpenAIStreamDisconnectHonorsGroupSwitch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fixture := newStreamStickyEscapeFixture(t, 910071)
+	apiKeyValue, ok := fixture.context.MustGet("api_key").(*APIKey)
+	require.True(t, ok)
+	require.NotNil(t, apiKeyValue.Group)
+	apiKeyValue.Group.StreamStickyEscapeEnabled = false
+
+	fixture.service.handleCommittedOpenAIStreamDisconnect(
+		fixture.context,
+		fixture.account,
+		"gpt-5.6-sol",
+		errors.New("upstream connection reset"),
+		true,
+		false,
+		false,
+		false,
+		"read_error",
+	)
+
+	require.False(t, fixture.service.isOpenAIAccountModelRuntimeBlocked(fixture.account, "gpt-5.6-sol"))
+	require.Empty(t, fixture.cache.deletedSessions)
+}
+
+func TestHandleCommittedOpenAIStreamDisconnectHonorsGlobalSwitch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fixture := newStreamStickyEscapeFixture(t, 910081)
+	fixture.service.cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = false
+
+	fixture.service.handleCommittedOpenAIStreamDisconnect(
+		fixture.context,
+		fixture.account,
+		"gpt-5.6-sol",
+		errors.New("upstream connection reset"),
+		true,
+		false,
+		false,
+		false,
+		"read_error",
+	)
+
+	require.False(t, fixture.service.isOpenAIAccountModelRuntimeBlocked(fixture.account, "gpt-5.6-sol"))
+	require.Empty(t, fixture.cache.deletedSessions)
+}
+
+func TestNewOpenAIStreamDisconnectFailoverErrorHonorsGroupSwitch(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	fixture := newStreamStickyEscapeFixture(t, 910091)
+
+	enabled := fixture.service.newOpenAIStreamDisconnectFailoverError(
+		fixture.context,
+		fixture.account,
+		false,
+		"request-enabled",
+		nil,
+		"upstream connection reset",
+	)
+	require.True(t, enabled.AvoidSameAccountRetry)
+
+	apiKeyValue, ok := fixture.context.MustGet("api_key").(*APIKey)
+	require.True(t, ok)
+	require.NotNil(t, apiKeyValue.Group)
+	apiKeyValue.Group.StreamStickyEscapeEnabled = false
+
+	disabled := fixture.service.newOpenAIStreamDisconnectFailoverError(
+		fixture.context,
+		fixture.account,
+		false,
+		"request-disabled",
+		nil,
+		"upstream connection reset",
+	)
+	require.False(t, disabled.AvoidSameAccountRetry)
 }
 
 func canceledContext() context.Context {

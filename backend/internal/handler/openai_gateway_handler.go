@@ -607,6 +607,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
+	service.SetOpenAIStreamRecoverySession(c, sessionHash)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
 		return
 	}
@@ -740,6 +741,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			continue
 		}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		service.SetOpenAIStreamRecoverySession(c, sessionHash)
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
@@ -895,7 +897,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
+					if failoverErr.ShouldRetrySameAccount() {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++
@@ -1250,6 +1252,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
+	service.SetOpenAIStreamRecoverySession(c, sessionHash)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -1329,6 +1332,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		account := selection.Account
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		service.SetOpenAIStreamRecoverySession(c, sessionHash)
 		reqLog.Debug("openai_messages.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -1457,7 +1461,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						return
 					}
 					// 池模式：同账号重试
-					if failoverErr.RetryableOnSameAccount {
+					if failoverErr.ShouldRetrySameAccount() {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++
@@ -1543,7 +1547,7 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 	// session_id，否则会改变现有 Messages→Codex 缓存滚动语义。
 	if promptCacheKey == "" {
 		if claudeSessionID := service.ClaudeCodeSessionIDFromHeader(c); claudeSessionID != "" {
-			return service.DeriveSessionHashFromSeed(claudeSessionID), promptCacheKey
+			return service.SetOpenAIStreamRecoverySessionFromSeed(c, claudeSessionID), promptCacheKey
 		}
 	}
 	if sessionHash != "" {
@@ -1551,7 +1555,7 @@ func resolveOpenAIMessagesMetadataSession(c *gin.Context, sessionHash, promptCac
 	}
 	if userID := strings.TrimSpace(gjson.GetBytes(body, "metadata.user_id").String()); userID != "" {
 		seed := reqModel + "-" + userID
-		sessionHash = service.DeriveSessionHashFromSeed(seed)
+		sessionHash = service.SetOpenAIStreamRecoverySessionFromSeed(c, seed)
 	}
 	return sessionHash, promptCacheKey
 }

@@ -611,6 +611,8 @@ export interface Group {
   allow_live: boolean
   // 分组级智能调度开关；关闭时使用原调度
   smart_scheduler_enabled: boolean
+  // 异常流式断流后是否清理粘性并切换账号；旧接口缺字段时前端按开启兼容
+  stream_sticky_escape_enabled?: boolean
   // 智能调度恢复探针配置；关闭时不主动探测隔离账号。
   recovery_probe_enabled?: boolean
   recovery_probe_mode?: 'manual' | 'smart' | string
@@ -848,6 +850,7 @@ export interface CreateGroupRequest {
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   smart_scheduler_enabled?: boolean
+  stream_sticky_escape_enabled?: boolean
   recovery_probe_enabled?: boolean
   recovery_probe_mode?: 'manual' | 'smart' | string
   recovery_probe_model?: string
@@ -927,6 +930,7 @@ export interface UpdateGroupRequest {
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   smart_scheduler_enabled?: boolean
+  stream_sticky_escape_enabled?: boolean
   recovery_probe_enabled?: boolean
   recovery_probe_mode?: 'manual' | 'smart' | string
   recovery_probe_model?: string

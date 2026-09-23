@@ -77,7 +77,7 @@ func sameAccountRetryDelayFor(failoverErr *service.UpstreamFailoverError, retryC
 }
 
 func sameAccountRetryAllowed(failoverErr *service.UpstreamFailoverError, retryCount, retryLimit int) bool {
-	if failoverErr == nil || !failoverErr.RetryableOnSameAccount {
+	if failoverErr == nil || !failoverErr.ShouldRetrySameAccount() {
 		return false
 	}
 	if !sameAccountRetryDeadlineAllows(failoverErr) {

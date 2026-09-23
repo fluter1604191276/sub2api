@@ -1690,11 +1690,131 @@ func openAIStreamFailedEventRetryableOnSameAccount(account *Account, payload []b
 
 const openAIStreamRecoverySessionHashKey = "openai_stream_recovery_session_hash"
 
+// openAIStreamRecoverySessionAuthoritativeKey marks a session hash that was
+// resolved by the request handler before account-specific body normalization.
+// Forward may be called more than once during failover, so it must not replace
+// this routing identity with a hash derived from an account-specific payload.
+const openAIStreamRecoverySessionAuthoritativeKey = "openai_stream_recovery_session_authoritative"
+
 const openAIStreamStickyEscapeHandledKey = "openai_stream_sticky_escape_handled"
+
+// openAIStreamStickyEscapeEnabled is the single runtime gate for the
+// group-level stream sticky escape switch. The global setting remains a
+// deployment-wide safety gate; the group flag is intentionally fail-closed
+// when authentication did not materialize a group snapshot.
+func (s *OpenAIGatewayService) openAIStreamStickyEscapeEnabled(c *gin.Context) bool {
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled {
+		return false
+	}
+	apiKey := getAPIKeyFromContext(c)
+	return apiKey != nil && apiKey.Group != nil && apiKey.Group.StreamStickyEscapeEnabled
+}
+
+// openAIStreamStickyEscapeHandledKey is request-scoped, but a single request
+// can try more than one account after a pre-commit failover. Track the account
+// and model pair rather than using one request-wide boolean, otherwise a
+// second account that also disconnects would escape health handling silently.
+func openAIStreamStickyEscapeHandledPair(account *Account, model string) string {
+	if account == nil {
+		return ""
+	}
+	return strconv.FormatInt(account.ID, 10) + "\x00" + strings.TrimSpace(model)
+}
+
+func openAIStreamStickyEscapeAlreadyHandled(c *gin.Context, account *Account, model string) bool {
+	if c == nil {
+		return false
+	}
+	pair := openAIStreamStickyEscapeHandledPair(account, model)
+	if pair == "" {
+		return false
+	}
+	value, ok := c.Get(openAIStreamStickyEscapeHandledKey)
+	if !ok {
+		return false
+	}
+	handled, ok := value.(map[string]struct{})
+	if !ok {
+		return false
+	}
+	_, exists := handled[pair]
+	return exists
+}
+
+func markOpenAIStreamStickyEscapeHandled(c *gin.Context, account *Account, model string) {
+	if c == nil {
+		return
+	}
+	pair := openAIStreamStickyEscapeHandledPair(account, model)
+	if pair == "" {
+		return
+	}
+	value, _ := c.Get(openAIStreamStickyEscapeHandledKey)
+	handled, _ := value.(map[string]struct{})
+	if handled == nil {
+		handled = make(map[string]struct{})
+		c.Set(openAIStreamStickyEscapeHandledKey, handled)
+	}
+	handled[pair] = struct{}{}
+}
+
+// markOpenAIStreamDisconnectFailover prevents an interrupted upstream stream
+// from being retried on the same credential. The error can remain retryable at
+// the request level, but a transport failure is precisely the case where
+// repeating the attempt on the sticky account causes the user-visible loop.
+func markOpenAIStreamDisconnectFailover(failoverErr *UpstreamFailoverError) *UpstreamFailoverError {
+	if failoverErr != nil {
+		failoverErr.AvoidSameAccountRetry = true
+	}
+	return failoverErr
+}
+
+func (s *OpenAIGatewayService) newOpenAIStreamDisconnectFailoverError(
+	c *gin.Context,
+	account *Account,
+	passthrough bool,
+	upstreamRequestID string,
+	payload []byte,
+	message string,
+	responseHeaders ...http.Header,
+) *UpstreamFailoverError {
+	failoverErr := s.newOpenAIStreamFailoverError(
+		c,
+		account,
+		passthrough,
+		upstreamRequestID,
+		payload,
+		message,
+		responseHeaders...,
+	)
+	if s.openAIStreamStickyEscapeEnabled(c) {
+		return markOpenAIStreamDisconnectFailover(failoverErr)
+	}
+	return failoverErr
+}
+
+// SetOpenAIStreamRecoverySession records the final routing session hash for a
+// request. Handlers call this after all protocol-specific session resolution is
+// complete; the forwarding layer treats it as authoritative across retries.
+func SetOpenAIStreamRecoverySession(c *gin.Context, sessionHash string) {
+	if c == nil || strings.TrimSpace(sessionHash) == "" {
+		return
+	}
+	c.Set(openAIStreamRecoverySessionHashKey, strings.TrimSpace(sessionHash))
+	c.Set(openAIStreamRecoverySessionAuthoritativeKey, true)
+}
 
 func rememberOpenAIStreamRecoverySession(c *gin.Context, sessionHash string) {
 	if c == nil || strings.TrimSpace(sessionHash) == "" {
 		return
+	}
+	if authoritative, _ := c.Get(openAIStreamRecoverySessionAuthoritativeKey); authoritative == true {
+		return
+	}
+	if existing, ok := c.Get(openAIStreamRecoverySessionHashKey); ok {
+		if existingHash, _ := existing.(string); strings.TrimSpace(existingHash) != "" {
+			return
+		}
 	}
 	c.Set(openAIStreamRecoverySessionHashKey, strings.TrimSpace(sessionHash))
 }
@@ -1733,12 +1853,12 @@ func (s *OpenAIGatewayService) clearStickyAfterOpenAIFailover(c *gin.Context, fa
 	}
 }
 
-// handleCommittedOpenAIStreamDisconnect prevents a new request from being
-// routed back to an account whose stream produced semantic output and then
-// ended without a valid terminal event. The current response cannot be
-// replayed after semantic output, so this deliberately only prepares the next
-// request: cool the account+model pair and remove the sticky binding for the
-// current group/session.
+// handleCommittedOpenAIStreamDisconnect prevents a request from being routed
+// back to an account whose upstream stream ended abnormally. This applies both
+// before and after visible output: before output it makes the current request
+// fail over to another account; after output it prepares the next retry/continue
+// request. In both cases the account+model pair is cooled and the sticky
+// binding for the current group/session is removed.
 //
 // Keep client cancellation, normal terminal tails, and local scanner limits
 // out of account health. A Gin context may pass through more than one stream
@@ -1749,11 +1869,12 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 	canonicalModel string,
 	streamErr error,
 	semanticOutputStarted bool,
+	clientOutputStarted bool,
 	clientDisconnected bool,
 	terminalSeen bool,
 	reason string,
 ) {
-	if s == nil || account == nil || !semanticOutputStarted || clientDisconnected || terminalSeen {
+	if s == nil || account == nil || clientDisconnected || terminalSeen || !s.openAIStreamStickyEscapeEnabled(c) {
 		return
 	}
 	if errors.Is(streamErr, context.Canceled) || errors.Is(streamErr, context.DeadlineExceeded) || errors.Is(streamErr, bufio.ErrTooLong) {
@@ -1765,11 +1886,6 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 	if c.Request.Context().Err() != nil {
 		return
 	}
-	if handled, _ := c.Get(openAIStreamStickyEscapeHandledKey); handled == true {
-		return
-	}
-	c.Set(openAIStreamStickyEscapeHandledKey, true)
-
 	model := strings.TrimSpace(canonicalModel)
 	if model == "" {
 		if value, ok := c.Get(OpsUpstreamModelKey); ok {
@@ -1780,6 +1896,10 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 	if model != "" {
 		model = canonicalOpenAIAccountSchedulingModel(account, model)
 	}
+	if openAIStreamStickyEscapeAlreadyHandled(c, account, model) {
+		return
+	}
+	markOpenAIStreamStickyEscapeHandled(c, account, model)
 	decision := s.forceBlockOpenAIAccountModel(account, model, time.Now(), openAICommittedStreamFailureCooldown)
 
 	apiKey := getAPIKeyFromContext(c)
@@ -1800,6 +1920,8 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 		zap.String("sticky_escape_reason", strings.TrimSpace(reason)),
 		zap.Int64("group_id", derefGroupID(groupID)),
 		zap.Bool("session_present", sessionHash != ""),
+		zap.Bool("semantic_output_started", semanticOutputStarted),
+		zap.Bool("client_output_started", clientOutputStarted),
 		zap.Int64("cooldown_ms", decision.Cooldown.Milliseconds()),
 	)
 	if streamErr != nil {
@@ -1813,7 +1935,7 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 }
 
 func (s *OpenAIGatewayService) handleCommittedOpenAIStreamFailure(c *gin.Context, account *Account, canonicalModel string, payload []byte, message string) {
-	if s == nil || account == nil || !openAIStreamFailedEventShouldFailover(payload, message) {
+	if s == nil || account == nil || !s.openAIStreamStickyEscapeEnabled(c) || !openAIStreamFailedEventShouldFailover(payload, message) {
 		return
 	}
 	status := openAIStreamFailedEventSemanticStatus(payload, message)
@@ -2405,6 +2527,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			mappedModel,
 			err,
 			semanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"read_error",
@@ -2415,7 +2538,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				msg += ": " + errText
 			}
 			return resultWithUsage(),
-				s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, msg)
+				s.newOpenAIStreamDisconnectFailoverError(c, account, true, upstreamRequestID, nil, msg)
 		}
 		if clientDisconnected {
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete after disconnect: %w", err)
@@ -2440,6 +2563,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			mappedModel,
 			missingTerminalErr,
 			semanticOutputSeen,
+			openAIStreamClientOutputStarted(c, clientOutputStarted),
 			clientDisconnected,
 			false,
 			"missing_terminal",
@@ -2451,7 +2575,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		).Info("OpenAI passthrough 上游流在未收到 [DONE] 时结束，疑似断流")
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			return resultWithUsage(),
-				s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
+				s.newOpenAIStreamDisconnectFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
 		}
 		s.recordOpenAIProxyStreamDisconnect(account, missingTerminalErr, upstreamRequestID)
 		return resultWithUsage(), missingTerminalErr

@@ -154,6 +154,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		ProfitMinMargin:                   g.ProfitMinMargin,
 		ProfitSafetyBuffer:                g.ProfitSafetyBuffer,
 		SmartSchedulerEnabled:             g.SmartSchedulerEnabled,
+		StreamStickyEscapeEnabled:         g.StreamStickyEscapeEnabled,
 		RecoveryProbeEnabled:              g.RecoveryProbeEnabled,
 		RecoveryProbeMode:                 g.RecoveryProbeMode,
 		RecoveryProbeModel:                g.RecoveryProbeModel,
