@@ -153,3 +153,18 @@ image capability markers。新发布需收集新证据。Responses 工具为 Par
 未运行，Go 不在 PATH，frontend 依赖未安装；生产源 `backend/go.mod` 要求 Go 1.27.0。
 这影响本机测试/构建。本机现已能阅读/编辑源码并经 SSH 处理生产只读运维；后续按实际
 任务准备构建环境，不将本机构建环境缺失误判为无生产访问能力。
+
+### 按需使用 Mac mini
+
+用户已确认：确实需要 Mac mini 环境的任务，可以通过 `ssh mac-mini` 执行。本机作为
+日常入口，负责协调、源码编辑与 Git 交接；Mac mini 按需承担测试/构建及依赖其既有
+环境的任务。远端使用独立、已核验的生产派生工作树，从已提交 Git 分支获取代码，
+不使用脏 main、不复制工作目录或凭证，也不启动重复的备份任务。
+
+2026-10-01 重查：本机到 Mac mini、生产 VPS 的 SSH 均成功；生产三项容器健康。
+Mac mini 的 Docker 服务可用（29.2.1，aarch64），有 Git、Python、Node 和 Go。
+默认 Go 为 1.26.3，但已缓存 Go 1.27.0 且 `GOTOOLCHAIN=auto`；在生产后继分支的
+backend 目录执行 `go version` 已精确返回 `go1.27.0 darwin/arm64`，满足当前源码版本要求。
+当前选中的 `colima` builder 正在运行并支持 `linux/amd64`；旧 `default` builder
+未连接，不将其误判为当前构建器不可用。非交互 SSH 的 PATH 与本机不同，执行工具时
+使用已发现的 `/opt/homebrew/bin/` 路径或已有登录环境。本轮没有运行后台测试或构建镜像。
