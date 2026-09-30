@@ -7,6 +7,9 @@
 新 clone 没有 skill 时，先完成本地 Git 检查，再发现已有 SSH 配置；缺少凭证只阻断
 远端操作，不阻断本地阅读、测试或文档维护。不要安装整个生产栈才能开始阅读项目。
 
+双端协作（Mac mini / MacBook Pro）的目录职责、分支规则、交接字段和开工命令见
+`ops/public-deploy/docs/DUAL-MAC-HANDOFF.md`。该文档只描述流程，不代表实时生产状态。
+
 ## 先建立事实
 
 先读本仓库的 `AGENTS.md`、`ops/public-deploy/docs/RELEASE-LINES.md`、
