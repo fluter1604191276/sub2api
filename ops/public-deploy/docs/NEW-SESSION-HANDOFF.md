@@ -10,6 +10,9 @@
 双端协作（Mac mini / MacBook Pro）的目录职责、分支规则、交接字段和开工命令见
 `ops/public-deploy/docs/DUAL-MAC-HANDOFF.md`。该文档只描述流程，不代表实时生产状态。
 
+2026-10-01 MacBook Pro 的独立 clone、SSH 入口、实时核验和备份迁移位置见
+`ops/public-deploy/docs/LOCAL-MAC-HANDOFF.md`；下一项任务仍需重新查询生产。
+
 ## 先建立事实
 
 先读本仓库的 `AGENTS.md`、`ops/public-deploy/docs/RELEASE-LINES.md`、
@@ -22,7 +25,7 @@ git rev-parse HEAD
 git remote -v  # 只查看无内嵌凭证的 URL；发现凭证须脱敏，不向聊天转贴
 git worktree list
 ssh fluterapi-prod 'cat /etc/fluterapi-node-role'
-ssh -o BatchMode=yes -o ConnectTimeout=8 fluterapi-prod 'docker inspect sub2api --format "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.source-snapshot"}}"'
+ssh -o BatchMode=yes -o ConnectTimeout=8 fluterapi-prod 'docker inspect sub2api --format "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}|{{index .Config.Labels \"org.opencontainers.image.source-snapshot\"}}"'
 ssh fluterapi-prod 'cd /www/sub2api && docker compose ps'
 ```
 

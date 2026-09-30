@@ -28,10 +28,10 @@ Manifest: .release-evidence/20260923-stream-sticky-escape/release-manifest-r4.js
 Rollback image: fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1
 Rollback image ID: sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7
 Rollback Compose: /www/sub2api/backups/docker-compose.pre-sticky-escape-20260923.yml
-Database/config/data backup: /www/sub2api/backups/sub2api-backup-20260923T034236Z.tar.gz
+Historical pre-switch backup path: /www/sub2api/backups/sub2api-backup-20260923T034236Z.tar.gz (moved by retention; see 2026-10-01 recheck)
 Post-switch checks: healthy, /health JSON status ok, unauthenticated admin groups 401, api.fluterapi.top/health 200, migration column present, production traffic seen on Responses/Chat Completions/Anthropic routes
 Other services: PostgreSQL and Redis stayed healthy; Caddy was not restarted
-Local exact source: project/.worktrees/stream-sticky-escape-20260922, branch feature/stream-sticky-escape-20260922
+Original build source path: project/.worktrees/stream-sticky-escape-20260922, branch feature/stream-sticky-escape-20260922 (later documentation commits advanced this branch; see exact preserved source below)
 Local evidence: .release-evidence/20260923-stream-sticky-escape
 ~~~
 
@@ -40,6 +40,30 @@ push timed out. Its remote image ID, revision and source snapshot match the
 local verified manifest. Production logs also contained usage-log insert
 timeouts during active traffic; this is recorded as an operational follow-up,
 not attributed to this routing change. No paid test request was run.
+
+### 2026-10-01 MacBook Pro recheck
+
+The live production role, image reference, image ID, revision and snapshot still
+match the original 2026-09-23 manifest. App, PostgreSQL and Redis are running
+and healthy. The original manifest SHA-256 is unchanged.
+
+MacBook Pro has an independent clone and locked exact source worktree at
+`/Users/Admin/Documents/study_project/sub2api/.worktrees/production-06d2674d6`.
+Its clean 4,127-file snapshot matches the original manifest. Mac mini's
+`stream-sticky-escape-20260922` branch is now at `02a1a6777`, including later
+documentation changes; its current files are not the deployed source snapshot.
+
+The rollback image and Compose above are still present on the VPS. Compose
+SHA-256 is `f1ed4017a5b1f08dc308b3b072a375e22305352af3523714aa63852e9473817c`.
+The pre-switch archive moved from the historical VPS path to Mac mini:
+`/Users/fluter_claw/Backups/fluterapi-sub2api/vps-archive-20260924T041013Z/sub2api-backup-20260923T034236Z.tar.gz`.
+That path exists; this handoff did not recompute its hash or test a restore.
+Latest full archive observed on VPS:
+`/www/sub2api/backups/sub2api-backup-20260930T033122Z.tar.gz`.
+
+See `LOCAL-MAC-HANDOFF.md` for device paths, Git/SSH access, backup ownership
+and verification limits. This recheck performed no image build, paid inference,
+database write, service restart or deployment.
 
 ## Historical Production Baseline (2026-09-18)
 

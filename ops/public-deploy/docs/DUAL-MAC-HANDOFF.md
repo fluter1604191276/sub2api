@@ -74,7 +74,7 @@ sed -n '1,260p' ops/public-deploy/docs/PRODUCTION-EXTENSIONS.md
 ssh -G fluterapi-prod | awk '$1 ~ /^(hostname|port|user|identityfile|identitiesonly|proxyjump)$/ {print}'
 ssh -o BatchMode=yes -o ConnectTimeout=8 fluterapi-prod 'cat /etc/fluterapi-node-role; hostname'
 ssh -o BatchMode=yes -o ConnectTimeout=8 fluterapi-prod \
-  'docker inspect sub2api --format "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels "org.opencontainers.image.revision"}}|{{index .Config.Labels "org.opencontainers.image.source-snapshot"}}"'
+  'docker inspect sub2api --format "{{.Config.Image}}|{{.Image}}|{{index .Config.Labels \"org.opencontainers.image.revision\"}}|{{index .Config.Labels \"org.opencontainers.image.source-snapshot\"}}"'
 ssh -o BatchMode=yes -o ConnectTimeout=8 fluterapi-prod \
   'cd /www/sub2api && docker compose ps'
 ```
@@ -184,4 +184,3 @@ manifest 恢复，不删除失败镜像或历史证据。
   分支，且只允许普通 fast-forward push。
 - 本文档和其他交接文档不会自动刷新生产状态。每次新会话、每次生产切换前都要重新
   查询生产容器标签、digest、revision、source snapshot、角色和备份。
-

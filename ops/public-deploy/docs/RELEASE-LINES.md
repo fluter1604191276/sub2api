@@ -14,17 +14,22 @@ Current image: fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r4.
 Current revision: 06d2674d660a65abb8f2bb0a63b6e032eb35c937.
 Current image ID: sha256:4d4cc10e1720c3f789129c5ec3f4d122bd8f46904684e0c5a21e62d99fdad8c1.
 Source snapshot: 96be23952093ee5181bb05e2b180f8b92de0c18acc646b9365379f5cdb13b0bc.
-Exact local source: project/.worktrees/stream-sticky-escape-20260922 (clean, preserved).
+Live rechecked from MacBook Pro on 2026-10-01 Asia/Shanghai: production role and image labels match; app, PostgreSQL and Redis healthy.
+Exact preserved source on MacBook Pro: /Users/Admin/Documents/study_project/sub2api/.worktrees/production-06d2674d6 (clean, detached, locked, snapshot matches original manifest).
+Mac mini project/.worktrees/stream-sticky-escape-20260922 is now at 02a1a6777, with documentation changes after production; its current files are not the deployed snapshot.
 Evidence: .release-evidence/20260923-stream-sticky-escape/release-manifest-r4.json.
 Rollback image: fluter/sub2api:fluter-0.2.4-account-groups-20260922-r1 with image ID sha256:941d399a182f57105851591b10768981ebb11c960bf9d0b96e1049f520b53da7.
-Backup: /www/sub2api/backups/sub2api-backup-20260923T034236Z.tar.gz; rollback Compose is retained beside it.
+Rollback Compose remains at /www/sub2api/backups/docker-compose.pre-sticky-escape-20260923.yml.
+Pre-switch archive moved to Mac mini: /Users/fluter_claw/Backups/fluterapi-sub2api/vps-archive-20260924T041013Z/sub2api-backup-20260923T034236Z.tar.gz (path observed 2026-10-01; re-locate and verify before restore).
+Latest full archive observed on VPS: /www/sub2api/backups/sub2api-backup-20260930T033122Z.tar.gz.
+Local entry and verification limits: LOCAL-MAC-HANDOFF.md. Original manifest unchanged; this is not a new release.
 The stream sticky escape group control is available under Admin -> Groups -> Smart Scheduler.
 
 ## Historical Production Baseline (2026-09-18)
 
-Current image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
-Current revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
-Current image ID: `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
+Historical image: `fluter/sub2api:fluter-0.2.4-pricing-quality-20260917-r1`.
+Historical revision: `3be979bebe408c9732b590f3095d42f2a084a46f`.
+Historical image ID: `sha256:1176651ce3e5b3356e8406caae82da0ecde3a04fc703d8f13b8fa26893965ac4`.
 Source snapshot: `b25d7c0dcf766f16aed6f85b46c10c2a9d032db0115992543d2116961c4ea5ca`.
 Exact local source: `.worktrees/pricing-quality-20260917` (clean, preserved).
 Evidence: `.release-evidence/20260917-pricing-quality`.
@@ -32,9 +37,9 @@ Remote manifest: `/tmp/release-manifest-authorized-20260917.json` (verified on V
 Rollback image: `fluter/sub2api:fluter-0.2.4-currency-20260915-r3` with digest `sha256:a281f7d661d19558b318637e682590e6bb81cca2bf490fb8e32135da3bb01f5d`.
 See RELEASE-BASELINE.md for remote manifest and rollback paths.
 
-The next development line must derive from this live-verified revision, not
-the historical line below. Documentation commits after this revision do not
-change the deployed image identity.
+This was the development baseline after the 2026-09-18 release. It is retained
+for history and recovery; new work uses the revision verified from live
+production. Documentation commits do not change deployed image identity.
 
 ## Historical Production Baseline (2026-09-09)
 
@@ -51,10 +56,9 @@ Switched: 2026-09-09 Asia/Shanghai; post-switch health and auth-boundary checks 
 Rechecked: 2026-09-09T04:15:48Z; production role, running/healthy, image labels match manifest
 ```
 
-The baseline is the image currently serving production. The next development
-line must be created from its `Revision`, and this block must be updated after
-every verified production switch. It is a reference record, not a substitute
-for live verification.
+This block records the 2026-09-09 image and is historical evidence. It is not
+the current development base. Use the live production revision and keep the
+current baseline block above updated after every switch.
 
 ## Historical Production-Derived Development Line
 
@@ -62,15 +66,14 @@ for live verification.
 Base image: fluter/sub2api:fluter-0.1.183-probe-budget-fix-20260909-r1
 Base digest: sha256:935a1734a9875e92cb500609b5f76ab4b12b270600d397193f6726af6e820945
 Base revision: 6f71a42f5d36cfce69f6b1798b81a19f546c04cf
-Branch: create the next line from the live revision after this switch
-Worktree: create a new production-derived worktree; do not reuse the previous candidate path
+Branch: historical instruction to create a line after the 2026-09-09 switch
+Worktree: historical development-line record; do not reuse as a current base
 ```
 
-This is the only approved source for the current round of二开 until production
-changes again. It inherits the site-specific scheduler, scheduled probe,
-quality and cache telemetry, image cost, pricing calibration, model
-sync/filter, error sanitization, Responses compatibility boundary, and release
-integrity work from the running image.
+That historical line inherited scheduler, probe, quality/cache telemetry,
+image cost, pricing, model filtering, error handling and protocol extensions.
+Their current inventory is PRODUCTION-EXTENSIONS.md; the base for new work is
+always the live production revision, not this historical line.
 
 The release identity is always the complete tuple:
 
