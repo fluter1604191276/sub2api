@@ -3029,7 +3029,7 @@ func openAIUpstreamCostFactors(accounts []*Account, now time.Time, oauthScheduli
 			continue
 		}
 		eligibleCount++
-		if rate, ok := openAISchedulingRate(account, now, oauthSchedulingRateMultiplier); ok {
+		if rate, ok := openAICostSignalRate(account, now, oauthSchedulingRateMultiplier); ok {
 			samples = append(samples, rateSample{accountID: account.ID, rate: rate})
 		}
 	}
@@ -3092,7 +3092,7 @@ func newOpenAILegacyUpstreamRateOrder(accounts []*Account, now time.Time, oauthS
 		if !account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike() {
 			continue
 		}
-		rate, ok := openAISchedulingRate(account, now, oauthSchedulingRateMultiplier)
+		rate, ok := openAICostSignalRate(account, now, oauthSchedulingRateMultiplier)
 		if !ok {
 			continue
 		}
@@ -3106,16 +3106,37 @@ func newOpenAILegacyUpstreamRateOrder(accounts []*Account, now time.Time, oauthS
 	return openAILegacyUpstreamRateOrder{enabled: len(rates) >= 2 && distinct, rates: rates}
 }
 
-// Unknown probe cost remains unknown: account billing defaults are not measured upstream cost.
+// openAISchedulingRate returns the configured scheduling reference. A fresh API
+// probe wins; explicit OAuth settings win over an account billing reference.
+// A reference rate does not itself prove a measured upstream cost.
 func openAISchedulingRate(account *Account, now time.Time, oauthSchedulingRateMultiplier *float64) (float64, bool) {
-	if account != nil && account.IsOpenAIOAuthLike() {
-		rate := defaultOpenAIOAuthSchedulingRateMultiplier
-		if oauthSchedulingRateMultiplier != nil {
-			rate = *oauthSchedulingRateMultiplier
-		}
-		return rate, rate >= 0 && !math.IsNaN(rate) && !math.IsInf(rate, 0)
+	if account == nil || (!account.IsOpenAIApiKey() && !account.IsOpenAIOAuthLike()) {
+		return 0, false
 	}
-	return openAIFreshUpstreamBillingRate(account, now)
+	if account.IsOpenAIOAuthLike() {
+		if rate := oauthSchedulingRateMultiplier; rate != nil && *rate >= 0 && !math.IsNaN(*rate) && !math.IsInf(*rate, 0) {
+			return *rate, true
+		}
+	} else if rate, ok := openAIFreshUpstreamBillingRate(account, now); ok {
+		return rate, true
+	}
+	rate := account.BillingRateMultiplier()
+	return rate, !math.IsNaN(rate) && !math.IsInf(rate, 0)
+}
+
+// Missing API-key cost data stays unknown for both cost-scheduling modes.
+// Only fresh probes or explicit valid account references contribute a sample;
+// the BillingRateMultiplier default must not inflate sparse probe coverage.
+func openAICostSignalRate(account *Account, now time.Time, oauthSchedulingRateMultiplier *float64) (float64, bool) {
+	if account != nil && account.IsOpenAIApiKey() {
+		if rate, ok := openAIFreshUpstreamBillingRate(account, now); ok {
+			return rate, true
+		}
+		if account.RateMultiplier == nil || *account.RateMultiplier < 0 {
+			return 0, false
+		}
+	}
+	return openAISchedulingRate(account, now, oauthSchedulingRateMultiplier)
 }
 
 // compare returns -1 when a should be selected before b, 1 when b should be

@@ -2,9 +2,11 @@ package service
 
 import (
 	"encoding/json"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/stretchr/testify/require"
 )
 
 func TestStableUpgradeReasoningPreservesProductionDefaults(t *testing.T) {
@@ -29,7 +31,7 @@ func TestStableUpgradeReasoningPreservesProductionDefaults(t *testing.T) {
 }
 
 func TestStableUpgradeDeepSeekKeepsFixedProductionCardAcrossTimes(t *testing.T) {
-	svc := newTestBillingService()
+	svc := newStableUpgradeBillingService()
 	for _, at := range []time.Time{time.Date(2026, 9, 10, 2, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 8, 0, 0, 0, time.UTC)} {
 		for _, tc := range []struct {
 			model                string
@@ -67,7 +69,7 @@ func TestStableUpgradeAccountStatsArgumentBridgePreservesMetadata(t *testing.T) 
 
 // Assert monetary outcomes, independently of the compatibility helper.
 func TestStableUpgradePreservesProductionBillingOutcomes(t *testing.T) {
-	svc := newTestBillingService()
+	svc := newStableUpgradeBillingService()
 	for _, count := range []int{271999, 272000, 272001} {
 		cost, err := svc.CalculateCostWithServiceTier("gpt-6-astra", UsageTokens{InputTokens: count, OutputTokens: 10}, 1, "ultrafast")
 		require.NoError(t, err)
@@ -140,7 +142,7 @@ func TestStableUpgradeReasoningJSONToBillingAndDisplay(t *testing.T) {
 }
 
 func TestStableUpgradeExplicitPricingInputsRemainAvailable(t *testing.T) {
-	svc := newTestBillingService()
+	svc := newStableUpgradeBillingService()
 	// New multiplier support is testable with an explicit pricing input; the Astra
 	// production default remains 2x and is covered independently above.
 	pricing := &ModelPricing{InputPricePerToken: 10e-6, OutputPricePerToken: 50e-6, UltrafastMultiplier: 6}
@@ -148,10 +150,17 @@ func TestStableUpgradeExplicitPricingInputsRemainAvailable(t *testing.T) {
 	require.InDelta(t, 0.06, cost.InputCost, 1e-12)
 	require.InDelta(t, 0.003, cost.OutputCost, 1e-12)
 	// Explicit image prices still use those prices, rather than the nil-price policy.
-	channel := &ChannelModelPricing{ImageInputPrice: testPtrFloat64(8e-6), ImageOutputPrice: testPtrFloat64(30e-6)}
+	channel := &ChannelModelPricing{ImageInputPrice: stableUpgradeFloat64Ptr(8e-6), ImageOutputPrice: stableUpgradeFloat64Ptr(30e-6)}
 	p, err := svc.GetModelPricingWithChannel("claude-sonnet-4", channel)
 	require.NoError(t, err)
 	imageCost := svc.computeTokenBreakdown(p, UsageTokens{InputTokens: 1000, ImageInputTokens: 600, OutputTokens: 500, ImageOutputTokens: 500}, 1, "", false)
 	require.InDelta(t, 600*8e-6, imageCost.ImageInputCost, 1e-12)
 	require.InDelta(t, 500*30e-6, imageCost.ImageOutputCost, 1e-12)
 }
+
+// These helpers are available in both default and unit-tag release suites.
+func newStableUpgradeBillingService() *BillingService {
+	return NewBillingService(&config.Config{}, nil)
+}
+
+func stableUpgradeFloat64Ptr(value float64) *float64 { return &value }
