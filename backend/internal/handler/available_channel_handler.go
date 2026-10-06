@@ -79,6 +79,7 @@ type userSupportedModelPricing struct {
 	ImageOutputPrice             *float64                 `json:"image_output_price"`
 	PerRequestPrice              *float64                 `json:"per_request_price"`
 	Intervals                    []userPricingIntervalDTO `json:"intervals"`
+	ReasoningEffortMultipliers   map[string]float64       `json:"reasoning_effort_multipliers,omitempty"`
 }
 
 // userPricingIntervalDTO 定价区间白名单（去掉内部 ID、SortOrder 等前端不渲染的字段）。
@@ -401,5 +402,6 @@ func toUserPricing(p *service.ChannelModelPricing, platformOverride ...string) *
 		ImageOutputPrice:             p.ImageOutputPrice,
 		PerRequestPrice:              p.PerRequestPrice,
 		Intervals:                    intervals,
+		ReasoningEffortMultipliers:   p.ReasoningEffortMultipliers,
 	}
 }

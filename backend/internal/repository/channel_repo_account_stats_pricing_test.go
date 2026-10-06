@@ -34,11 +34,11 @@ func TestBatchLoadAccountStatsModelPricing_LoadsImageOperation(t *testing.T) {
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "rule_id", "platform", "models", "billing_mode", "input_price", "output_price",
-			"cache_write_price", "cache_write_1h_price", "cache_read_price", "image_output_price", "per_request_price",
+			"cache_write_price", "cache_write_1h_price", "cache_read_price", "reasoning_effort_multipliers", "image_output_price", "per_request_price",
 			"image_operation", "time_pricing", "created_at", "updated_at",
 		}).AddRow(
 			int64(10), int64(7), "openai", []byte(`["gpt-image-1"]`), service.BillingModeImage,
-			inputPrice, outputPrice, cacheWritePrice, cacheWrite1hPrice, cacheReadPrice, imageOutputPrice, perRequestPrice,
+			inputPrice, outputPrice, cacheWritePrice, cacheWrite1hPrice, cacheReadPrice, `{}`, imageOutputPrice, perRequestPrice,
 			service.AccountStatsImageOperationResponses, timePricingJSON, now, now,
 		))
 	mock.ExpectQuery("SELECT id, pricing_id, min_tokens, max_tokens, tier_label,").
@@ -82,15 +82,15 @@ func TestBatchLoadAccountStatsModelPricing_NullImageOperationLoadsAsAny(t *testi
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "rule_id", "platform", "models", "billing_mode", "input_price", "output_price",
-			"cache_write_price", "cache_write_1h_price", "cache_read_price", "image_output_price", "per_request_price",
+			"cache_write_price", "cache_write_1h_price", "cache_read_price", "reasoning_effort_multipliers", "image_output_price", "per_request_price",
 			"image_operation", "time_pricing", "created_at", "updated_at",
 		}).AddRow(
 			int64(11), int64(8), "openai", []byte(`["gpt-image-1"]`), service.BillingModeImage,
-			nil, nil, nil, nil, nil, nil, perRequestPrice,
+			nil, nil, nil, nil, nil, `{}`, nil, perRequestPrice,
 			service.AccountStatsImageOperationAny, nil, now, now,
 		).AddRow(
 			int64(12), int64(8), "anthropic", []byte(`["claude-sonnet-4"]`), service.BillingModeToken,
-			nil, nil, nil, zeroCacheWrite1hPrice, nil, nil, nil,
+			nil, nil, nil, zeroCacheWrite1hPrice, nil, `{}`, nil, nil,
 			service.AccountStatsImageOperationAny, nil, now, now,
 		))
 	mock.ExpectQuery("SELECT id, pricing_id, min_tokens, max_tokens, tier_label,").
@@ -147,7 +147,7 @@ func TestCreateAccountStatsModelPricingTx_PersistsImageOperation(t *testing.T) {
 	mock.ExpectQuery("INSERT INTO channel_account_stats_model_pricing").
 		WithArgs(
 			int64(7), "openai", []byte(`["gpt-image-1"]`), service.BillingModeImage,
-			nil, nil, nil, &cacheWrite1hPrice, nil, nil, &perRequestPrice, "responses",
+			nil, nil, nil, &cacheWrite1hPrice, nil, `{}`, nil, &perRequestPrice, "responses",
 			`{"timezone":"Asia/Shanghai","periods":[{"start_time":"09:00:00","end_time":"12:00:00","multiplier":2}]}`,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(10), now, now))
@@ -197,7 +197,7 @@ func TestCreateAccountStatsModelPricingTx_AnyImageOperationPersistsNull(t *testi
 	mock.ExpectQuery("INSERT INTO channel_account_stats_model_pricing").
 		WithArgs(
 			int64(8), "openai", []byte(`["gpt-image-1"]`), service.BillingModeImage,
-			nil, nil, nil, &zeroCacheWrite1hPrice, nil, nil, &perRequestPrice, nil, nil,
+			nil, nil, nil, &zeroCacheWrite1hPrice, nil, `{}`, nil, &perRequestPrice, nil, nil,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(11), now, now))
 	mock.ExpectQuery("INSERT INTO channel_account_stats_pricing_intervals").
@@ -235,7 +235,7 @@ func TestCreateAccountStatsModelPricingTx_NilCacheWrite1hAndTimePricingPersistNu
 	mock.ExpectQuery("INSERT INTO channel_account_stats_model_pricing").
 		WithArgs(
 			int64(9), "anthropic", []byte(`["claude-sonnet-4"]`), service.BillingModeToken,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, `{}`, nil, nil, nil, nil,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(12), now, now))
 	mock.ExpectCommit()

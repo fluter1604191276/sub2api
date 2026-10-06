@@ -70,12 +70,23 @@ class ReleaseManifestStructureTests(unittest.TestCase):
             del manifest["capabilities"][capability]
             self.assertIn(f"capability {capability} is missing", verify.validate_manifest_structure(manifest))
 
-    def test_official_024_compatibility_requires_authentic_version_evidence(self):
-        self.assertIn("official-024-compatibility", verify.REQUIRED_CAPABILITIES)
-        self.assertIn("official-024-compatibility", manifest_generator.CAPABILITY_IDS)
+    def test_inventory_matches_every_required_capability_exactly(self):
+        inventory = (SCRIPT_DIR / "docs/PRODUCTION-EXTENSIONS.md").read_text()
+        rows = [line.split("|")[1].strip() for line in inventory.splitlines()
+                if line.startswith("| ") and line.split("|")[1].strip() not in ("ID", "---")]
+        self.assertEqual(len(rows), len(set(rows)))
+        self.assertEqual(set(verify.REQUIRED_CAPABILITIES), set(rows))
+        self.assertEqual(set(verify.REQUIRED_CAPABILITIES), set(verify.CAPABILITY_FILES))
+        # Operational scripts are verified as source artifacts, not Go binary strings.
+        self.assertEqual(set(verify.REQUIRED_CAPABILITIES) - {"ops-baseline", "upstream-ledger"},
+                         set(verify.IMAGE_CAPABILITY_MARKERS))
+
+    def test_official_0213_compatibility_requires_authentic_version_evidence(self):
+        self.assertIn("official-0213-compatibility", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("official-0213-compatibility", manifest_generator.CAPABILITY_IDS)
         self.assertIn(
             verify.OFFICIAL_VERSION_FILE,
-            verify.CAPABILITY_FILES["official-024-compatibility"],
+            verify.CAPABILITY_FILES["official-0213-compatibility"],
         )
         repo_root = SCRIPT_DIR.parents[1]
         self.assertEqual(
@@ -94,7 +105,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         finally:
             verify.file_text = original_file_text
         self.assertIn(
-            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.4'",
+            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.13'",
             errors,
         )
 
@@ -315,11 +326,11 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertIsNotNone(processes[0].poll())
 
     def test_official_024_image_smoke_requires_version_and_route_markers(self):
-        complete = verify.inspect_binary_capabilities(b"0.2.4 model-allowlist-candidates")
-        self.assertEqual("present", complete["official-024-compatibility"]["status"])
+        complete = verify.inspect_binary_capabilities(b"0.2.13 model-allowlist-candidates")
+        self.assertEqual("present", complete["official-0213-compatibility"]["status"])
 
         tag_only = verify.inspect_binary_capabilities(b"official-024-candidate")
-        self.assertEqual("missing", tag_only["official-024-compatibility"]["status"])
+        self.assertEqual("missing", tag_only["official-0213-compatibility"]["status"])
 
     def test_public_catalog_contract_is_required_with_source_and_image_evidence(self):
         capability = "public-catalog-contract"

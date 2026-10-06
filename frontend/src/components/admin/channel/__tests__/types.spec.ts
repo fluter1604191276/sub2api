@@ -4,13 +4,16 @@ import {
   accountStatsPricingRuleToForm,
   accountStatsRuleSectionPlatform,
   apiIntervalsToForm,
+  apiReasoningEffortMultipliersToForm,
   apiTimePricingToForm,
   createDefaultTimePricingForm,
   findAccountStatsTimePricingError,
   formIntervalsToAPI,
+  formReasoningEffortMultipliersToAPI,
   formTimePricingToAPI,
   isValidPositiveMultiplier,
   validateIntervals,
+  validateReasoningEffortMultipliers,
   validateTimePricing,
   type IntervalFormEntry,
   type PricingFormEntry,
@@ -18,6 +21,32 @@ import {
   type TimePricingPeriodFormEntry,
 } from '../types'
 import type { AccountStatsPricingRule } from '@/api/admin/channels'
+
+describe('reasoning effort multipliers', () => {
+  it('serializes independent overrides without altering their values', () => {
+    expect(formReasoningEffortMultipliersToAPI({ none: '0.5', high: 1, max: '3', low: '' }))
+      .toEqual({ none: 0.5, high: 1, max: 3 })
+  })
+
+  it.each([null, undefined, {}, { max: '' }])('clears empty overrides with null: %j', value => {
+    expect(formReasoningEffortMultipliersToAPI(value)).toBeNull()
+    expect(validateReasoningEffortMultipliers(value, t)).toBeNull()
+  })
+
+  it('accepts supported levels with positive finite multipliers, including discounts', () => {
+    expect(validateReasoningEffortMultipliers({
+      none: 0.01, minimal: 0.5, low: 1, medium: '1.2', high: 2, xhigh: 2.5, max: 3,
+    }, t)).toBeNull()
+  })
+
+  it.each([0, -1, Infinity, NaN, 'invalid', 'Infinity'])('rejects invalid multiplier %s', multiplier => {
+    expect(validateReasoningEffortMultipliers({ high: multiplier }, t)).toContain('reasoningEffortMultiplierPositive')
+  })
+
+  it('rejects unsupported effort keys', () => {
+    expect(validateReasoningEffortMultipliers({ unknown: 2 }, t)).toContain('reasoningEffortLevelInvalid')
+  })
+})
 
 describe('interval multiplier conversion', () => {
   it('preserves component multipliers without MTok conversion', () => {
@@ -381,5 +410,43 @@ describe('account stats pricing form roundtrip', () => {
     expect(findAccountStatsTimePricingError([{
       platform: 'deepseek', enabled: false, account_stats_pricing_rules: [disabledOriginal],
     }], t)?.error).toContain('range')
+  })
+})
+
+
+describe('stable upgrade account cost compatibility', () => {
+  it('preserves image operation, schedule and explicit reasoning levels through editing', () => {
+    const pricing = {
+      ...makeAPIRule().pricing[0],
+      billing_mode: 'image' as const,
+      image_operation: 'responses' as const,
+      per_request_price: 0.04,
+      cache_write_1h_price: 0,
+      reasoning_effort_multipliers: { high: 1.5, max: 1 },
+      time_pricing: { timezone: 'Asia/Shanghai', periods: [{ start_time: '09:00:00', end_time: '12:00:00', multiplier: 2 }] },
+    }
+    const form = accountStatsPricingRuleToForm(makeAPIRule({ pricing: [pricing] }), 0)
+    const [restored] = accountStatsPricingRulesToAPI([{ platform: 'openai', enabled: true, account_stats_pricing_rules: [form] }])
+    expect(restored!.pricing[0]).toMatchObject({
+      image_operation: 'responses', per_request_price: 0.04, cache_write_1h_price: 0,
+      reasoning_effort_multipliers: { high: 1.5, max: 1 },
+      time_pricing: pricing.time_pricing,
+    })
+  })
+})
+
+
+describe('reasoning override compatibility contract', () => {
+  it('normalizes legacy values, preserves explicit one and clears without reviving legacy', () => {
+    expect(apiReasoningEffortMultipliersToForm({ max_reasoning_effort_multiplier: 2 })).toEqual({ max: 2 })
+    expect(apiReasoningEffortMultipliersToForm({ max_reasoning_effort_multiplier: 2, reasoning_effort_multipliers: {} })).toEqual({})
+    expect(apiReasoningEffortMultipliersToForm({ max_reasoning_effort_multiplier: 2, reasoning_effort_multipliers: null })).toBeNull()
+    expect(formReasoningEffortMultipliersToAPI({ max: 1 })).toEqual({ max: 1 })
+    const form = accountStatsPricingRuleToForm(makeAPIRule({ pricing: [{ ...makeAPIRule().pricing[0], max_reasoning_effort_multiplier: 2 }] }), 0)
+    expect(form.pricing[0]!.reasoning_effort_multipliers).toEqual({ max: 2 })
+    form.pricing[0]!.reasoning_effort_multipliers = null
+    const [saved] = accountStatsPricingRulesToAPI([{ platform: 'openai', enabled: true, account_stats_pricing_rules: [form] }])
+    expect(saved!.pricing[0]!.reasoning_effort_multipliers).toBeNull()
+    expect(saved!.pricing[0]).not.toHaveProperty('max_reasoning_effort_multiplier')
   })
 })

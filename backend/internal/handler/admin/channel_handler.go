@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -68,12 +69,13 @@ type channelModelPricingRequest struct {
 	CacheReadPrice               *float64                   `json:"cache_read_price" binding:"omitempty,min=0"`
 	FastMultiplier               *float64                   `json:"fast_multiplier" binding:"omitempty,gt=0"`
 	FlexMultiplier               *float64                   `json:"flex_multiplier" binding:"omitempty,gt=0"`
-	MaxReasoningEffortMultiplier *float64                   `json:"max_reasoning_effort_multiplier" binding:"omitempty,gt=0"`
+	MaxReasoningEffortMultiplier *float64                   `json:"max_reasoning_effort_multiplier,omitempty" binding:"omitempty,gt=0"`
 	ImageInputPrice              *float64                   `json:"image_input_price" binding:"omitempty,min=0"`
 	ImageOutputPrice             *float64                   `json:"image_output_price" binding:"omitempty,min=0"`
 	PerRequestPrice              *float64                   `json:"per_request_price" binding:"omitempty,min=0"`
 	Intervals                    []pricingIntervalRequest   `json:"intervals"`
 	TimePricing                  *channelTimePricingRequest `json:"time_pricing"`
+	ReasoningEffortMultipliers   map[string]float64         `json:"reasoning_effort_multipliers"`
 }
 
 type channelTimePricingRequest struct {
@@ -148,8 +150,9 @@ type channelModelPricingResponse struct {
 	Intervals                    []pricingIntervalResponse   `json:"intervals"`
 	FastMultiplier               *float64                    `json:"fast_multiplier"`
 	FlexMultiplier               *float64                    `json:"flex_multiplier"`
-	MaxReasoningEffortMultiplier *float64                    `json:"max_reasoning_effort_multiplier"`
+	MaxReasoningEffortMultiplier *float64                    `json:"max_reasoning_effort_multiplier,omitempty"`
 	TimePricing                  *channelTimePricingResponse `json:"time_pricing"`
+	ReasoningEffortMultipliers   map[string]float64          `json:"reasoning_effort_multipliers"`
 }
 
 type channelTimePricingResponse struct {
@@ -254,6 +257,11 @@ func accountStatsPricingToResponse(p *service.ChannelModelPricing) channelModelP
 }
 
 func pricingToResponseWithPlatformDefault(p *service.ChannelModelPricing, defaultPlatform bool) channelModelPricingResponse {
+	multipliers := service.EffectiveReasoningEffortMultipliers(p)
+	var legacyMax *float64
+	if max, configured := multipliers["max"]; configured {
+		legacyMax = &max
+	}
 	models := p.Models
 	if models == nil {
 		models = []string{}
@@ -284,12 +292,13 @@ func pricingToResponseWithPlatformDefault(p *service.ChannelModelPricing, defaul
 		CacheReadPrice:               p.CacheReadPrice,
 		FastMultiplier:               p.FastMultiplier,
 		FlexMultiplier:               p.FlexMultiplier,
-		MaxReasoningEffortMultiplier: p.MaxReasoningEffortMultiplier,
+		MaxReasoningEffortMultiplier: legacyMax,
 		ImageInputPrice:              p.ImageInputPrice,
 		ImageOutputPrice:             p.ImageOutputPrice,
 		PerRequestPrice:              p.PerRequestPrice,
 		Intervals:                    intervals,
 		TimePricing:                  timePricingToResponse(p.TimePricing),
+		ReasoningEffortMultipliers:   multipliers,
 	}
 }
 
@@ -366,11 +375,10 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 				SortOrder:            iv.SortOrder,
 			})
 		}
-		var fastMultiplier, flexMultiplier, maxReasoningEffortMultiplier *float64
+		var fastMultiplier, flexMultiplier *float64
 		if allowChannelMultipliers {
 			fastMultiplier = r.FastMultiplier
 			flexMultiplier = r.FlexMultiplier
-			maxReasoningEffortMultiplier = r.MaxReasoningEffortMultiplier
 		}
 		result = append(result, service.ChannelModelPricing{
 			Platform:                     platform,
@@ -384,12 +392,13 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			CacheReadPrice:               r.CacheReadPrice,
 			FastMultiplier:               fastMultiplier,
 			FlexMultiplier:               flexMultiplier,
-			MaxReasoningEffortMultiplier: maxReasoningEffortMultiplier,
+			MaxReasoningEffortMultiplier: r.MaxReasoningEffortMultiplier,
 			ImageInputPrice:              r.ImageInputPrice,
 			ImageOutputPrice:             r.ImageOutputPrice,
 			PerRequestPrice:              r.PerRequestPrice,
 			Intervals:                    intervals,
 			TimePricing:                  timePricingRequestToService(r.TimePricing),
+			ReasoningEffortMultipliers:   r.ReasoningEffortMultipliers,
 		})
 	}
 	return result
@@ -634,15 +643,15 @@ func (h *ChannelHandler) GetModelDefaultPricing(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{
-		"found":                           true,
-		"input_price":                     pricing.InputPricePerToken,
-		"output_price":                    pricing.OutputPricePerToken,
-		"cache_write_price":               cacheWritePrice,
-		"cache_write_1h_price":            cacheWrite1hPrice,
-		"cache_read_price":                pricing.CacheReadPricePerToken,
-		"max_reasoning_effort_multiplier": pricing.MaxReasoningEffortMultiplier,
-		"image_input_price":               pricing.ImageInputPricePerToken,
-		"image_output_price":              pricing.ImageOutputPricePerToken,
+		"found":                        true,
+		"input_price":                  pricing.InputPricePerToken,
+		"output_price":                 pricing.OutputPricePerToken,
+		"cache_write_price":            cacheWritePrice,
+		"cache_write_1h_price":         cacheWrite1hPrice,
+		"cache_read_price":             pricing.CacheReadPricePerToken,
+		"reasoning_effort_multipliers": pricing.ReasoningEffortMultipliers,
+		"image_input_price":            pricing.ImageInputPricePerToken,
+		"image_output_price":           pricing.ImageOutputPricePerToken,
 	})
 }
 
@@ -658,6 +667,8 @@ var platformToLiteLLMProvider = map[string]string{
 	service.PlatformZhipu:       "zhipu",
 	service.PlatformDeepseek:    "deepseek",
 	service.PlatformMiniMax:     "minimax",
+	service.PlatformOpenCodeGo:  "opencode-go",
+	service.PlatformTypeSafe:    "typesafe",
 }
 
 // SyncPricingModels 返回 LiteLLM 定价目录中指定平台的最新模型列表
@@ -701,4 +712,23 @@ func (h *ChannelHandler) ApplyModelCalibration(c *gin.Context) {
 		return
 	}
 	response.Success(c, preview)
+}
+
+// A supplied new map (including JSON null) replaces the legacy scalar. Old
+// clients omitting the new field retain their explicit legacy max override.
+func (p *channelModelPricingRequest) UnmarshalJSON(data []byte) error {
+	type plain channelModelPricingRequest
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, present := fields["reasoning_effort_multipliers"]; present {
+		decoded.MaxReasoningEffortMultiplier = nil
+	}
+	*p = channelModelPricingRequest(decoded)
+	return nil
 }

@@ -52,6 +52,7 @@ export function resolveIntervalPrices(iv: UserPricingInterval, base: TokenPrices
 export interface EffectivePricingOptions {
   /** Image billing can use a group-level rate independent from the normal group/user rate. */
   imageRateMultiplier?: number | null
+  videoRateMultiplier?: number | null
 }
 
 /**
@@ -65,7 +66,9 @@ export function resolveEffectivePricing(
 ): UserSupportedModelPricing {
   const requestRate = pricing.billing_mode === 'image' && options.imageRateMultiplier != null
     ? options.imageRateMultiplier
-    : rateMultiplier
+    : pricing.billing_mode === 'video' && options.videoRateMultiplier != null
+      ? Math.max(0, options.videoRateMultiplier)
+      : rateMultiplier
   const scaled = (value: number | null | undefined, rate = rateMultiplier): number | null =>
     value == null ? null : value * rate
 

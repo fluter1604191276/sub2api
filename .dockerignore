@@ -5,6 +5,7 @@
 # Git
 .git
 .gitignore
+.upgrade-evidence/
 .gitattributes
 
 # Documentation

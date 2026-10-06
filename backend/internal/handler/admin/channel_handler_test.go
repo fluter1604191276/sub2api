@@ -564,15 +564,14 @@ func TestPricingRequestToService_TimePricingNil(t *testing.T) {
 	require.Nil(t, got[0].TimePricing)
 }
 
-// 账号成本统计规则不支持倍率：allowChannelMultipliers=false 时必须丢弃，
-// 避免渠道倍率意外污染账号成本口径。
+// Fast/Flex 和区间倍率只用于渠道售价；思考等级倍率可在账号统计规则中独立配置。
 func TestPricingRequestToService_MultipliersGatedByFlag(t *testing.T) {
 	req := channelModelPricingRequest{
-		Models:                       []string{"gpt-5"},
-		BillingMode:                  "token",
-		FastMultiplier:               float64Ptr(2.5),
-		FlexMultiplier:               float64Ptr(0.5),
-		MaxReasoningEffortMultiplier: float64Ptr(3),
+		Models:                     []string{"gpt-5"},
+		BillingMode:                "token",
+		FastMultiplier:             float64Ptr(2.5),
+		FlexMultiplier:             float64Ptr(0.5),
+		ReasoningEffortMultipliers: map[string]float64{"high": 1.5, "max": 3},
 		Intervals: []pricingIntervalRequest{{
 			MinTokens:            272000,
 			InputMultiplier:      float64Ptr(2),
@@ -585,7 +584,7 @@ func TestPricingRequestToService_MultipliersGatedByFlag(t *testing.T) {
 	allowed := pricingRequestToService([]channelModelPricingRequest{req}, true)
 	require.Equal(t, float64Ptr(2.5), allowed[0].FastMultiplier)
 	require.Equal(t, float64Ptr(0.5), allowed[0].FlexMultiplier)
-	require.Equal(t, float64Ptr(3), allowed[0].MaxReasoningEffortMultiplier)
+	require.Equal(t, req.ReasoningEffortMultipliers, allowed[0].ReasoningEffortMultipliers)
 	require.Equal(t, float64Ptr(2), allowed[0].Intervals[0].InputMultiplier)
 	require.Equal(t, float64Ptr(1.5), allowed[0].Intervals[0].OutputMultiplier)
 	require.Equal(t, float64Ptr(2), allowed[0].Intervals[0].CacheWriteMultiplier)
@@ -594,7 +593,7 @@ func TestPricingRequestToService_MultipliersGatedByFlag(t *testing.T) {
 	dropped := pricingRequestToService([]channelModelPricingRequest{req}, false)
 	require.Nil(t, dropped[0].FastMultiplier)
 	require.Nil(t, dropped[0].FlexMultiplier)
-	require.Nil(t, dropped[0].MaxReasoningEffortMultiplier)
+	require.Equal(t, req.ReasoningEffortMultipliers, dropped[0].ReasoningEffortMultipliers)
 	require.Nil(t, dropped[0].Intervals[0].InputMultiplier)
 	require.Nil(t, dropped[0].Intervals[0].OutputMultiplier)
 	require.Nil(t, dropped[0].Intervals[0].CacheWriteMultiplier)
@@ -624,6 +623,24 @@ func TestPricingToResponse_TimePricing(t *testing.T) {
 func TestPricingToResponse_TimePricingNil(t *testing.T) {
 	got := pricingToResponse(&service.ChannelModelPricing{})
 	require.Nil(t, got.TimePricing)
+}
+
+func TestPricingRequestAndResponse_ReasoningEffortMultipliers(t *testing.T) {
+	var req channelModelPricingRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"models":["custom-model"],"reasoning_effort_multipliers":{"none":0.5,"high":1.5,"max":3}}`), &req))
+	pricing := pricingRequestToService([]channelModelPricingRequest{req}, true)
+	got := pricingToResponse(&pricing[0])
+	require.Equal(t, map[string]float64{"none": 0.5, "high": 1.5, "max": 3}, got.ReasoningEffortMultipliers)
+	data, err := json.Marshal(got)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"reasoning_effort_multipliers":{"high":1.5,"max":3,"none":0.5}`)
+	// Preserve the legacy response field as an exact mirror for older clients.
+	require.Contains(t, string(data), `"max_reasoning_effort_multiplier":3`)
+
+	req = channelModelPricingRequest{}
+	require.NoError(t, json.Unmarshal([]byte(`{"models":["custom-model"],"reasoning_effort_multipliers":{}}`), &req))
+	pricing = pricingRequestToService([]channelModelPricingRequest{req}, true)
+	require.Empty(t, pricing[0].ReasoningEffortMultipliers)
 }
 
 // ---------------------------------------------------------------------------
@@ -664,7 +681,7 @@ func TestSyncPricingModels_ValidPlatform_EmptyService(t *testing.T) {
 	svc := service.NewPricingService(nil, nil)
 	router := setupSyncPricingModelsRouter(svc)
 
-	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax"} {
+	for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax", "typesafe"} {
 		req := httptest.NewRequest(http.MethodGet, "/channels/pricing/sync-models?platform="+platform, nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -698,10 +715,10 @@ func TestGetModelDefaultPricing_ReturnsFable51CacheTTLs(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var body struct {
 		Data struct {
-			Found                        bool     `json:"found"`
-			CacheWritePrice              float64  `json:"cache_write_price"`
-			CacheWrite1hPrice            *float64 `json:"cache_write_1h_price"`
-			MaxReasoningEffortMultiplier *float64 `json:"max_reasoning_effort_multiplier"`
+			Found                      bool               `json:"found"`
+			CacheWritePrice            float64            `json:"cache_write_price"`
+			CacheWrite1hPrice          *float64           `json:"cache_write_1h_price"`
+			ReasoningEffortMultipliers map[string]float64 `json:"reasoning_effort_multipliers"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
@@ -709,8 +726,7 @@ func TestGetModelDefaultPricing_ReturnsFable51CacheTTLs(t *testing.T) {
 	require.InDelta(t, 12.5e-6, body.Data.CacheWritePrice, 1e-12)
 	require.NotNil(t, body.Data.CacheWrite1hPrice)
 	require.InDelta(t, 20e-6, *body.Data.CacheWrite1hPrice, 1e-12)
-	require.NotNil(t, body.Data.MaxReasoningEffortMultiplier)
-	require.Equal(t, 3.0, *body.Data.MaxReasoningEffortMultiplier)
+	require.Empty(t, body.Data.ReasoningEffortMultipliers)
 }
 
 func TestGetModelDefaultPricing_OmitsUnsupportedCache1hPrice(t *testing.T) {
@@ -729,4 +745,22 @@ func TestGetModelDefaultPricing_OmitsUnsupportedCache1hPrice(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	require.True(t, body.Data.Found)
 	require.Nil(t, body.Data.CacheWrite1hPrice)
+}
+
+func TestChannelPricingReasoningLegacyAndClearAPIContract(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		want map[string]float64
+	}{
+		{`{"models":["claude-fable-5-1"],"max_reasoning_effort_multiplier":2}`, map[string]float64{"max": 2}},
+		{`{"models":["claude-fable-5-1"],"reasoning_effort_multipliers":null}`, nil},
+		{`{"models":["claude-fable-5-1"],"reasoning_effort_multipliers":{}}`, map[string]float64{}},
+		{`{"models":["claude-fable-5-1"],"reasoning_effort_multipliers":{"max":1}}`, map[string]float64{"max": 1}},
+	} {
+		var req channelModelPricingRequest
+		require.NoError(t, json.Unmarshal([]byte(tc.body), &req))
+		entries := pricingRequestToService([]channelModelPricingRequest{req}, true)
+		require.Len(t, entries, 1)
+		require.Equal(t, tc.want, pricingToResponse(&entries[0]).ReasoningEffortMultipliers)
+	}
 }

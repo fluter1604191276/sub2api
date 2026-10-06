@@ -42,12 +42,12 @@ REQUIRED_CAPABILITIES = (
     "channel-monitor-budget",
     "smart-probe-modes",
     "account-model-sync-preview",
-    "official-024-compatibility",
+    "official-0213-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
 )
 
-OFFICIAL_VERSION = "0.2.4"
+OFFICIAL_VERSION = "0.2.13"
 OFFICIAL_VERSION_FILE = "backend/cmd/server/VERSION"
 IMAGE_INSPECTION_TIMEOUT_SECONDS = 120
 CONTAINER_CLEANUP_TIMEOUT_SECONDS = 30
@@ -252,14 +252,14 @@ CAPABILITY_FILES = {
         "frontend/src/components/admin/account/AccountModelSyncDialog.vue",
         "frontend/src/api/admin/accounts.ts",
     ),
-    "official-024-compatibility": (
+    "official-0213-compatibility": (
         OFFICIAL_VERSION_FILE,
         "backend/internal/domain/model_allowlist.go",
         "backend/internal/handler/admin/admin_basic_handlers_test.go",
         "backend/internal/handler/admin/group_handler_simple_mode_test.go",
         "frontend/src/api/admin/groups.ts",
         "frontend/src/views/admin/__tests__/modelAllowlistCandidates.spec.ts",
-        "ops/public-deploy/docs/extensions/20260911-official-024-compatibility.md",
+        "ops/public-deploy/docs/extensions/20261005-official-0213-compatibility.md",
     ),
     "public-catalog-contract": (
         "backend/internal/handler/catalog_metadata.go",
@@ -347,7 +347,7 @@ IMAGE_CAPABILITY_MARKERS = {
         "openai_generic_upstream_failure",
         "openai_generic_upstream_failure_cooldown",
     ),
-    "official-024-compatibility": (OFFICIAL_VERSION, "model-allowlist-candidates"),
+    "official-0213-compatibility": (OFFICIAL_VERSION, "model-allowlist-candidates"),
     "public-catalog-contract": (
         "configured_not_live",
         "before_group_multiplier",

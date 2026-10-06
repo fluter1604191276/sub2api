@@ -1,4 +1,5 @@
 import type { AccountStatsImageOperation, AccountStatsPricingRule, BillingMode, ChannelModelPricing, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
+import { REASONING_EFFORT_LEVELS } from '@/constants/channel'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -30,7 +31,7 @@ export interface PricingFormEntry {
   cache_read_price: number | string | null
   fast_multiplier?: number | string | null
   flex_multiplier?: number | string | null
-  max_reasoning_effort_multiplier?: number | string | null
+  reasoning_effort_multipliers?: Record<string, number | string> | null
   image_input_price: number | string | null
   image_output_price: number | string | null
   per_request_price: number | string | null
@@ -198,6 +199,43 @@ export function isValidPositiveMultiplier(val: number | string | null | undefine
   return Number.isFinite(multiplier) && multiplier > 0
 }
 
+// Normalize old API entries once. Saving/clearing uses only the canonical map.
+export function apiReasoningEffortMultipliersToForm(value: {
+  reasoning_effort_multipliers?: Record<string, number> | null
+  max_reasoning_effort_multiplier?: number | null
+}): Record<string, number> | null {
+  if ('reasoning_effort_multipliers' in value) {
+    return value.reasoning_effort_multipliers == null ? null : { ...value.reasoning_effort_multipliers }
+  }
+  return value.max_reasoning_effort_multiplier != null
+    ? { max: value.max_reasoning_effort_multiplier }
+    : null
+}
+
+export function formReasoningEffortMultipliersToAPI(
+  value: PricingFormEntry['reasoning_effort_multipliers'],
+): Record<string, number> | null {
+  const entries = Object.entries(value || {})
+    .filter(([, multiplier]) => multiplier !== '')
+    .map(([effort, multiplier]) => [effort, Number(multiplier)])
+  return entries.length ? Object.fromEntries(entries) : null
+}
+
+export function validateReasoningEffortMultipliers(
+  value: PricingFormEntry['reasoning_effort_multipliers'],
+  t: TranslateFn,
+): string | null {
+  for (const [effort, multiplier] of Object.entries(value || {})) {
+    if (!REASONING_EFFORT_LEVELS.some(level => level === effort)) {
+      return t('admin.channels.form.reasoningEffortLevelInvalid', { effort })
+    }
+    if (multiplier !== '' && !isValidPositiveMultiplier(multiplier)) {
+      return t('admin.channels.form.reasoningEffortMultiplierPositive', { effort })
+    }
+  }
+  return null
+}
+
 /** 前端显示值($/MTok) → 后端存储值(per-token) */
 export function mTokToPerToken(val: number | string | null | undefined): number | null {
   const num = toNullableNumber(val)
@@ -267,6 +305,7 @@ export function accountStatsPricingRuleToForm(
       cache_write_price: perTokenToMTok(pricing.cache_write_price),
       cache_write_1h_price: perTokenToMTok(pricing.cache_write_1h_price),
       cache_read_price: perTokenToMTok(pricing.cache_read_price),
+      reasoning_effort_multipliers: apiReasoningEffortMultipliersToForm(pricing),
       image_input_price: perTokenToMTok(pricing.image_input_price),
       image_output_price: perTokenToMTok(pricing.image_output_price),
       per_request_price: pricing.per_request_price,
@@ -314,6 +353,7 @@ export function accountStatsPricingRulesToAPI(
           cache_write_price: mTokToPerToken(entry.cache_write_price),
           cache_write_1h_price: mTokToPerToken(entry.cache_write_1h_price),
           cache_read_price: mTokToPerToken(entry.cache_read_price),
+          reasoning_effort_multipliers: formReasoningEffortMultipliersToAPI(entry.reasoning_effort_multipliers),
           image_input_price: mTokToPerToken(entry.image_input_price),
           image_output_price: mTokToPerToken(entry.image_output_price),
           per_request_price: toNullableNumber(entry.per_request_price),

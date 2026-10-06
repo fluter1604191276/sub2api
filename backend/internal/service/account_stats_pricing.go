@@ -19,6 +19,11 @@ import (
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
 // usageOrTokens/args 接受生产旧版的 AccountStatsUsageContext 形态，也接受
 // v0.2.4 的 UsageTokens、requestCount、serviceTier、pricingAt 形态。
+// serviceTier 是最终参与用户计费的 OpenAI 服务层级，用于优先级 3。
+// pricingAt 与本次客户计费使用同一时刻，避免跨峰谷请求的成本与售价错位。
+// longContextPricingEnabled 表示上游是否对本次请求收取长上下文费率，用于优先级 3；
+// 由 accountStatsLongContextPricingEnabled 按账号开关得出，不受分组售价开关影响。
+// reasoningEffort 是最终转发等级；按账号统计定价中配置的等级倍率计费。
 func resolveAccountStatsCost(
 	ctx context.Context,
 	channelService *ChannelService,
@@ -30,6 +35,12 @@ func resolveAccountStatsCost(
 	args ...any,
 ) *float64 {
 	usage, requestCount, totalCost, serviceTier, pricingAt, reasoningEffort := parseAccountStatsUsageArgs(usageOrTokens, args)
+	longContextPricingEnabled := true
+	for _, arg := range args {
+		if enabled, ok := arg.(bool); ok {
+			longContextPricingEnabled = enabled
+		}
+	}
 	if channelService == nil || upstreamModel == "" {
 		return nil
 	}
@@ -56,7 +67,7 @@ func resolveAccountStatsCost(
 
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, usage.Tokens, serviceTier, pricingAt, reasoningEffort)
+		return tryModelFilePricing(billingService, upstreamModel, usage.Tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
 	}
 
 	return nil
@@ -68,8 +79,11 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	tierSet := false
 	pricingAt := time.Time{}
 	reasoningEffort := ""
+	longContextPricingEnabled := true
 	for _, option := range options {
 		switch value := option.(type) {
+		case bool:
+			longContextPricingEnabled = value
 		case string:
 			if !tierSet {
 				tier = value
@@ -81,6 +95,11 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 			pricingAt = value
 		}
 	}
+	resolver := NewModelPricingResolver(nil, billingService)
+	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model})
+	// 无分组的解析结果默认开启长上下文，CostInput.LongContextBillingEnabled=false 无法否决，
+	// 因此直接覆写解析结果。
+	resolved.longContextPricingEnabled = longContextPricingEnabled
 	breakdown, err := billingService.CalculateCostUnified(CostInput{
 		Ctx:             context.Background(),
 		Model:           model,
@@ -89,7 +108,8 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 		ServiceTier:     normalizeBillingServiceTier(tier),
 		ReasoningEffort: reasoningEffort,
 		PricingAt:       pricingAt,
-		Resolver:        NewModelPricingResolver(nil, billingService),
+		Resolver:        resolver,
+		Resolved:        resolved,
 	})
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
@@ -107,6 +127,16 @@ func tryCustomRules(
 	platform, model string, usageOrTokens any, args ...any,
 ) *float64 {
 	usage, requestCount, _, _, pricingAt, reasoningEffort := parseAccountStatsUsageArgs(usageOrTokens, args)
+	// The direct token API takes (requestCount, reasoningEffort), without a tier.
+	_, tokenAPI := usageOrTokens.(UsageTokens)
+	if tokenAPI {
+		for _, arg := range args {
+			if effort, ok := arg.(string); ok {
+				reasoningEffort = effort
+				break
+			}
+		}
+	}
 	modelLower := strings.ToLower(model)
 	imageOperation := deriveAccountStatsImageOperation(usage.ImageCount, usage.InboundEndpoint)
 	for _, rule := range channel.AccountStatsPricingRules {
@@ -114,14 +144,21 @@ func tryCustomRules(
 			continue
 		}
 		pricing := findAccountStatsPricingForUsage(rule.Pricing, platform, modelLower, imageOperation, usage)
+		if tokenAPI {
+			// Calls without image metadata retain the upstream per-unit contract.
+			pricing = findPricingForModel(rule.Pricing, platform, modelLower)
+		}
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
 		cost := calculateStatsCost(pricing, usage, requestCount)
+		if tokenAPI {
+			cost = calculateStatsCost(pricing, usageOrTokens, requestCount)
+		}
 		if cost != nil {
 			// Use the request's pricing time, not the asynchronous settlement time.
 			*cost *= pricing.TimePricing.MultiplierAt(pricingAt)
-			*cost *= maxReasoningEffortBillingMultiplier(model, reasoningEffort, nil)
+			*cost *= compatReasoningEffortMultiplier(model, reasoningEffort, pricing.MaxReasoningEffortMultiplier, pricing.ReasoningEffortMultipliers)
 		}
 		return cost
 	}
@@ -181,7 +218,7 @@ func findNonImagePricingForModel(pricingList []ChannelModelPricing, platform, mo
 }
 
 func isAccountStatsNonImageBillingMode(mode BillingMode) bool {
-	return mode == BillingModeToken || mode == BillingModePerRequest || mode == ""
+	return mode == BillingModeToken || mode == BillingModePerRequest || mode == BillingModeVideo || mode == ""
 }
 
 // matchAccountStatsRule 检查规则是否匹配指定的 accountID 和 groupID。
@@ -258,11 +295,14 @@ func calculateStatsCost(pricing *ChannelModelPricing, usageOrTokens any, request
 	}
 	switch pricing.BillingMode {
 	case BillingModeImage:
+		if _, tokenAPI := usageOrTokens.(UsageTokens); tokenAPI {
+			return calculatePerRequestStatsCost(pricing, requestCount)
+		}
 		if usage.ImageCount > 0 {
 			return calculateAccountStatsImageCost(pricing, usage)
 		}
 		return nil
-	case BillingModePerRequest:
+	case BillingModePerRequest, BillingModeVideo:
 		return calculatePerRequestStatsCost(pricing, requestCount)
 	default:
 		// Custom account-stat pricing is already an explicit upstream cost
@@ -336,7 +376,12 @@ func applyAccountStatsCost(
 	tokens UsageTokens,
 	totalCost float64,
 	pricingAt time.Time,
+	longContextOptions ...bool,
 ) {
+	longContextPricingEnabled := true
+	if len(longContextOptions) > 0 {
+		longContextPricingEnabled = longContextOptions[0]
+	}
 	model := upstreamModel
 	if model == "" {
 		model = requestedModel
@@ -364,7 +409,7 @@ func applyAccountStatsCost(
 		reasoningEffort = *usageLog.ReasoningEffort
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, usage, totalCost, pricingAt, reasoningEffort,
+		ctx, cs, bs, accountID, groupID, model, usage, totalCost, pricingAt, longContextPricingEnabled, reasoningEffort,
 	)
 }
 
@@ -421,4 +466,12 @@ func parseAccountStatsUsageArgs(usageOrTokens any, args []any) (AccountStatsUsag
 	}
 	usage.ServiceTier = serviceTier
 	return usage, requestCount, totalCost, serviceTier, pricingAt, reasoningEffort
+}
+
+// accountStatsLongContextPricingEnabled 判断账号统计成本是否计入长上下文阶梯。
+// 账号统计成本反映上游实际成本：OpenAI 账号由开关声明上游是否收取长上下文费率；
+// 其它平台没有该开关（accountGate 为 nil），按官方阶梯计。分组开关只决定客户售价，
+// 不参与成本判断。
+func accountStatsLongContextPricingEnabled(accountGate *bool) bool {
+	return accountGate == nil || *accountGate
 }

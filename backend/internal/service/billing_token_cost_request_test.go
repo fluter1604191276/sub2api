@@ -217,6 +217,43 @@ func TestCalculateTokenCostForRequest_NoResolverFallsBackToCatalog(t *testing.T)
 	require.Equal(t, want, got)
 }
 
+func TestCalculateTokenCostForRequest_Fable51ExplicitMaxOneDisablesLegacyDefault(t *testing.T) {
+	bs := NewBillingService(&config.Config{}, nil)
+	bs.fallbackPrices["claude-fable-5-1"].ReasoningEffortMultipliers = map[string]float64{"max": 1}
+	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 10}
+	standard, err := bs.CalculateTokenCostForRequest(TokenCostRequest{
+		Model: "claude-fable-5-1", Tokens: tokens, RateMultiplier: 1, ReasoningEffort: "xhigh",
+	})
+	require.NoError(t, err)
+	max, err := bs.CalculateTokenCostForRequest(TokenCostRequest{
+		Model: "claude-fable-5-1", Tokens: tokens, RateMultiplier: 1, ReasoningEffort: "max",
+	})
+	require.NoError(t, err)
+	require.Equal(t, standard, max)
+}
+
+func TestCalculateTokenCostForRequest_ChannelConfiguresReasoningEffortMultiplier(t *testing.T) {
+	configured := 1.5
+	bs, resolver := newTokenCostTestEnv(t, PlatformAnthropic, []ChannelModelPricing{{
+		Platform: PlatformAnthropic, Models: []string{"claude-fable-5-1"}, BillingMode: BillingModeToken,
+		InputPrice: testPtrFloat64(10e-6), OutputPrice: testPtrFloat64(50e-6),
+		ReasoningEffortMultipliers: map[string]float64{"max": configured},
+	}}, nil)
+	group := &Group{ID: 100, Platform: PlatformAnthropic}
+	gid := group.ID
+	resolved := resolver.Resolve(context.Background(), PricingInput{Model: "claude-fable-5-1", GroupID: &gid, Group: group})
+
+	got, err := bs.CalculateTokenCostForRequest(TokenCostRequest{
+		Ctx: context.Background(), Model: "claude-fable-5-1", Group: group,
+		Tokens: UsageTokens{InputTokens: 1000}, RateMultiplier: 1, ReasoningEffort: "max",
+		Resolver: resolver, Resolved: resolved,
+	})
+	require.NoError(t, err)
+	require.InDelta(t, 1000*10e-6*configured, got.TotalCost, 1e-12)
+	require.InDelta(t, got.TotalCost, got.ActualCost, 1e-12)
+}
+
+// Production baseline regression retained during the v0.2.13 merge.
 func TestCalculateTokenCostForRequest_Fable51MaxEffortUsesDefaultMultiplier(t *testing.T) {
 	bs := NewBillingService(&config.Config{}, nil)
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 10}
@@ -234,6 +271,7 @@ func TestCalculateTokenCostForRequest_Fable51MaxEffortUsesDefaultMultiplier(t *t
 	require.InDelta(t, standard.OutputCost*3, max.OutputCost, 1e-12)
 }
 
+// Production baseline regression retained during the v0.2.13 merge.
 func TestCalculateTokenCostForRequest_ChannelOverridesFable51MaxEffortMultiplier(t *testing.T) {
 	configured := 1.5
 	bs, resolver := newTokenCostTestEnv(t, PlatformAnthropic, []ChannelModelPricing{{

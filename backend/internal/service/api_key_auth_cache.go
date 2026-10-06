@@ -149,6 +149,24 @@ type APIKeyAuthGroupSnapshot struct {
 	// It must be cached with the group because gateway requests normally use the
 	// materialized auth snapshot instead of reloading the group from the DB.
 	StreamStickyEscapeEnabled bool `json:"stream_sticky_escape_enabled"`
+
+	// Operational group settings must survive the database -> Redis -> auth path.
+	BatchImageDiscountMultiplier      float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier          float64 `json:"batch_image_hold_multiplier"`
+	RequireOAuthOnly                  bool    `json:"require_oauth_only"`
+	RequirePrivacySet                 bool    `json:"require_privacy_set"`
+	PoolModeEnabled                   *bool   `json:"pool_mode_enabled"`
+	PoolModeRetryCount                *int    `json:"pool_mode_retry_count"`
+	PoolModeRetryStatusCodes          *[]int  `json:"pool_mode_retry_status_codes"`
+	CustomErrorCodesEnabled           *bool   `json:"custom_error_codes_enabled"`
+	CustomErrorCodes                  *[]int  `json:"custom_error_codes"`
+	RecoveryProbeEnabled              bool    `json:"recovery_probe_enabled"`
+	RecoveryProbeMode                 string  `json:"recovery_probe_mode"`
+	RecoveryProbeModel                string  `json:"recovery_probe_model"`
+	RecoveryProbeIntervalSeconds      int     `json:"recovery_probe_interval_seconds"`
+	RecoveryProbeAttemptsPerRound     int     `json:"recovery_probe_attempts_per_round"`
+	RecoveryProbeIdleThresholdSeconds int     `json:"recovery_probe_idle_threshold_seconds"`
+	RecoveryProbeBackoffCapSeconds    int     `json:"recovery_probe_backoff_cap_seconds"`
 }
 
 // APIKeyAuthCacheEntry 缓存条目，支持负缓存

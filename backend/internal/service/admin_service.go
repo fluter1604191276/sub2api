@@ -307,10 +307,10 @@ type CreateGroupInput struct {
 	// ReasoningEffortMappings Anthropic/OpenAI 推理强度映射，可按模型精确名、前缀或后缀限定。
 	ReasoningEffortMappings []ReasoningEffortMapping
 	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数，nil 按 0 处理）
-	ProfitControlEnabled              bool
-	ProfitMinMargin                   *float64
-	ProfitSafetyBuffer                *float64
-	SmartSchedulerEnabled             bool
+	ProfitControlEnabled  bool
+	ProfitMinMargin       *float64
+	ProfitSafetyBuffer    *float64
+	SmartSchedulerEnabled bool
 	// nil means omitted and preserves the database/default policy; an explicit
 	// false is supported so the administrator can disable stream escape.
 	StreamStickyEscapeEnabled         *bool
@@ -579,8 +579,8 @@ type UpdateProxyInput struct {
 	Protocol       string
 	Host           string
 	Port           int
-	Username       string
-	Password       string
+	Username       *string
+	Password       *string
 	Status         string
 	ExpiresAt      *time.Time
 	ClearExpiresAt bool

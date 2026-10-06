@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -394,4 +395,52 @@ func TestOpenAIRawChatTruncationEscapesStickyAfterSemanticOutput(t *testing.T) {
 	)
 	require.Error(t, err)
 	fixture.requireEscaped(t, "gpt-5.6-sol")
+}
+
+func TestOpenAIRawChatPreambleDoesNotCommitBeforeFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			fixture := newStreamStickyEscapeFixture(t, 910101)
+			fixture.context.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			attachOpenAILegacySessionHashToGin(fixture.context, fixture.legacyHash)
+			key := getAPIKeyFromContext(fixture.context)
+			key.Group.StreamStickyEscapeEnabled = enabled
+			body := ": heartbeat\n\ndata: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+			resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+			result, err := fixture.service.streamRawChatCompletions(fixture.context, resp, fixture.account, "gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol", nil, nil, time.Now(), 120)
+			require.Error(t, err)
+			if enabled {
+				var failover *UpstreamFailoverError
+				require.ErrorAs(t, err, &failover)
+				require.True(t, failover.AvoidSameAccountRetry)
+				require.Nil(t, result)
+				require.False(t, fixture.context.Writer.Written())
+				fixture.requireEscaped(t, "gpt-5.6-sol")
+			} else {
+				require.NotNil(t, result)
+				require.True(t, fixture.context.Writer.Written())
+				require.False(t, fixture.service.isOpenAIAccountModelRuntimeBlocked(fixture.account, "gpt-5.6-sol"))
+			}
+		})
+	}
+}
+
+func TestOpenAIRawChatPreambleFlushesOnSemanticOrTerminalOutput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, tail := range map[string]string{
+		"text":   "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\ndata: [DONE]\n\n",
+		"finish": "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+		"usage":  "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":0}}\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newStreamStickyEscapeFixture(t, 910102)
+			head := "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"
+			resp := &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(head + tail))}
+			_, err := fixture.service.streamRawChatCompletions(fixture.context, resp, fixture.account, "gpt-5.6-sol", "gpt-5.6-sol", "gpt-5.6-sol", nil, nil, time.Now(), 120)
+			require.NoError(t, err)
+			require.True(t, fixture.context.Writer.Written())
+			require.False(t, fixture.service.isOpenAIAccountModelRuntimeBlocked(fixture.account, "gpt-5.6-sol"))
+		})
+	}
 }
