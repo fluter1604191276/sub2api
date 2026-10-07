@@ -145,4 +145,9 @@ behavior for that group without changing the smart-scheduler master switch.
 
 ## Required Release Records
 
+The 2026-10-08 frontend dependency security patch is recorded in
+`extensions/20261008-frontend-security-patches.md` under
+`official-0213-compatibility` and `ops-baseline`. It requires a new image and
+manifest; the previous candidate's image digest cannot identify this patch.
+
 发布记录至少要能回答四个问题：这次镜像由哪个源码快照构建、包含哪些二开、每项二开如何验证、失败时恢复哪个镜像和 Compose。登记文件、release manifest 和测试输出必须随候选版本保存；不能只依赖 Codex 会话上下文或个人记忆。
