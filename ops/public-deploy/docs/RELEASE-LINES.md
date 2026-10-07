@@ -8,6 +8,28 @@ The entries below are point-in-time records, not permanent development
 locations. After every production switch, query the live container, replace the
 production baseline block, and create the next line from that new revision.
 
+## Prepared Candidate (2026-10-08; not deployed)
+
+User requested prepare-only today. Production remains r4 / 06d2674d660a65abb8f2bb0a63b6e032eb35c937; this entry does not change the production baseline.
+
+- Release repository/branch: fluter1604191276/sub2api, candidate/security-20261008.
+- Exact candidate commit: 9acf41b5a0f60522a28f0b5b76a83f996f4b373d.
+- Source snapshot: efe57920e84e11c95e776c7f6176428b65f095a2dfdcf880f1c54cc4253f2686.
+- Native linux/amd64 image: fluter/sub2api:candidate-0.2.13-9acf41b5a0f6-amd64.
+- Local Docker immutable image digest: sha256:40e2f55c3f2a89c6ea31d72c5df1d50e858f9bc626b2f13732d9448b5b3d42a8. No registry publication was performed.
+- Candidate image archive SHA256: 93964e268d294dc42f9dedf73c5fbafbb910fa3f4d488a662af347a5f6404a08.
+- VPS evidence/manifest/archive: /www/sub2api/release-evidence/20261008-security-9acf41b5a/; release-manifest.candidate.json has allow_release=false.
+- Local source: project/.worktrees/security-20261008. Clean source was pushed before building; VPS source came from an independent Git clone of that branch.
+- Local handoff: .release-evidence/20261008-switch-handoff/CANDIDATE.md and vps-originals/. The public image archive and sanitized metadata are copied there; real production data/configuration/admin records/keys stay on the VPS.
+- Vue family 3.5.42 and source-map-js 1.2.2 address the two newly reported high advisories. Security Scan 37657517757 passed. Fresh frontend suite: 2701 tests; image artifact checks: 229 passed; all 14 OCI blob hashes verified.
+- Production dependency audit: 0 high/critical, 13 moderate/4 low. Full development audit still has 33 high/3 critical; no new exceptions added.
+- CI 37657517744 still fails integration and Go lint, with the same 41 failing test nodes and 20 lint diagnostics as the old 1c candidate CI. Historical R16 default/unit/mock results do not cover the complete integration-tag suite. These failures remain uncorrected.
+- Current source has 309 SQL files; a fresh synthetic DB matched their exact normalized checksums. The production upgrade ledger is expected to retain historical 173_account_stats_image_operation.sql and total 310 after the nine pending migrations. No production migration ran here.
+- Previous 1c2ba1ca candidate is superseded by this patched source and image. Do not select it or the earlier bf candidate by a readable tag.
+- Current r4 image remains the future same-database rollback object: sha256:4d4cc10e1720c3f789129c5ec3f4d122bd8f46904684e0c5a21e62d99fdad8c1. R17/R18 backup evidence remains on the production host; refresh the coordinated recovery point before any future switch.
+
+A future switch needs a new user instruction, fresh live checks, resolution of CI failures, safe admission freeze/natural long-stream drain, verified independent recovery within 600 seconds, and a post-backup transaction preservation plan. The local switch-controller.py draft failed safety review and is hard-disabled; it was never uploaded or run on production. No maintenance, Caddy reload, Redis ACL change or Cloudflare rule change occurred.
+
 ## Production Baseline (2026-09-23)
 
 Current image: fluter/sub2api:fluter-0.2.4-stream-sticky-escape-20260923-r4.
