@@ -55,6 +55,8 @@ type OpsMetricsCollector struct {
 	redisClient *redis.Client
 	instanceID  string
 
+	dbPoolWaits opsDBPoolWaitSampler
+
 	lastCgroupCPUUsageNanos uint64
 	lastCgroupCPUSampleAt   time.Time
 
@@ -263,6 +265,9 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 	windowEnd := now.Truncate(time.Minute)
 	windowStart := windowEnd.Add(-1 * time.Minute)
 
+	// Sample before database probes/queries: their failure must not hide pool contention.
+	active, idle := c.dbPoolStats()
+
 	sys, err := c.collectSystemStats(ctx)
 	if err != nil {
 		// Continue; system stats are best-effort.
@@ -271,7 +276,6 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 
 	dbOK := c.checkDB(ctx)
 	redisOK := c.checkRedis(ctx)
-	active, idle := c.dbPoolStats()
 	redisTotal, redisIdle, redisStatsOK := c.redisPoolStats()
 
 	successCount, tokenConsumed, err := c.queryUsageCounts(ctx, windowStart, windowEnd)
@@ -358,8 +362,8 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 			return intPtr(redisIdle)
 		}(),
 
-		DBConnActive:          intPtr(active),
-		DBConnIdle:            intPtr(idle),
+		DBConnActive:          active,
+		DBConnIdle:            idle,
 		GoroutineCount:        intPtr(goroutines),
 		ConcurrencyQueueDepth: concurrencyQueueDepth,
 	}
@@ -869,12 +873,78 @@ func (c *OpsMetricsCollector) redisPoolStats() (total int, idle int, ok bool) {
 	return int(stats.TotalConns), int(stats.IdleConns), true
 }
 
-func (c *OpsMetricsCollector) dbPoolStats() (active int, idle int) {
-	if c == nil || c.db == nil {
-		return 0, 0
+// opsDBPoolWaitSample distinguishes cumulative counters from observed interval deltas.
+// sql.DB does not expose a current waiting-connection gauge; DBConnWaiting stays nil.
+// WaitCount counts acquisitions that began waiting; WaitDuration records completed
+// waits, so their deltas need not refer to the same acquisitions. Do not divide them
+// to infer an average wait or interpret either as currently blocked connections.
+type opsDBPoolWaitSample struct {
+	status            string
+	interval          time.Duration
+	waitCountDelta    int64
+	waitDurationDelta time.Duration
+}
+
+type opsDBPoolWaitSampler struct {
+	mu       sync.Mutex
+	pool     *sql.DB
+	previous *sql.DBStats
+	at       time.Time
+}
+
+// observeLocked is called with the sampler lock held so reading Stats, the sample time,
+// and updating the baseline are one ordered operation, even for concurrent callers.
+func (s *opsDBPoolWaitSampler) observeLocked(pool *sql.DB, stats *sql.DBStats, at time.Time) opsDBPoolWaitSample {
+	if stats == nil {
+		s.previous, s.pool, s.at = nil, nil, time.Time{}
+		return opsDBPoolWaitSample{status: "unavailable"}
+	}
+	if stats.WaitCount < 0 || stats.WaitDuration < 0 {
+		s.previous, s.pool, s.at = nil, nil, time.Time{}
+		return opsDBPoolWaitSample{status: "invalid_counter"}
+	}
+	if s.previous != nil && !at.After(s.at) {
+		// Ignore stale samples without moving the baseline backwards.
+		return opsDBPoolWaitSample{status: "non_increasing_time"}
+	}
+	result := opsDBPoolWaitSample{status: "initial"}
+	if s.previous != nil {
+		if pool != s.pool || stats.WaitCount < s.previous.WaitCount || stats.WaitDuration < s.previous.WaitDuration {
+			result.status = "counter_reset"
+		} else {
+			result.status = "interval"
+			result.interval = at.Sub(s.at)
+			result.waitCountDelta = stats.WaitCount - s.previous.WaitCount
+			result.waitDurationDelta = stats.WaitDuration - s.previous.WaitDuration
+		}
+	}
+	baseline := *stats
+	s.previous, s.pool, s.at = &baseline, pool, at
+	return result
+}
+
+func (c *OpsMetricsCollector) dbPoolStats() (active *int, idle *int) {
+	if c == nil {
+		return nil, nil
+	}
+	c.dbPoolWaits.mu.Lock()
+	defer c.dbPoolWaits.mu.Unlock()
+	if c.db == nil {
+		c.dbPoolWaits.observeLocked(nil, nil, time.Time{})
+		log.Printf("[OpsMetricsCollector] db_pool_wait sample=unavailable current_waiters=unavailable")
+		return nil, nil
 	}
 	stats := c.db.Stats()
-	return stats.InUse, stats.Idle
+	sample := c.dbPoolWaits.observeLocked(c.db, &stats, time.Now())
+	// Only fixed field names and process-wide counters; never log SQL, DSNs,
+	// request identities, tokens, or financial data. Baseline-only samples have
+	// no delta fields, rather than inventing a measured zero.
+	if sample.status == "interval" {
+		log.Printf("[OpsMetricsCollector] db_pool_wait sample=interval interval_ns=%d wait_count_total=%d wait_duration_total_ns=%d wait_count_delta=%d wait_duration_delta_ns=%d current_waiters=unavailable", sample.interval.Nanoseconds(), stats.WaitCount, stats.WaitDuration.Nanoseconds(), sample.waitCountDelta, sample.waitDurationDelta.Nanoseconds())
+	} else {
+		log.Printf("[OpsMetricsCollector] db_pool_wait sample=%s wait_count_total=%d wait_duration_total_ns=%d current_waiters=unavailable", sample.status, stats.WaitCount, stats.WaitDuration.Nanoseconds())
+	}
+	return intPtr(stats.InUse), intPtr(stats.Idle)
 }
 
 var opsMetricsCollectorReleaseScript = redis.NewScript(`

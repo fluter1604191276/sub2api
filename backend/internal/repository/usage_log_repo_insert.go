@@ -12,7 +12,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/persistenceobs"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -98,6 +98,7 @@ const (
 	usageLogBestEffortBatchWindow   = 20 * time.Millisecond
 	usageLogBestEffortBatchQueueCap = 32768
 	usageLogBestEffortRecentTTL     = 30 * time.Second
+	usageLogBestEffortSQLTimeout    = 10 * time.Second
 )
 
 type usageLogCreateRequest struct {
@@ -602,17 +603,35 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), usageLogBestEffortSQLTimeout)
 	defer cancel()
 
 	query, args := buildUsageLogBestEffortInsertQuery(preparedList)
-	if _, err := db.ExecContext(ctx, query, args...); err != nil {
-		logger.LegacyPrintf("repository.usage_log", "best-effort batch insert failed: %v", err)
+	started := time.Now()
+	_, err := db.ExecContext(ctx, query, args...)
+	persistenceobs.Observe(persistenceobs.Log, persistenceobs.BatchInsert, started, ctx, err)
+	if err != nil {
+		// Release the failed batch's context. One new bounded window is shared
+		// by the whole fallback, never renewed for each row. A canceled batch
+		// cannot poison it; slow rows also cannot create N * timeout work.
+		cancel()
+		fallbackCtx, fallbackCancel := context.WithTimeout(context.Background(), usageLogBestEffortSQLTimeout)
+		defer fallbackCancel()
 		for _, group := range groupOrder {
-			singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
-			if singleErr != nil {
-				logger.LegacyPrintf("repository.usage_log", "best-effort single fallback insert failed: %v", singleErr)
-			} else if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
+			// A batch error may have an uncertain commit outcome. Only the
+			// existing durable (request_id, api_key_id) key makes replay of a
+			// log-only INSERT safe. Do not invent keys for unkeyed records.
+			singleErr := err
+			if group.prepared.requestID != "" && group.apiKeyID > 0 {
+				started = time.Now()
+				if fallbackCtx.Err() != nil {
+					singleErr = fallbackCtx.Err()
+				} else {
+					singleErr = execUsageLogInsertNoResult(fallbackCtx, db, group.prepared)
+				}
+				persistenceobs.Observe(persistenceobs.Log, persistenceobs.SingleFallback, started, fallbackCtx, singleErr)
+			}
+			if singleErr == nil && r != nil && r.bestEffortRecent != nil {
 				r.bestEffortRecent.SetDefault(group.key, struct{}{})
 			}
 			for _, req := range group.reqs {

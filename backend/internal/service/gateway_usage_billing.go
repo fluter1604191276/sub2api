@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/persistenceobs"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 )
 
@@ -369,7 +370,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 
+	started := time.Now()
 	result, err := repo.Apply(billingCtx, cmd)
+	persistenceobs.Observe(persistenceobs.Billing, persistenceobs.Apply, started, billingCtx, err)
 	if err != nil {
 		return false, err
 	}
@@ -620,8 +623,18 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	defer cancel()
 
 	if writer, ok := repo.(usageLogBestEffortWriter); ok {
-		if err := writer.CreateBestEffort(usageCtx, usageLog); err != nil {
+		started := time.Now()
+		err := writer.CreateBestEffort(usageCtx, usageLog)
+		persistenceobs.Observe(persistenceobs.Log, persistenceobs.BestEffort, started, usageCtx, err)
+		if err != nil {
 			logger.LegacyPrintf(logKey, "Create usage log failed: %v", err)
+			// An unkeyed write with an uncertain outcome cannot be replayed:
+			// PostgreSQL's unique index permits multiple NULL request IDs.
+			// Dropped includes cancellation after enqueue, not proof of no write.
+			if (strings.TrimSpace(usageLog.RequestID) == "" || usageLog.APIKeyID <= 0) && !IsUsageLogCreateNotPersisted(err) {
+				persistenceobs.Observe(persistenceobs.Log, persistenceobs.SyncFallbackSkipped, time.Now(), usageCtx, err)
+				return
+			}
 			// 计费已在此前完成，日志必须落库：dropped（批处理队列超时）同样走同步兜底，
 			// 否则会出现“已扣费但无 usage_log”的对账缺口（issue #3656）。
 			// 重复写入由 usage_logs 的 ON CONFLICT (request_id, api_key_id) DO NOTHING 防护。
@@ -632,14 +645,20 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 				fallbackCtx, fallbackCancel = detachedBillingContext(context.Background())
 				defer fallbackCancel()
 			}
-			if _, syncErr := repo.Create(fallbackCtx, usageLog); syncErr != nil {
+			started = time.Now()
+			_, syncErr := repo.Create(fallbackCtx, usageLog)
+			persistenceobs.Observe(persistenceobs.Log, persistenceobs.SyncFallback, started, fallbackCtx, syncErr)
+			if syncErr != nil {
 				logger.LegacyPrintf(logKey, "Create usage log sync fallback failed: %v", syncErr)
 			}
 		}
 		return
 	}
 
-	if _, err := repo.Create(usageCtx, usageLog); err != nil {
+	started := time.Now()
+	_, err := repo.Create(usageCtx, usageLog)
+	persistenceobs.Observe(persistenceobs.Log, persistenceobs.BestEffort, started, usageCtx, err)
+	if err != nil {
 		logger.LegacyPrintf(logKey, "Create usage log failed: %v", err)
 	}
 }
