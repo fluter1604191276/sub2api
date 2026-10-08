@@ -27,7 +27,7 @@ const versions = {
   renderer: vueRequire('@vue/server-renderer/package.json').version,
   sourceMap: compilerRequire('source-map-js/package.json').version
 }
-assert.deepEqual(versions, { vue: '3.5.42', renderer: '3.5.42', sourceMap: '1.2.2' })
+assert.deepEqual(versions, { vue: '3.5.43', renderer: '3.5.43', sourceMap: '1.2.2' })
 
 const flat = { version: 3, sources: ['input.js'], names: [], mappings: 'AAAA', sourcesContent: ['x'] }
 const section = (line, column = 0, map = flat) => ({

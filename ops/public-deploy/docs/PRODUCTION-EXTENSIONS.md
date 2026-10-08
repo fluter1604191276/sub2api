@@ -31,7 +31,7 @@ Every release manifest must record the status and evidence for each capability b
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
 | ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
-| official-0213-compatibility | Official Sub2API v0.2.13 behavior retained alongside site-specific extensions | official compatibility record, backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
+| official-0214-compatibility | Official Sub2API through v0.2.14 behavior retained alongside site-specific extensions | official compatibility records (including extensions/20261008-official-0214-candidate.md), backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
 
 ## Status Semantics
 
@@ -147,7 +147,7 @@ behavior for that group without changing the smart-scheduler master switch.
 
 The 2026-10-08 frontend dependency security patch is recorded in
 `extensions/20261008-frontend-security-patches.md` under
-`official-0213-compatibility` and `ops-baseline`. It requires a new image and
+`official-0214-compatibility` and `ops-baseline`. It requires a new image and
 manifest; the previous candidate's image digest cannot identify this patch.
 
 发布记录至少要能回答四个问题：这次镜像由哪个源码快照构建、包含哪些二开、每项二开如何验证、失败时恢复哪个镜像和 Compose。登记文件、release manifest 和测试输出必须随候选版本保存；不能只依赖 Codex 会话上下文或个人记忆。
