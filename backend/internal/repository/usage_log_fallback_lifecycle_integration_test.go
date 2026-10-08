@@ -17,8 +17,22 @@ func TestUsageLogFallbackDurableKeyKeepsOneRowAndNoFinancialEffects(t *testing.T
 	client := testEntClient(t)
 	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
 	user := mustCreateUser(t, client, &service.User{Email: "synthetic-log-fallback-" + uuid.NewString() + "@example.invalid", Balance: 100})
+	// This test needs real committed writes, so its owned fixtures must not leak
+	// into later suites that assert aggregate totals on the shared database.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := integrationDB.ExecContext(cleanupCtx, "DELETE FROM users WHERE id=$1", user.ID)
+		require.NoError(t, err, "clean up owned synthetic user and cascaded key/log")
+	})
 	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "synthetic-" + uuid.NewString(), Name: "synthetic"})
 	account := mustCreateAccount(t, client, &service.Account{Name: "synthetic-" + uuid.NewString()})
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, err := integrationDB.ExecContext(cleanupCtx, "DELETE FROM accounts WHERE id=$1", account.ID)
+		require.NoError(t, err, "clean up owned synthetic account and cascaded log")
+	})
 	log := &service.UsageLog{UserID: user.ID, APIKeyID: key.ID, AccountID: account.ID, RequestID: uuid.NewString(), Model: "synthetic", ActualCost: 1.25, CreatedAt: time.Now().UTC()}
 	prepared := prepareUsageLogInsert(log)
 	// A pre-existing row represents the uncertain original write having won.
