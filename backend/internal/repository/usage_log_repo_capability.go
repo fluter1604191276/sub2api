@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -86,7 +87,7 @@ func validateCapabilityObservation(observation *service.AccountCapabilityObserva
 	return nil
 }
 
-func (r *usageLogRepository) GetAccountCapabilitySummaryBatch(ctx context.Context, accountIDs []int64) (map[int64]service.AccountCapabilitySummary, error) {
+func (r *usageLogRepository) GetAccountCapabilitySummaryBatch(ctx context.Context, accountIDs []int64) (summaries map[int64]service.AccountCapabilitySummary, resultErr error) {
 	result := make(map[int64]service.AccountCapabilitySummary, len(accountIDs))
 	if len(accountIDs) == 0 {
 		return result, nil
@@ -110,7 +111,7 @@ func (r *usageLogRepository) GetAccountCapabilitySummaryBatch(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	for rows.Next() {
 		var accountID int64
 		var typ, lastReason string

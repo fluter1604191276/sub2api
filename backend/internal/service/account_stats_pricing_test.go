@@ -608,7 +608,7 @@ func TestTryModelFilePricingWithServiceTier_PriorityUsesFastPricing(t *testing.T
 		},
 	})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricingWithServiceTier(bs, "gpt-5.6-sol", tokens, "priority")
+	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "priority", time.Time{})
 	require.NotNil(t, result)
 	require.InDelta(t, 0.4, *result, 1e-12)
 }

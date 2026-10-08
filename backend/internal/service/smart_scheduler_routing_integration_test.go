@@ -379,7 +379,7 @@ func TestDecideOpenAISmartStickyReviewExplorationCannotMoveSession(t *testing.T)
 		},
 	}
 
-	decision := decideOpenAISmartStickyReview(ordering, 1)
+	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 	require.True(t, decision.Reviewed)
 	require.False(t, decision.Switch)
@@ -411,7 +411,7 @@ func TestDecideOpenAISmartStickyReviewUsesGradedQualityLeadThresholds(t *testing
 				},
 			}
 
-			decision := decideOpenAISmartStickyReview(ordering, 1)
+			decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 			require.Equal(t, tt.wantSwitch, decision.Switch)
 			if tt.wantSwitch {
@@ -442,7 +442,7 @@ func TestDecideOpenAISmartStickyReviewQualityLeadThreshold(t *testing.T) {
 				},
 			}
 
-			decision := decideOpenAISmartStickyReview(ordering, 1)
+			decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 			require.Equal(t, tt.wantSwitch, decision.Switch)
 			if tt.wantSwitch {
@@ -463,7 +463,7 @@ func TestDecideOpenAISmartStickyReviewPrimaryPoolCanOverrideWarmBPlus(t *testing
 		},
 	}
 
-	decision := decideOpenAISmartStickyReview(ordering, 1)
+	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 	require.True(t, decision.Switch)
 	require.Equal(t, "primary_over_warm", decision.Reason)
@@ -480,7 +480,7 @@ func TestDecideOpenAISmartStickyReviewPrimaryPoolCannotBypassStrongQualityThresh
 		},
 	}
 
-	decision := decideOpenAISmartStickyReview(ordering, 1)
+	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 	require.False(t, decision.Switch)
 	require.True(t, decision.Strong)
@@ -498,7 +498,7 @@ func TestDecideOpenAISmartStickyReviewIsolatedCurrentMovesImmediately(t *testing
 		},
 	}
 
-	decision := decideOpenAISmartStickyReview(ordering, 1)
+	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 
 	require.True(t, decision.Switch)
 	require.Equal(t, "current_isolated", decision.Reason)
@@ -514,12 +514,12 @@ func TestOpenAISmartStickyReviewEliteSwitchRequiresTwoConfirmations(t *testing.T
 			2: {AccountID: 2, Pool: "primary", Score: previewFloat64Ptr(95), CostMultiplier: 0.08},
 		},
 	}
-	baseDecision := decideOpenAISmartStickyReview(ordering, 1)
+	baseDecision := decideOpenAISmartStickyReviewWithPolicy(ordering, 1, RecommendedSmartStickyPolicy())
 	require.True(t, baseDecision.Switch)
 
 	svc := &OpenAIGatewayService{}
 	now := time.Now()
-	first := svc.applySmartStickyReviewState("elite", now, baseDecision)
+	first := svc.applySmartStickyReviewStateWithPolicy("elite", now, baseDecision, RecommendedSmartStickyPolicy())
 	require.False(t, first.Switch)
 	require.True(t, first.ConfirmationPending)
 	require.Equal(t, 1, first.ConfirmationCount)
@@ -528,7 +528,7 @@ func TestOpenAISmartStickyReviewEliteSwitchRequiresTwoConfirmations(t *testing.T
 	svc.finishSmartStickyReview("elite", now, smartStickyWeakReviewInterval)
 	secondReviewAt := now.Add(smartStickyWeakReviewInterval + time.Second)
 	require.True(t, svc.claimSmartStickyReview("elite", secondReviewAt))
-	second := svc.applySmartStickyReviewState("elite", secondReviewAt, baseDecision)
+	second := svc.applySmartStickyReviewStateWithPolicy("elite", secondReviewAt, baseDecision, RecommendedSmartStickyPolicy())
 	require.True(t, second.Switch)
 	require.False(t, second.ConfirmationPending)
 	require.Equal(t, 2, second.ConfirmationCount)
@@ -545,15 +545,15 @@ func TestOpenAISmartStickyReviewCooldownPreventsImmediateReversal(t *testing.T) 
 			2: {AccountID: 2, Pool: "primary", Score: previewFloat64Ptr(70), CostMultiplier: 0.07},
 		},
 	}
-	baseDecision := decideOpenAISmartStickyReview(ordering, 2)
+	baseDecision := decideOpenAISmartStickyReviewWithPolicy(ordering, 2, RecommendedSmartStickyPolicy())
 	require.True(t, baseDecision.Switch)
 
 	svc := &OpenAIGatewayService{}
 	now := time.Now()
-	svc.markSmartStickySwitchApplied("cooldown", 2, now, baseDecision.ChallengerScore)
+	svc.markSmartStickySwitchAppliedWithPolicy("cooldown", 2, now, RecommendedSmartStickyPolicy(), baseDecision.ChallengerScore)
 	secondReviewAt := now.Add(smartStickyWeakReviewInterval + time.Second)
 	require.True(t, svc.claimSmartStickyReview("cooldown", secondReviewAt))
-	decision := svc.applySmartStickyReviewState("cooldown", secondReviewAt, baseDecision)
+	decision := svc.applySmartStickyReviewStateWithPolicy("cooldown", secondReviewAt, baseDecision, RecommendedSmartStickyPolicy())
 
 	require.False(t, decision.Switch)
 	require.True(t, decision.Cooldown)
@@ -572,14 +572,14 @@ func TestOpenAISmartStickyReviewCooldownDoesNotBlockIsolationEscape(t *testing.T
 			2: {AccountID: 2, Pool: "isolated", Score: previewFloat64Ptr(95)},
 		},
 	}
-	baseDecision := decideOpenAISmartStickyReview(ordering, 2)
+	baseDecision := decideOpenAISmartStickyReviewWithPolicy(ordering, 2, RecommendedSmartStickyPolicy())
 	require.True(t, baseDecision.Switch)
 	require.Equal(t, "current_isolated", baseDecision.Reason)
 
 	svc := &OpenAIGatewayService{}
 	now := time.Now()
-	svc.markSmartStickySwitchApplied("isolated-cooldown", 2, now)
-	decision := svc.applySmartStickyReviewState("isolated-cooldown", now.Add(time.Minute), baseDecision)
+	svc.markSmartStickySwitchAppliedWithPolicy("isolated-cooldown", 2, now, RecommendedSmartStickyPolicy())
+	decision := svc.applySmartStickyReviewStateWithPolicy("isolated-cooldown", now.Add(time.Minute), baseDecision, RecommendedSmartStickyPolicy())
 
 	require.True(t, decision.Switch)
 	require.False(t, decision.Cooldown)
@@ -701,7 +701,7 @@ func TestOpenAISmartStickyReviewFinishPreservesCooldownState(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	now := time.Now()
 	strongScore := 90.0
-	svc.markSmartStickySwitchApplied("cooldown", 2, now, &strongScore)
+	svc.markSmartStickySwitchAppliedWithPolicy("cooldown", 2, now, RecommendedSmartStickyPolicy(), &strongScore)
 
 	svc.finishSmartStickyReview("cooldown", now.Add(time.Second), smartStickyStrongReviewInterval)
 
@@ -715,16 +715,16 @@ func TestSmartStickyCooldownWeakSessionCanBreakForClearQualityLead(t *testing.T)
 	weakScore := 64.0
 	decision := openAISmartStickyReviewDecision{CurrentScore: &weakScore, QualityLead: 8}
 
-	require.True(t, smartStickyCooldownCanBeBroken(decision, smartStickyWeakSwitchCooldown))
+	require.True(t, smartStickyCooldownCanBeBrokenWithPolicy(decision, smartStickyWeakSwitchCooldown, RecommendedSmartStickyPolicy()))
 	decision.QualityLead = 7.9
-	require.False(t, smartStickyCooldownCanBeBroken(decision, smartStickyWeakSwitchCooldown))
+	require.False(t, smartStickyCooldownCanBeBrokenWithPolicy(decision, smartStickyWeakSwitchCooldown, RecommendedSmartStickyPolicy()))
 }
 
 func TestSmartStickyCooldownStrongSessionCannotBreakEarly(t *testing.T) {
 	strongScore := smartStickyStrongMinScore
 	decision := openAISmartStickyReviewDecision{CurrentScore: &strongScore, QualityLead: 30}
 
-	require.False(t, smartStickyCooldownCanBeBroken(decision, time.Second))
+	require.False(t, smartStickyCooldownCanBeBrokenWithPolicy(decision, time.Second, RecommendedSmartStickyPolicy()))
 }
 
 func TestSmartStickyFallbackDoesNotEnterSuccessfulSwitchCooldown(t *testing.T) {

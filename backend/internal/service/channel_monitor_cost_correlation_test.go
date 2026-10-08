@@ -15,7 +15,10 @@ func TestMonitorCostCorrelationUsesGatewayClientID(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Client-Request-ID", "gateway-generated-id")
 		w.Header().Set("X-Request-ID", "different-upstream-id")
-		w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+		_, err := w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+		if err != nil {
+			t.Errorf("write mock monitor response: %v", err)
+		}
 	}))
 	defer server.Close()
 	result := runCheckForModel(context.Background(), "openai", server.URL, "test-only", "gpt-test", &CheckOptions{

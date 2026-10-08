@@ -472,10 +472,6 @@ func (s *GroupRecoveryProbeBillingService) markSettlementFailed(ctx context.Cont
 	return errors.New(message)
 }
 
-func roundProbeCost(value float64) float64 {
-	return math.Round(value*1e10) / 1e10
-}
-
 func stringPointer(value string) *string {
 	return &value
 }

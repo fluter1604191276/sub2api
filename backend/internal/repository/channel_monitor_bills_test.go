@@ -11,7 +11,10 @@ import (
 func TestMonitorDailyBillsDoesNotReadReservations(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+	})
 	repo := &channelMonitorRepository{db: db}
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.FixedZone("CST", 28800))
 	mock.ExpectBegin()

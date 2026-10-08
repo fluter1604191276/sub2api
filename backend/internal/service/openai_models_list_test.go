@@ -346,3 +346,30 @@ func TestOpenAIModelsCacheSeparatesRepresentationsForIdenticalRequests(t *testin
 	require.JSONEq(t, manifestBody, string(manifest.Body))
 	require.EqualValues(t, 2, calls.Load())
 }
+
+func TestRefreshOpenAIModelsRechecksCacheAfterMiss(t *testing.T) {
+	s := &OpenAIGatewayService{}
+	request := openAIModelsRequest{url: "https://models.example/v1/models", accountID: 7, standardModelsList: true}
+	cacheKey := buildOpenAIModelsCacheKey(request)
+	_, state := s.openAIModelsCache.get(cacheKey, time.Now())
+	require.Equal(t, openAIModelsCacheMiss, state)
+	// Another request finishes its singleflight load after this caller's cache
+	// miss but before this caller enters the refresh group.
+	cached := &OpenAIModelsResponse{Body: []byte(`{"object":"list","data":[{"id":"shared"}]}`)}
+	s.openAIModelsCache.set(cacheKey, cached, time.Now())
+	var calls atomic.Int32
+	resultCh := s.refreshCachedOpenAIModels(cacheKey, request, func(context.Context, string) (*OpenAIModelsResponse, error) {
+		calls.Add(1)
+		return &OpenAIModelsResponse{Body: []byte(`{"object":"list","data":[{"id":"duplicate-fetch"}]}`)}, nil
+	})
+	select {
+	case result := <-resultCh:
+		require.NoError(t, result.Err)
+		manifest, ok := result.Val.(*OpenAIModelsResponse)
+		require.True(t, ok)
+		require.Equal(t, cached, manifest)
+	case <-time.After(2 * time.Second):
+		t.Fatal("cache recheck did not finish")
+	}
+	require.Zero(t, calls.Load(), "a completed concurrent load must satisfy a delayed cold-cache caller")
+}

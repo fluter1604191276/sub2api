@@ -160,6 +160,10 @@ func TestGroupReasoningPricingRoundTripAndBilling(t *testing.T) {
 			multiplier := 1.0
 			if configured, ok := expected[effort]; ok {
 				multiplier = configured
+			} else if effort == "max" {
+				// Removing a configured override restores the established Fable
+				// max default; only explicit max=1 disables the default.
+				multiplier = 3
 			}
 			cost, err := billing.CalculateTokenCostForRequest(service.TokenCostRequest{
 				Ctx: ctx, Model: "claude-fable-5-1", Group: loaded, Resolver: resolver,
@@ -173,7 +177,7 @@ func TestGroupReasoningPricingRoundTripAndBilling(t *testing.T) {
 		return loaded
 	}
 	loaded := assertStoredAndBilled(allLevels)
-	for _, multipliers := range []map[string]float64{{"high": 2.25, "max": 4}, nil, {"high": 1.75}, {}} {
+	for _, multipliers := range []map[string]float64{{"high": 2.25, "max": 4}, nil, {"high": 1.75}, {}, {"max": 1}} {
 		loaded.ModelPricing[0].ReasoningEffortMultipliers = multipliers
 		require.NoError(t, repo.Update(ctx, loaded))
 		loaded = assertStoredAndBilled(multipliers)

@@ -2955,7 +2955,6 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
 	seenCompleted := false
-	usage := testUsageCapture{}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -2998,7 +2997,7 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
-			usage = extractOpenAIResponsesProbeUsage(data)
+			usage := extractOpenAIResponsesProbeUsage(data)
 			rememberAccountTestUsage(c, usage)
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -21,14 +22,18 @@ func (r *channelMonitorRepository) MonitorBillingKeyID(ctx context.Context, key 
 
 // Resolve from immutable gateway usage snapshots, not current account settings
 // or user-facing actual_cost. Advisory lock serializes concurrent bill refreshes.
-func (r *channelMonitorRepository) reconcileMonitorCosts(ctx context.Context, start, end time.Time) error {
+func (r *channelMonitorRepository) reconcileMonitorCosts(ctx context.Context, start, end time.Time) (resultErr error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("rollback channel monitor transaction: %w", rollbackErr))
+		}
+	}()
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(724193521)`); err != nil {
 		return err
 	}

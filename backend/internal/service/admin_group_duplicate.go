@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -56,6 +57,16 @@ func cloneGroupValuePointer[T any](value *T) *T {
 	return &cloned
 }
 
+// A nil pointer inherits account policy; a pointer to an empty slice explicitly
+// clears it. Preserve both states while isolating the duplicate's backing array.
+func cloneGroupSlicePointer[T any](value *[]T) *[]T {
+	if value == nil {
+		return nil
+	}
+	cloned := slices.Clone(*value)
+	return &cloned
+}
+
 func cloneGroupModelRouting(value map[string][]int64) map[string][]int64 {
 	if value == nil {
 		return nil
@@ -93,65 +104,116 @@ func cloneGroupMessagesDispatchModelConfig(value OpenAIMessagesDispatchModelConf
 	return cloned
 }
 
+// Pricing.Clone isolates slices and maps for read-only use; a copied group is
+// editable, so its scalar price and interval pointers must also be independent.
+func cloneGroupModelPricing(value []ChannelModelPricing) []ChannelModelPricing {
+	if value == nil {
+		return nil
+	}
+	cloned := make([]ChannelModelPricing, len(value))
+	for i, pricing := range value {
+		cloned[i] = pricing.Clone()
+		cloned[i].InputPrice = cloneGroupValuePointer(pricing.InputPrice)
+		cloned[i].OutputPrice = cloneGroupValuePointer(pricing.OutputPrice)
+		cloned[i].CacheWritePrice = cloneGroupValuePointer(pricing.CacheWritePrice)
+		cloned[i].CacheWrite1hPrice = cloneGroupValuePointer(pricing.CacheWrite1hPrice)
+		cloned[i].CacheReadPrice = cloneGroupValuePointer(pricing.CacheReadPrice)
+		cloned[i].FastMultiplier = cloneGroupValuePointer(pricing.FastMultiplier)
+		cloned[i].FlexMultiplier = cloneGroupValuePointer(pricing.FlexMultiplier)
+		cloned[i].MaxReasoningEffortMultiplier = cloneGroupValuePointer(pricing.MaxReasoningEffortMultiplier)
+		cloned[i].ImageInputPrice = cloneGroupValuePointer(pricing.ImageInputPrice)
+		cloned[i].ImageOutputPrice = cloneGroupValuePointer(pricing.ImageOutputPrice)
+		cloned[i].PerRequestPrice = cloneGroupValuePointer(pricing.PerRequestPrice)
+		for j, interval := range pricing.Intervals {
+			cloned[i].Intervals[j].MaxTokens = cloneGroupValuePointer(interval.MaxTokens)
+			cloned[i].Intervals[j].InputPrice = cloneGroupValuePointer(interval.InputPrice)
+			cloned[i].Intervals[j].OutputPrice = cloneGroupValuePointer(interval.OutputPrice)
+			cloned[i].Intervals[j].CacheWritePrice = cloneGroupValuePointer(interval.CacheWritePrice)
+			cloned[i].Intervals[j].CacheWrite1hPrice = cloneGroupValuePointer(interval.CacheWrite1hPrice)
+			cloned[i].Intervals[j].CacheReadPrice = cloneGroupValuePointer(interval.CacheReadPrice)
+			cloned[i].Intervals[j].InputMultiplier = cloneGroupValuePointer(interval.InputMultiplier)
+			cloned[i].Intervals[j].OutputMultiplier = cloneGroupValuePointer(interval.OutputMultiplier)
+			cloned[i].Intervals[j].CacheWriteMultiplier = cloneGroupValuePointer(interval.CacheWriteMultiplier)
+			cloned[i].Intervals[j].CacheReadMultiplier = cloneGroupValuePointer(interval.CacheReadMultiplier)
+			cloned[i].Intervals[j].PerRequestPrice = cloneGroupValuePointer(interval.PerRequestPrice)
+		}
+	}
+	return cloned
+}
+
 func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 	return &Group{
-		Name:                            duplicateGroupName(source.Name, 1),
-		Description:                     source.Description,
-		Platform:                        source.Platform,
-		RateMultiplier:                  source.RateMultiplier,
-		PeakRateEnabled:                 source.PeakRateEnabled,
-		PeakStart:                       source.PeakStart,
-		PeakEnd:                         source.PeakEnd,
-		PeakRateMultiplier:              source.PeakRateMultiplier,
-		ProfitControlEnabled:            source.ProfitControlEnabled,
-		ProfitMinMargin:                 source.ProfitMinMargin,
-		ProfitSafetyBuffer:              source.ProfitSafetyBuffer,
-		SmartSchedulerEnabled:           source.SmartSchedulerEnabled,
-		StreamStickyEscapeEnabled:       source.StreamStickyEscapeEnabled,
-		IsExclusive:                     source.IsExclusive,
-		Status:                          duplicateGroupInactiveStatus,
-		DuplicateOperationID:            operationID,
-		SubscriptionType:                source.SubscriptionType,
-		DailyLimitUSD:                   cloneGroupValuePointer(source.DailyLimitUSD),
-		WeeklyLimitUSD:                  cloneGroupValuePointer(source.WeeklyLimitUSD),
-		MonthlyLimitUSD:                 cloneGroupValuePointer(source.MonthlyLimitUSD),
-		DefaultValidityDays:             source.DefaultValidityDays,
-		AllowImageGeneration:            source.AllowImageGeneration,
-		AllowBatchImageGeneration:       source.AllowBatchImageGeneration,
-		ImageRateIndependent:            source.ImageRateIndependent,
-		ImageRateMultiplier:             source.ImageRateMultiplier,
-		ImagePrice1K:                    cloneGroupValuePointer(source.ImagePrice1K),
-		ImagePrice2K:                    cloneGroupValuePointer(source.ImagePrice2K),
-		ImagePrice4K:                    cloneGroupValuePointer(source.ImagePrice4K),
-		BatchImageDiscountMultiplier:    source.BatchImageDiscountMultiplier,
-		BatchImageHoldMultiplier:        source.BatchImageHoldMultiplier,
-		VideoRateIndependent:            source.VideoRateIndependent,
-		VideoRateMultiplier:             source.VideoRateMultiplier,
-		VideoPrice480P:                  cloneGroupValuePointer(source.VideoPrice480P),
-		VideoPrice720P:                  cloneGroupValuePointer(source.VideoPrice720P),
-		VideoPrice1080P:                 cloneGroupValuePointer(source.VideoPrice1080P),
-		VideoModelPrices:                cloneGroupVideoModelPrices(source.VideoModelPrices),
-		WebSearchPricePerCall:           cloneGroupValuePointer(source.WebSearchPricePerCall),
-		SearchPricePer1k:                cloneGroupValuePointer(source.SearchPricePer1k),
-		AudioRealtimePricePerMin:        cloneGroupValuePointer(source.AudioRealtimePricePerMin),
-		AudioTTSPricePerMillionChars:    cloneGroupValuePointer(source.AudioTTSPricePerMillionChars),
-		AudioSTTPricePerHour:            cloneGroupValuePointer(source.AudioSTTPricePerHour),
-		ClaudeCodeOnly:                  source.ClaudeCodeOnly,
-		FallbackGroupID:                 cloneGroupValuePointer(source.FallbackGroupID),
-		FallbackGroupIDOnInvalidRequest: cloneGroupValuePointer(source.FallbackGroupIDOnInvalidRequest),
-		ModelRouting:                    cloneGroupModelRouting(source.ModelRouting),
-		ModelRoutingEnabled:             source.ModelRoutingEnabled,
-		MCPXMLInject:                    source.MCPXMLInject,
-		SupportedModelScopes:            append([]string(nil), source.SupportedModelScopes...),
-		SortOrder:                       source.SortOrder,
-		AllowMessagesDispatch:           source.AllowMessagesDispatch,
-		AllowLive:                       source.AllowLive,
-		ForceOpenAIFast:                 source.ForceOpenAIFast,
-		FreeOpenAIFast:                  source.FreeOpenAIFast,
-		RequireOAuthOnly:                source.RequireOAuthOnly,
-		RequirePrivacySet:               source.RequirePrivacySet,
-		DefaultMappedModel:              source.DefaultMappedModel,
-		MessagesDispatchModelConfig:     cloneGroupMessagesDispatchModelConfig(source.MessagesDispatchModelConfig),
+		Name:                              duplicateGroupName(source.Name, 1),
+		Description:                       source.Description,
+		Platform:                          source.Platform,
+		RateMultiplier:                    source.RateMultiplier,
+		PeakRateEnabled:                   source.PeakRateEnabled,
+		PeakStart:                         source.PeakStart,
+		PeakEnd:                           source.PeakEnd,
+		PeakRateMultiplier:                source.PeakRateMultiplier,
+		ProfitControlEnabled:              source.ProfitControlEnabled,
+		ProfitMinMargin:                   source.ProfitMinMargin,
+		ProfitSafetyBuffer:                source.ProfitSafetyBuffer,
+		SmartSchedulerEnabled:             source.SmartSchedulerEnabled,
+		StreamStickyEscapeEnabled:         source.StreamStickyEscapeEnabled,
+		RecoveryProbeEnabled:              source.RecoveryProbeEnabled,
+		RecoveryProbeMode:                 source.RecoveryProbeMode,
+		RecoveryProbeModel:                source.RecoveryProbeModel,
+		RecoveryProbeIntervalSeconds:      source.RecoveryProbeIntervalSeconds,
+		RecoveryProbeAttemptsPerRound:     source.RecoveryProbeAttemptsPerRound,
+		RecoveryProbeIdleThresholdSeconds: source.RecoveryProbeIdleThresholdSeconds,
+		RecoveryProbeBackoffCapSeconds:    source.RecoveryProbeBackoffCapSeconds,
+		PoolModeEnabled:                   cloneGroupValuePointer(source.PoolModeEnabled),
+		PoolModeRetryCount:                cloneGroupValuePointer(source.PoolModeRetryCount),
+		PoolModeRetryStatusCodes:          cloneGroupSlicePointer(source.PoolModeRetryStatusCodes),
+		CustomErrorCodesEnabled:           cloneGroupValuePointer(source.CustomErrorCodesEnabled),
+		CustomErrorCodes:                  cloneGroupSlicePointer(source.CustomErrorCodes),
+		IsExclusive:                       source.IsExclusive,
+		Status:                            duplicateGroupInactiveStatus,
+		DuplicateOperationID:              operationID,
+		SubscriptionType:                  source.SubscriptionType,
+		DailyLimitUSD:                     cloneGroupValuePointer(source.DailyLimitUSD),
+		WeeklyLimitUSD:                    cloneGroupValuePointer(source.WeeklyLimitUSD),
+		MonthlyLimitUSD:                   cloneGroupValuePointer(source.MonthlyLimitUSD),
+		DefaultValidityDays:               source.DefaultValidityDays,
+		AllowImageGeneration:              source.AllowImageGeneration,
+		AllowBatchImageGeneration:         source.AllowBatchImageGeneration,
+		ImageRateIndependent:              source.ImageRateIndependent,
+		ImageRateMultiplier:               source.ImageRateMultiplier,
+		ImagePrice1K:                      cloneGroupValuePointer(source.ImagePrice1K),
+		ImagePrice2K:                      cloneGroupValuePointer(source.ImagePrice2K),
+		ImagePrice4K:                      cloneGroupValuePointer(source.ImagePrice4K),
+		BatchImageDiscountMultiplier:      source.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:          source.BatchImageHoldMultiplier,
+		VideoRateIndependent:              source.VideoRateIndependent,
+		VideoRateMultiplier:               source.VideoRateMultiplier,
+		VideoPrice480P:                    cloneGroupValuePointer(source.VideoPrice480P),
+		VideoPrice720P:                    cloneGroupValuePointer(source.VideoPrice720P),
+		VideoPrice1080P:                   cloneGroupValuePointer(source.VideoPrice1080P),
+		VideoModelPrices:                  cloneGroupVideoModelPrices(source.VideoModelPrices),
+		WebSearchPricePerCall:             cloneGroupValuePointer(source.WebSearchPricePerCall),
+		SearchPricePer1k:                  cloneGroupValuePointer(source.SearchPricePer1k),
+		AudioRealtimePricePerMin:          cloneGroupValuePointer(source.AudioRealtimePricePerMin),
+		AudioTTSPricePerMillionChars:      cloneGroupValuePointer(source.AudioTTSPricePerMillionChars),
+		AudioSTTPricePerHour:              cloneGroupValuePointer(source.AudioSTTPricePerHour),
+		ClaudeCodeOnly:                    source.ClaudeCodeOnly,
+		FallbackGroupID:                   cloneGroupValuePointer(source.FallbackGroupID),
+		FallbackGroupIDOnInvalidRequest:   cloneGroupValuePointer(source.FallbackGroupIDOnInvalidRequest),
+		ModelRouting:                      cloneGroupModelRouting(source.ModelRouting),
+		LongContextPricingEnabled:         source.LongContextPricingEnabled,
+		ModelPricing:                      cloneGroupModelPricing(source.ModelPricing),
+		ModelRoutingEnabled:               source.ModelRoutingEnabled,
+		MCPXMLInject:                      source.MCPXMLInject,
+		SupportedModelScopes:              append([]string(nil), source.SupportedModelScopes...),
+		SortOrder:                         source.SortOrder,
+		AllowMessagesDispatch:             source.AllowMessagesDispatch,
+		AllowLive:                         source.AllowLive,
+		ForceOpenAIFast:                   source.ForceOpenAIFast,
+		FreeOpenAIFast:                    source.FreeOpenAIFast,
+		RequireOAuthOnly:                  source.RequireOAuthOnly,
+		RequirePrivacySet:                 source.RequirePrivacySet,
+		DefaultMappedModel:                source.DefaultMappedModel,
+		MessagesDispatchModelConfig:       cloneGroupMessagesDispatchModelConfig(source.MessagesDispatchModelConfig),
 		ModelAllowlist: GroupModelAllowlist{
 			Enabled: source.ModelAllowlist.Enabled,
 			Models:  append([]string(nil), source.ModelAllowlist.Models...),

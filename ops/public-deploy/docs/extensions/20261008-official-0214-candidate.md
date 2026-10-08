@@ -23,3 +23,7 @@ Rollback: before any future authorized switch, retain exact r4 image `sha256:4d4
 Owner/status: local candidate development, verification pending, not deployed.
 
 The active official-compatibility gate is advanced to v0.2.14 in both manifest generation and verification, retaining historical records; the expected binary and tracked version are 0.2.14. This replaces the prior active 0.2.13 version check without changing the other 21 required capabilities.
+
+Write-path review also closes the group duplicate configuration gap: recovery probe, pool/custom-error, long-context pricing gate and model pricing are copied with independent pointer/map/slice storage. The duplicate stays inactive, and the recovery job SQL requires an active group. Configuration copying therefore does not start probe traffic. Existing runtime identities, statistics, membership and the intentionally reset Codex pinned-account manifest are not cloned.
+
+The previously blocked group reasoning-pricing integration assertion now reaches actual billing. Its expected value is corrected to preserve the established Fable max=3 model default after clearing or omitting the override; an explicit max=1 case proves opt-out. No billing formula is modified.

@@ -69,6 +69,55 @@ func (s *GroupRepoSuite) TestCreate() {
 	s.Require().NoError(err, "GetByID")
 	s.Require().Equal("test-create", got.Name)
 	s.Require().False(got.SmartSchedulerEnabled, "smart scheduler must default off")
+	s.Require().Equal(1, got.RecoveryProbeAttemptsPerRound)
+	s.Require().Equal(1, group.RecoveryProbeAttemptsPerRound)
+}
+
+// Both public repository writes and transactional duplication must apply the
+// service defaults without weakening the database's range constraints.
+func (s *GroupRepoSuite) TestRecoveryProbeDefaultsAcrossWrites() {
+	group := &service.Group{
+		Name: "recovery-defaults", Platform: service.PlatformOpenAI,
+		RateMultiplier: 1, Status: service.StatusActive,
+		SubscriptionType: service.SubscriptionTypeStandard,
+	}
+	s.Require().NoError(createGroupRecord(s.ctx, s.tx.Client(), group))
+	s.Require().Equal(1, group.RecoveryProbeAttemptsPerRound)
+	got, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.GroupRecoveryProbeModeSmart, got.RecoveryProbeMode)
+	s.Require().Equal(900, got.RecoveryProbeIntervalSeconds)
+	s.Require().Equal(3600, got.RecoveryProbeIdleThresholdSeconds)
+	s.Require().Equal(1800, got.RecoveryProbeBackoffCapSeconds)
+	got.ApplyRecoveryProbeConfig(service.GroupRecoveryProbeConfig{})
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	s.Require().Equal(1, got.RecoveryProbeAttemptsPerRound)
+	reloaded, err := s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(1, reloaded.RecoveryProbeAttemptsPerRound)
+
+	got.RecoveryProbeMode = service.GroupRecoveryProbeModeHighFrequency
+	got.RecoveryProbeIntervalSeconds = 0
+	got.RecoveryProbeAttemptsPerRound = 0
+	got.RecoveryProbeBackoffCapSeconds = 0
+	s.Require().NoError(s.repo.Update(s.ctx, got))
+	s.Require().Equal(5, got.RecoveryProbeAttemptsPerRound)
+	s.Require().Equal(15, got.RecoveryProbeIntervalSeconds)
+	s.Require().Equal(300, got.RecoveryProbeBackoffCapSeconds)
+
+	for _, attempts := range []int{-1, 6} {
+		got.RecoveryProbeAttemptsPerRound = attempts
+		s.Require().ErrorContains(s.repo.Update(s.ctx, got), "recovery_probe_attempts_per_round")
+		invalid := &service.Group{Name: "invalid-recovery", RecoveryProbeAttemptsPerRound: attempts}
+		s.Require().ErrorContains(s.repo.Create(s.ctx, invalid), "recovery_probe_attempts_per_round")
+		s.Require().Zero(invalid.ID)
+	}
+	reloaded, err = s.repo.GetByID(s.ctx, group.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(5, reloaded.RecoveryProbeAttemptsPerRound, "invalid update must not persist")
+	// Direct SQL remains constrained even when bypassing the repository.
+	_, err = s.tx.ExecContext(s.ctx, "UPDATE groups SET recovery_probe_attempts_per_round = 6 WHERE id = $1", group.ID)
+	s.Require().ErrorContains(err, "groups_recovery_probe_attempts_check")
 }
 
 func (s *GroupRepoSuite) TestCreateGetUpdate_SmartSchedulerEnabled() {

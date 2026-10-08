@@ -531,10 +531,6 @@ func (s *OpenAIGatewayService) finishSmartStickyReview(key string, now time.Time
 	s.smartStickyReviews[key] = state
 }
 
-func (s *OpenAIGatewayService) applySmartStickyReviewState(key string, now time.Time, decision openAISmartStickyReviewDecision) openAISmartStickyReviewDecision {
-	return s.applySmartStickyReviewStateWithPolicy(key, now, decision, RecommendedSmartStickyPolicy())
-}
-
 func (s *OpenAIGatewayService) applySmartStickyReviewStateWithPolicy(key string, now time.Time, decision openAISmartStickyReviewDecision, policy SmartStickyPolicy) openAISmartStickyReviewDecision {
 	if s == nil || strings.TrimSpace(key) == "" {
 		return decision
@@ -611,10 +607,6 @@ func (s *OpenAIGatewayService) applySmartStickyReviewStateWithPolicy(key string,
 	return decision
 }
 
-func (s *OpenAIGatewayService) markSmartStickySwitchApplied(key string, accountID int64, now time.Time, scores ...*float64) {
-	s.markSmartStickySwitchAppliedWithPolicy(key, accountID, now, RecommendedSmartStickyPolicy(), scores...)
-}
-
 func (s *OpenAIGatewayService) markSmartStickySwitchAppliedWithPolicy(key string, accountID int64, now time.Time, policy SmartStickyPolicy, scores ...*float64) {
 	if s == nil || strings.TrimSpace(key) == "" || accountID <= 0 {
 		return
@@ -672,10 +664,6 @@ func smartStickySwitchCooldownForScore(score *float64) time.Duration {
 	default:
 		return smartStickyFragileSwitchCooldown
 	}
-}
-
-func smartStickyCooldownCanBeBroken(decision openAISmartStickyReviewDecision, remaining time.Duration) bool {
-	return smartStickyCooldownCanBeBrokenWithPolicy(decision, remaining, RecommendedSmartStickyPolicy())
 }
 
 func smartStickyCooldownCanBeBrokenWithPolicy(decision openAISmartStickyReviewDecision, remaining time.Duration, policy SmartStickyPolicy) bool {
@@ -842,10 +830,6 @@ func (s *OpenAIGatewayService) logSmartStickySwitchApplied(ctx context.Context, 
 		"expected_challenger_score", smartStickyScoreLogValue(pending.expectedChallengerScore),
 		"session_fingerprint", smartStickySessionFingerprint(pending.reviewKey),
 	)
-}
-
-func decideOpenAISmartStickyReview(ordering *SmartSchedulerOrdering, currentAccountID int64) openAISmartStickyReviewDecision {
-	return decideOpenAISmartStickyReviewWithPolicy(ordering, currentAccountID, RecommendedSmartStickyPolicy())
 }
 
 func decideOpenAISmartStickyReviewWithPolicy(ordering *SmartSchedulerOrdering, currentAccountID int64, policy SmartStickyPolicy) openAISmartStickyReviewDecision {

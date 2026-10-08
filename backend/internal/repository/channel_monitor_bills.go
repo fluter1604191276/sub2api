@@ -2,11 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"time"
 )
 
-func (r *channelMonitorRepository) DailyBills(ctx context.Context, start, end time.Time) ([]service.ChannelMonitorDailyBill, error) {
+func (r *channelMonitorRepository) DailyBills(ctx context.Context, start, end time.Time) (bills []service.ChannelMonitorDailyBill, resultErr error) {
 	if err := r.reconcileMonitorCosts(ctx, start, end); err != nil {
 		return nil, err
 	}
@@ -25,7 +26,7 @@ func (r *channelMonitorRepository) DailyBills(ctx context.Context, start, end ti
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	result := make([]service.ChannelMonitorDailyBill, 0)
 	for rows.Next() {
 		var row service.ChannelMonitorDailyBill

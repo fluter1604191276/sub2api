@@ -117,10 +117,6 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	return &breakdown.TotalCost
 }
 
-func tryModelFilePricingWithServiceTier(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
-	return tryModelFilePricing(billingService, model, tokens, serviceTier, time.Time{})
-}
-
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,

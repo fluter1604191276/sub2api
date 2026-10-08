@@ -825,7 +825,11 @@ func (s *ChannelMonitorService) settleProbeBudget(ctx context.Context, reservati
 		}
 		actual += result.EstimatedCostUSD
 	}
-	repo := s.repo.(channelMonitorBudgetRepository)
+	repo, ok := s.repo.(channelMonitorBudgetRepository)
+	if !ok || reservation == nil {
+		slog.Error("channel_monitor: cannot settle daily budget without ledger or reservation")
+		return
+	}
 	if err := repo.SettleDailyBudget(ctx, reservation.Day, reservation.Reserved, actual); err != nil {
 		slog.Error("channel_monitor: settle daily budget failed", "error", err)
 	}

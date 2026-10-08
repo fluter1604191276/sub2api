@@ -288,7 +288,7 @@ func (r *channelMonitorRepository) MarkChecked(ctx context.Context, id int64, ch
 	return nil
 }
 
-func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows []*service.ChannelMonitorHistoryRow) error {
+func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows []*service.ChannelMonitorHistoryRow) (resultErr error) {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -296,7 +296,11 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && !errors.Is(rollbackErr, sql.ErrTxDone) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("rollback channel monitor transaction: %w", rollbackErr))
+		}
+	}()
 	for _, row := range rows {
 		var quota any
 		if row.Quota != nil {
