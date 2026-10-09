@@ -4,9 +4,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -432,8 +436,67 @@ func attachInflightSnapshot(svc *GatewayService, snap *inflightSnapshotCacheStub
 	return repo
 }
 
+type inflightMemoryMetrics struct {
+	Models              int64 `json:"models"`
+	DBCalls             int64 `json:"db_calls"`
+	SnapshotReads       int64 `json:"snapshot_reads"`
+	PricedSnapshotReads int64 `json:"priced_snapshot_reads"`
+	ThresholdBytes      int64 `json:"threshold_bytes"`
+	HeapDeltaBytes      int64 `json:"heap_delta_bytes"`
+	RetainedModels      int64 `json:"retained_models"`
+	RetainedBytes       int64 `json:"retained_bytes"`
+}
+
 // 已定价模型永不查账号映射；随机未定价模型名不直接查库、不产生按模型名的缓存（内存有界）。
 func TestInflightEstimate_AccountMappingNoDBAndBoundedMemory(t *testing.T) {
+	const childModeEnv = "SUB2API_TEST_INFLIGHT_MEMORY_CHILD"
+	mode := os.Getenv(childModeEnv)
+	if mode == "" {
+		executable, err := os.Executable()
+		require.NoError(t, err)
+		for _, runMode := range []string{"isolated", "retained-leak-negative-control"} {
+			t.Run(runMode, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, executable, "-test.run=^TestInflightEstimate_AccountMappingNoDBAndBoundedMemory$", "-test.count=1", "-test.timeout=25s", "-test.v")
+				cmd.Env = append(os.Environ(), childModeEnv+"="+runMode)
+				output, runErr := cmd.CombinedOutput()
+				t.Logf("isolated child mode=%s actual_output:\n%s", runMode, output)
+				require.NoError(t, ctx.Err(), "child must finish inside the bounded deadline")
+				require.NotContains(t, string(output), "WARNING: DATA RACE")
+				var metrics inflightMemoryMetrics
+				found := false
+				for _, line := range strings.Split(string(output), "\n") {
+					if i := strings.Index(line, "INFLIGHT_MEMORY_METRICS "); i >= 0 {
+						require.NoError(t, json.Unmarshal([]byte(line[i+len("INFLIGHT_MEMORY_METRICS "):]), &metrics))
+						found = true
+					}
+				}
+				require.True(t, found, "a child failure without memory measurements is not a valid negative control")
+				require.Equal(t, int64(20000), metrics.Models)
+				require.Zero(t, metrics.DBCalls)
+				require.Equal(t, int64(20000), metrics.SnapshotReads)
+				require.Zero(t, metrics.PricedSnapshotReads)
+				require.Equal(t, int64(8<<20), metrics.ThresholdBytes)
+				if runMode == "isolated" {
+					require.NoError(t, runErr, "isolated original contract must pass")
+					require.Zero(t, metrics.RetainedModels)
+					require.Less(t, metrics.HeapDeltaBytes, metrics.ThresholdBytes)
+				} else {
+					var exitErr *exec.ExitError
+					require.ErrorAs(t, runErr, &exitErr)
+					require.Equal(t, 1, exitErr.ExitCode(), "negative control must fail the test assertion, not be killed")
+					require.Equal(t, int64(20000), metrics.RetainedModels)
+					require.Equal(t, int64(20000*512), metrics.RetainedBytes)
+					require.GreaterOrEqual(t, metrics.HeapDeltaBytes, metrics.ThresholdBytes)
+					require.Contains(t, string(output), "no per-model cache growth")
+					require.Contains(t, string(output), fmt.Sprintf("\"%d\" is not less than \"%d\"", metrics.HeapDeltaBytes, metrics.ThresholdBytes), "must fail the exact original memory assertion")
+				}
+			})
+		}
+		return
+	}
+	require.Contains(t, []string{"isolated", "retained-leak-negative-control"}, mode)
 	groupID := int64(40)
 	svc := newInflightEstimateGateway(t, nil)
 	snap := &inflightSnapshotCacheStub{byBucket: map[string][]Account{inflightBucketKey(groupID, PlatformAnthropic): {
@@ -448,17 +511,35 @@ func TestInflightEstimate_AccountMappingNoDBAndBoundedMemory(t *testing.T) {
 		require.True(t, priced)
 	}
 	require.Zero(t, snap.reads.Load(), "priced models must never trigger account-mapping lookup")
+	pricedReads := snap.reads.Load()
 
 	var before, after runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 	const n = 20000
+	var retainedModels map[string][]byte
+	if mode == "retained-leak-negative-control" {
+		retainedModels = make(map[string][]byte, n)
+	}
 	for i := 0; i < n; i++ {
-		_, priced := svc.EstimateInflightReservation(ctx, apiKey, InflightEstimateRequest{Model: fmt.Sprintf("rand-%d-%d", i, time.Now().UnixNano()), BodyBytes: 4000, MaxTokens: 1000})
+		model := fmt.Sprintf("rand-%d-%d", i, time.Now().UnixNano())
+		_, priced := svc.EstimateInflightReservation(ctx, apiKey, InflightEstimateRequest{Model: model, BodyBytes: 4000, MaxTokens: 1000})
+		if retainedModels != nil {
+			retainedModels[model] = make([]byte, 512)
+		}
 		require.False(t, priced)
 	}
 	runtime.GC()
 	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(svc)
+	runtime.KeepAlive(snap)
+	runtime.KeepAlive(repo)
+	runtime.KeepAlive(apiKey)
+	runtime.KeepAlive(retainedModels)
+	metrics := inflightMemoryMetrics{Models: n, DBCalls: repo.dbCalls.Load(), SnapshotReads: snap.reads.Load(), PricedSnapshotReads: pricedReads, ThresholdBytes: 8 << 20, HeapDeltaBytes: int64(after.HeapAlloc) - int64(before.HeapAlloc), RetainedModels: int64(len(retainedModels)), RetainedBytes: int64(len(retainedModels) * 512)}
+	encoded, err := json.Marshal(metrics)
+	require.NoError(t, err)
+	t.Logf("INFLIGHT_MEMORY_METRICS %s", encoded)
 	require.Zero(t, repo.dbCalls.Load(), "no direct DB query on the request path")
 	require.Equal(t, int64(n), snap.reads.Load(), "unpriced lookups read the scheduler snapshot only")
 	require.Less(t, int64(after.HeapAlloc)-int64(before.HeapAlloc), int64(8<<20), "no per-model cache growth")

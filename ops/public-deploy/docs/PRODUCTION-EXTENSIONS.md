@@ -203,3 +203,11 @@ recorded in `extensions/20261009-refresh-deadline.md`. Parent request deadlines
 remain cancellation signals; the existing already durable unified refresh cleanup
 contract is retained. New source and image evidence is separate from de40. This
 entry does not authorize production action or promote a release gate.
+
+## Inflight Memory Measurement
+
+The unchanged 8 MiB / 20,000-model retained-memory contract now measures its
+workload in an isolated test process with an explicit retained-memory negative
+control. See `extensions/20261009-inflight-memory-measurement.md`. No production
+pricing, estimation or billing implementation changes; the prior full-unit
+failure and its unknown allocation source remain recorded.
