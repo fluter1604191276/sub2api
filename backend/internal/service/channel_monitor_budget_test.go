@@ -26,6 +26,9 @@ type channelMonitorBudgetRepoStub struct {
 	unpricedCalls int
 	unpricedCount int64
 	todayCost     float64
+	settleDay     time.Time
+	settleErr     error
+	settleObserve func(context.Context)
 }
 
 func (r *channelMonitorBudgetRepoStub) GetByID(context.Context, int64) (*ChannelMonitor, error) {
@@ -43,11 +46,15 @@ func (r *channelMonitorBudgetRepoStub) ReserveDailyBudget(_ context.Context, _ t
 	return r.admitted, r.reserveErr
 }
 
-func (r *channelMonitorBudgetRepoStub) SettleDailyBudget(_ context.Context, _ time.Time, reservation, actual float64) error {
+func (r *channelMonitorBudgetRepoStub) SettleDailyBudget(ctx context.Context, day time.Time, reservation, actual float64) error {
 	r.settleCalls++
 	r.reservation = reservation
 	r.settledActual = actual
-	return nil
+	r.settleDay = day
+	if r.settleObserve != nil {
+		r.settleObserve(ctx)
+	}
+	return r.settleErr
 }
 
 func (r *channelMonitorBudgetRepoStub) TodayEstimatedCost(context.Context, time.Time) (float64, error) {
@@ -212,4 +219,55 @@ func TestRunCheckUnlimitedWithoutBudgetDependenciesKeepsLegacyCompatibility(t *t
 
 	_, err := svc.RunCheck(context.Background(), 8)
 	require.NoError(t, err)
+}
+
+func TestSettleProbeBudgetCanceledKnownUsageKeepsBoundedSingleSettlement(t *testing.T) {
+	type settlementValueKey struct{}
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), settlementValueKey{}, "synthetic-value"))
+	cancel()
+	day := time.Date(2026, 9, 9, 0, 0, 0, 0, time.FixedZone("fixture", 8*60*60))
+	var observed context.Context
+	repo := &channelMonitorBudgetRepoStub{settleObserve: func(settlementCtx context.Context) {
+		observed = settlementCtx
+		require.NoError(t, settlementCtx.Err(), "task cancellation must not discard already known usage settlement")
+		require.Equal(t, "synthetic-value", settlementCtx.Value(settlementValueKey{}))
+		deadline, ok := settlementCtx.Deadline()
+		require.True(t, ok)
+		require.Greater(t, time.Until(deadline), time.Duration(0))
+		require.LessOrEqual(t, time.Until(deadline), postUsageBillingTimeout)
+	}}
+	svc := NewChannelMonitorService(repo, nil)
+	svc.settleProbeBudget(ctx, &ChannelMonitorBudgetReservation{Day: day, Reserved: 0.4}, []*CheckResult{{UsageComplete: true, EstimatedCostKnown: true, EstimatedCostUSD: 0.15}})
+	require.Equal(t, 1, repo.settleCalls)
+	require.Equal(t, day, repo.settleDay, "keep originating reservation day across cancellation/day rollover")
+	require.Equal(t, 0.4, repo.reservation)
+	require.Equal(t, 0.15, repo.settledActual)
+	require.ErrorIs(t, observed.Err(), context.Canceled, "cleanup context must be released after settlement")
+}
+
+func TestSettleProbeBudgetCanceledUnknownUsageKeepsReservation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, result := range []*CheckResult{
+		{UsageComplete: false, EstimatedCostKnown: true, EstimatedCostUSD: 0.15},
+		{UsageComplete: true, EstimatedCostKnown: false, EstimatedCostUSD: 0.15},
+		{UsageComplete: true, EstimatedCostKnown: true, EstimatedCostUSD: math.Inf(1)},
+	} {
+		repo := &channelMonitorBudgetRepoStub{}
+		NewChannelMonitorService(repo, nil).settleProbeBudget(ctx, &ChannelMonitorBudgetReservation{Day: time.Now(), Reserved: 0.4}, []*CheckResult{result})
+		require.Zero(t, repo.settleCalls)
+	}
+}
+
+func TestSettleProbeBudgetCanceledRepositoryErrorDoesNotRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	repo := &channelMonitorBudgetRepoStub{settleErr: errors.New("synthetic ledger failure"), settleObserve: func(settlementCtx context.Context) {
+		require.NoError(t, settlementCtx.Err())
+		deadline, ok := settlementCtx.Deadline()
+		require.True(t, ok)
+		require.LessOrEqual(t, time.Until(deadline), postUsageBillingTimeout)
+	}}
+	NewChannelMonitorService(repo, nil).settleProbeBudget(ctx, &ChannelMonitorBudgetReservation{Day: time.Now(), Reserved: 0.4}, []*CheckResult{{UsageComplete: true, EstimatedCostKnown: true, EstimatedCostUSD: 0.15}})
+	require.Equal(t, 1, repo.settleCalls, "non-idempotent daily ledger must not be automatically retried")
 }

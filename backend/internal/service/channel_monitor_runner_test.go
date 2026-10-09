@@ -12,12 +12,15 @@ import (
 
 // stubMonitorSvc 实现 monitorRunnerSvc，用于隔离 runner 与真实 service/repo。
 type stubMonitorSvc struct {
-	enabled    []*ChannelMonitor
-	runCount   atomic.Int64
-	runCalled  chan int64 // 每次 RunCheck 触发时 push 一次（缓冲足够大避免阻塞）
-	runErr     error
-	listErr    error
-	runHoldFor time.Duration // RunCheck 内额外阻塞的时长，用来测试 Stop 等待行为
+	enabled         []*ChannelMonitor
+	runCount        atomic.Int64
+	runCalled       chan int64 // 每次 RunCheck 触发时 push 一次（缓冲足够大避免阻塞）
+	runErr          error
+	listErr         error
+	runHoldFor      time.Duration // RunCheck 内额外阻塞的时长，用来测试 Stop 等待行为
+	runIgnoreCancel bool          // Explicit uncooperative check, used only to verify Stop drains.
+	runContext      chan context.Context
+	runRelease      <-chan struct{}
 }
 
 func (s *stubMonitorSvc) ListEnabledMonitors(_ context.Context) ([]*ChannelMonitor, error) {
@@ -35,7 +38,18 @@ func (s *stubMonitorSvc) RunCheck(ctx context.Context, id int64) ([]*CheckResult
 		default:
 		}
 	}
-	if s.runHoldFor > 0 {
+	if s.runContext != nil {
+		s.runContext <- ctx
+	}
+	if s.runRelease != nil {
+		select {
+		case <-s.runRelease:
+		case <-ctx.Done():
+		}
+	}
+	if s.runHoldFor > 0 && s.runIgnoreCancel {
+		time.Sleep(s.runHoldFor)
+	} else if s.runHoldFor > 0 {
 		select {
 		case <-time.After(s.runHoldFor):
 		case <-ctx.Done():
@@ -301,8 +315,9 @@ func TestStop_DrainsAllGoroutines(t *testing.T) {
 // TestStop_WaitsForInFlightCheck 验证 Stop 会等待正在执行的 RunCheck 退出（pool.StopAndWait）。
 func TestStop_WaitsForInFlightCheck(t *testing.T) {
 	svc := &stubMonitorSvc{
-		runCalled:  make(chan int64, 1),
-		runHoldFor: 200 * time.Millisecond,
+		runCalled:       make(chan int64, 1),
+		runHoldFor:      200 * time.Millisecond,
+		runIgnoreCancel: true,
 	}
 	r := newRunnerForTest(svc)
 	r.Start()
@@ -356,5 +371,63 @@ func stoppedWithin(t *testing.T, r *ChannelMonitorRunner, timeout time.Duration)
 	case <-done:
 	case <-time.After(timeout):
 		t.Fatalf("Stop did not return within %s — leaked goroutine?", timeout)
+	}
+}
+
+// The task context must cancel the actual in-flight check, not only the timer.
+func TestUnschedule_CancelsInFlightCheck(t *testing.T) {
+	release := make(chan struct{})
+	svc := &stubMonitorSvc{runContext: make(chan context.Context, 1), runRelease: release}
+	r := newRunnerForTest(svc)
+	t.Cleanup(func() { close(release); r.Stop() })
+	r.Start()
+	r.Schedule(&ChannelMonitor{ID: 71, Enabled: true, IntervalSeconds: 60})
+	var checkCtx context.Context
+	select {
+	case checkCtx = <-svc.runContext:
+	case <-time.After(2 * time.Second):
+		t.Fatal("check never started")
+	}
+	if deadline, ok := checkCtx.Deadline(); !ok || time.Until(deadline) > monitorRequestTimeout+monitorPingTimeout+monitorRunOneBuffer {
+		t.Fatal("missing bounded check deadline")
+	}
+	r.Unschedule(71)
+	select {
+	case <-checkCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Unschedule did not cancel the in-flight check")
+	}
+	if checkCtx.Err() != context.Canceled {
+		t.Fatalf("expected task cancellation, got %v", checkCtx.Err())
+	}
+	waitFor(t, time.Second, "in-flight slot released", func() bool { r.inFlightMu.Lock(); defer r.inFlightMu.Unlock(); return len(r.inFlight) == 0 })
+	if runnerTaskCount(r) != 0 {
+		t.Fatal("unscheduled task retained")
+	}
+}
+
+// Stop cancels responsive checks and still waits for the pool to drain.
+func TestStop_CancelsAndDrainsResponsiveCheck(t *testing.T) {
+	release := make(chan struct{})
+	svc := &stubMonitorSvc{runContext: make(chan context.Context, 1), runRelease: release}
+	r := newRunnerForTest(svc)
+	t.Cleanup(func() { close(release); r.Stop() })
+	r.Start()
+	r.Schedule(&ChannelMonitor{ID: 72, Enabled: true, IntervalSeconds: 60})
+	var checkCtx context.Context
+	select {
+	case checkCtx = <-svc.runContext:
+	case <-time.After(2 * time.Second):
+		t.Fatal("check never started")
+	}
+	stoppedWithin(t, r, 2*time.Second)
+	if checkCtx.Err() != context.Canceled {
+		t.Fatalf("Stop did not cancel responsive check: %v", checkCtx.Err())
+	}
+	r.inFlightMu.Lock()
+	pending := len(r.inFlight)
+	r.inFlightMu.Unlock()
+	if pending != 0 {
+		t.Fatalf("Stop returned with %d in-flight slots", pending)
 	}
 }

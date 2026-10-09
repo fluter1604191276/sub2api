@@ -186,3 +186,12 @@ creating an atomic, no-replace final name. Existing backup names cannot be
 overwritten; error/cleanup status and retention sequencing remain explicit.
 See `extensions/20261009-backup-atomicity.md` for tests and recovery boundaries.
 This candidate record does not authorize a production script update or release.
+
+## Contract Corrections
+
+The local successor correcting client error secrecy, monitor cancellation with
+bounded known-cost cleanup, and optional internal-cost rule arrays is recorded in
+`extensions/20261009-contract-corrections.md`. Existing pricing, scope matching,
+unknown-cost reservations and scheduling policies are retained. Exact new source,
+image and verification evidence must be bound before any formal gate promotion;
+this inventory entry does not approve release or production operations.

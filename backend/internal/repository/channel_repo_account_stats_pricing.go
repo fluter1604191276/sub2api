@@ -161,6 +161,16 @@ func replaceAccountStatsPricingRulesTx(ctx context.Context, tx *sql.Tx, channelI
 
 // createAccountStatsPricingRuleTx 在事务中创建单条账号统计定价规则及其模型定价
 func createAccountStatsPricingRuleTx(ctx context.Context, tx *sql.Tx, rule *service.AccountStatsPricingRule) error {
+	// Omitted selectors persist as empty arrays without changing rule matching.
+	// lib/pq serializes a nil slice as SQL NULL; both columns are NOT NULL.
+	// Normalize at the shared write boundary for create and batch replacement;
+	// do not infer scope IDs from the channel's business groups.
+	if rule.GroupIDs == nil {
+		rule.GroupIDs = []int64{}
+	}
+	if rule.AccountIDs == nil {
+		rule.AccountIDs = []int64{}
+	}
 	err := tx.QueryRowContext(ctx,
 		`INSERT INTO channel_account_stats_pricing_rules (channel_id, name, group_ids, account_ids, sort_order)
 		 VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at, updated_at`,

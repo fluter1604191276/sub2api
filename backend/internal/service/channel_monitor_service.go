@@ -830,7 +830,11 @@ func (s *ChannelMonitorService) settleProbeBudget(ctx context.Context, reservati
 		slog.Error("channel_monitor: cannot settle daily budget without ledger or reservation")
 		return
 	}
-	if err := repo.SettleDailyBudget(ctx, reservation.Day, reservation.Reserved, actual); err != nil {
+	// Preserve settlement of already known usage when the task was canceled.
+	// The shared helper retains context values and bounds cleanup to 15 seconds.
+	settlementCtx, cancel := detachedBillingContext(ctx)
+	defer cancel()
+	if err := repo.SettleDailyBudget(settlementCtx, reservation.Day, reservation.Reserved, actual); err != nil {
 		slog.Error("channel_monitor: settle daily budget failed", "error", err)
 	}
 }

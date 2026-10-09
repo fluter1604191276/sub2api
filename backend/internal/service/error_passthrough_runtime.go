@@ -1,6 +1,9 @@
 package service
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/model"
+	"github.com/gin-gonic/gin"
+)
 
 const errorPassthroughServiceContextKey = "error_passthrough_service"
 
@@ -56,10 +59,7 @@ func applyErrorPassthroughRule(
 		status = *rule.ResponseCode
 	}
 
-	errMsg = ExtractUpstreamErrorMessage(responseBody)
-	if !rule.PassthroughBody && rule.CustomMessage != nil {
-		errMsg = *rule.CustomMessage
-	}
+	errMsg = ErrorPassthroughClientMessage(rule, responseBody)
 
 	// 命中 skip_monitoring 时在 context 中标记，供 ops_error_logger 跳过记录。
 	if rule.SkipMonitoring {
@@ -69,4 +69,13 @@ func applyErrorPassthroughRule(
 	// 与现有 failover 场景保持一致：命中规则时统一返回 upstream_error。
 	errType = "upstream_error"
 	return status, errType, errMsg, true
+}
+
+// ErrorPassthroughClientMessage preserves configured messages while sanitizing
+// upstream-derived client text. Matching still uses the original error body.
+func ErrorPassthroughClientMessage(rule *model.ErrorPassthroughRule, responseBody []byte) string {
+	if rule != nil && !rule.PassthroughBody && rule.CustomMessage != nil {
+		return *rule.CustomMessage
+	}
+	return sanitizeClientVisibleUpstreamErrorMessage(ExtractUpstreamErrorMessage(responseBody))
 }

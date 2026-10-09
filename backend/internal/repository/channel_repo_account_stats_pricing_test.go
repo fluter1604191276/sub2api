@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -245,4 +246,86 @@ func TestCreateAccountStatsModelPricingTx_NilCacheWrite1hAndTimePricingPersistNu
 	require.NoError(t, createAccountStatsModelPricingTx(context.Background(), tx, 9, pricing))
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateAccountStatsPricingRuleTx_NormalizesOptionalScopes(t *testing.T) {
+	tests := []struct {
+		name                 string
+		groups, accounts     []int64
+		groupArg, accountArg string
+	}{
+		{name: "both omitted", groupArg: "{}", accountArg: "{}"},
+		{name: "account only", accounts: []int64{42}, groupArg: "{}", accountArg: "{42}"},
+		{name: "group only", groups: []int64{17}, groupArg: "{17}", accountArg: "{}"},
+		{name: "explicit empty", groups: []int64{}, accounts: []int64{}, groupArg: "{}", accountArg: "{}"},
+		{name: "scoped IDs preserved", groups: []int64{17, 19}, accounts: []int64{42, 43}, groupArg: "{17,19}", accountArg: "{42,43}"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer func() { _ = db.Close() }()
+			now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+			mock.ExpectBegin()
+			mock.ExpectQuery("INSERT INTO channel_account_stats_pricing_rules").
+				WithArgs(int64(7), "fixture rule", tt.groupArg, tt.accountArg, 0).
+				WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(11), now, now))
+			mock.ExpectCommit()
+			tx, err := db.BeginTx(context.Background(), nil)
+			require.NoError(t, err)
+			rule := &service.AccountStatsPricingRule{ChannelID: 7, Name: "fixture rule", GroupIDs: tt.groups, AccountIDs: tt.accounts}
+			require.NoError(t, createAccountStatsPricingRuleTx(context.Background(), tx, rule))
+			require.NoError(t, tx.Commit())
+			require.NotNil(t, rule.GroupIDs)
+			require.NotNil(t, rule.AccountIDs)
+			if len(tt.groups) > 0 {
+				require.Equal(t, tt.groups, rule.GroupIDs, "nonempty group IDs must not be inferred or replaced")
+			}
+			if len(tt.accounts) > 0 {
+				require.Equal(t, tt.accounts, rule.AccountIDs, "nonempty account IDs must be preserved")
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestChannelRepositoryOptionalRuleScopes_CreateUpdateAndBatch(t *testing.T) {
+	for _, operation := range []string{"create", "update", "batch replacement"} {
+		t.Run(operation, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			defer func() { _ = db.Close() }()
+			repo := &channelRepository{db: db}
+			now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+			rules := []service.AccountStatsPricingRule{
+				{Name: "account only", AccountIDs: []int64{42}},
+				{Name: "group only", GroupIDs: []int64{17}},
+			}
+			channel := &service.Channel{ID: 7, Name: "fixture channel", GroupIDs: []int64{99}, AccountStatsPricingRules: rules}
+			mock.ExpectBegin()
+			if operation == "create" {
+				mock.ExpectQuery("INSERT INTO channels").WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(7), now, now))
+			} else if operation == "update" {
+				mock.ExpectExec("UPDATE channels SET").WillReturnResult(sqlmock.NewResult(0, 1))
+			}
+			if operation != "batch replacement" {
+				mock.ExpectExec("DELETE FROM channel_groups").WithArgs(int64(7)).WillReturnResult(sqlmock.NewResult(0, 1))
+				mock.ExpectExec("INSERT INTO channel_groups").WithArgs(int64(7), "{99}").WillReturnResult(sqlmock.NewResult(0, 1))
+			}
+			mock.ExpectExec("DELETE FROM channel_account_stats_pricing_rules").WithArgs(int64(7)).WillReturnResult(sqlmock.NewResult(0, 2))
+			mock.ExpectQuery("INSERT INTO channel_account_stats_pricing_rules").WithArgs(int64(7), "account only", "{}", "{42}", 0).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(11), now, now))
+			mock.ExpectQuery("INSERT INTO channel_account_stats_pricing_rules").WithArgs(int64(7), "group only", "{17}", "{}", 0).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(12), now, now))
+			mock.ExpectCommit()
+			switch operation {
+			case "create":
+				err = repo.Create(context.Background(), channel)
+			case "update":
+				err = repo.Update(context.Background(), channel)
+			default:
+				err = repo.runInTx(context.Background(), func(tx *sql.Tx) error { return replaceAccountStatsPricingRulesTx(context.Background(), tx, 7, rules) })
+			}
+			require.NoError(t, err)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
