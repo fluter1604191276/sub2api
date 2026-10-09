@@ -7,6 +7,14 @@ import (
 )
 
 func TestIsMigrationChecksumCompatible(t *testing.T) {
+	t.Run("238 previously applied destructive migration is incompatible", func(t *testing.T) {
+		require.False(t, isMigrationChecksumCompatible(
+			"238_purge_unlimited_user_platform_quotas.sql",
+			"052756d1b1ac951f002034bf0434f8a6ea943ec0a2a34541ca4374ba6278cce7",
+			"137533d4d8fed4b660204f3a78d636dcb751697bf28d0a40d188e86514b6cb72",
+		))
+	})
+
 	t.Run("054历史checksum可兼容", func(t *testing.T) {
 		ok := isMigrationChecksumCompatible(
 			"054_drop_legacy_cache_columns.sql",

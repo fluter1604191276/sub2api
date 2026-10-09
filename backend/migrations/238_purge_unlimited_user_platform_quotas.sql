@@ -1,10 +1,16 @@
--- user_platform_quotas 仅保存至少配置了一档限额的记录；不存在的行等价于不限额。
--- 三档限额全为 NULL 的行不携带任何可执行的限额，也不参与任何读取，直接删除。
--- 幂等：重复执行影响 0 行。
--- 行数约为历史用户数 × 平台数，整条语句在一个事务内执行；超大表需按
--- SETUP_MIGRATION_TIMEOUT_SECONDS 调高迁移超时，或在升级前预先分批清理。
+-- Preserve historical unlimited quota state (policy B, 2026-10-09).
+-- Only active rows with all three limits NULL are archived. Explicit zero or
+-- positive limits and already archived rows are unchanged. Retain counters,
+-- window starts, IDs, created_at and updated_at; only deleted_at changes.
+-- A future first limit creates a fresh active row with zero counters and NULL
+-- windows through UpsertForUser; archived state remains available for audit.
+-- Idempotent: archived rows no longer match. Never hard-delete quota history.
+-- This replacement applies only where this exact migration filename is pending.
+-- Previously applied DELETE checksums must fail closed; no checksum exception.
 
-DELETE FROM user_platform_quotas
- WHERE daily_limit_usd IS NULL
+UPDATE user_platform_quotas
+   SET deleted_at = CURRENT_TIMESTAMP
+ WHERE deleted_at IS NULL
+   AND daily_limit_usd IS NULL
    AND weekly_limit_usd IS NULL
    AND monthly_limit_usd IS NULL;
