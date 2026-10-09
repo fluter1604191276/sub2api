@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -195,7 +196,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	groupRecoveryProbeRepository := repository.NewGroupRecoveryProbeRepository(db)
 	smartSchedulerPreviewService := service.ProvideSmartSchedulerPreviewService(adminService, dashboardService, concurrencyService, groupRecoveryProbeRepository)
 	groupRecoveryProbeBillingService := service.NewGroupRecoveryProbeBillingService(settingRepository, apiKeyRepository, accountRepository, groupRecoveryProbeRepository, channelService, billingService, billingCacheService)
-	groupHandler := admin.NewGroupHandler(adminService, dashboardService, groupCapacityService, smartSchedulerPreviewService, groupRecoveryProbeBillingService)
+	groupHandler := handler.ProvideGroupHandlerPreservingR4(adminService, dashboardService, groupCapacityService, smartSchedulerPreviewService, groupRecoveryProbeBillingService)
 	claudeUsageFetcher := repository.NewClaudeUsageFetcher(httpUpstream)
 	antigravityQuotaFetcher := service.NewAntigravityQuotaFetcher(proxyRepository, configConfig)
 	grokQuotaFetcher := service.NewGrokQuotaFetcher()
@@ -345,6 +346,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	proxyExpiryService := service.ProvideProxyExpiryService(proxyRepository)
 	subscriptionExpiryService := service.ProvideSubscriptionExpiryService(userSubscriptionRepository, settingRepository, notificationEmailService, leaderLockCache, db)
 	batchImageWorkerRuntime := service.ProvideBatchImageWorkerRuntime(batchImageRepository, accountRepository, batchImageQueue, usageBillingRepository, usageLogRepository, batchImageModelPricingResolver, apiKeyAuthCacheInvalidator, configConfig)
+	usageJournalWorkerRuntime, err := provideUsageJournalRuntime(configConfig, db, httpServer)
+	if err != nil {
+		return nil, err
+	}
 	scheduledTestRunnerService := service.ProvideScheduledTestRunnerService(scheduledTestPlanRepository, scheduledTestService, accountTestService, rateLimitService, configConfig)
 	groupRecoveryProbeRunner := service.ProvideGroupRecoveryProbeRunner(groupRecoveryProbeRepository, accountTestService, groupRecoveryProbeBillingService, smartSchedulerPreviewService, gatewayService, openAIGatewayService)
 	paymentOrderExpiryService := service.ProvidePaymentOrderExpiryService(paymentService, leaderLockCache, db)
@@ -352,7 +357,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService, channelMonitorQuotaFetcher)
 	channelMonitorV2Aggregator := service.ProvideChannelMonitorV2Aggregator(channelMonitorV2Repository, db, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, groupRecoveryProbeRunner, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
+	v := provideCleanup(httpServer, client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, usageJournalWorkerRuntime, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, groupRecoveryProbeRunner, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	application := &Application{
 		Server:        httpServer,
 		PromptAudit:   promptService,
@@ -369,6 +374,15 @@ type Application struct {
 	PromptAudit   *securityaudit.PromptService
 	PluginManager *service.PluginManager
 	Cleanup       func()
+}
+
+func provideUsageJournalRuntime(cfg *config.Config, db *sql.DB, srv *http.Server) (*service.UsageJournalWorkerRuntime, error) {
+	r := service.NewUsageJournalWorkerRuntime(cfg, repository.NewUsageJournalRepository(db))
+	if e := r.Start(); e != nil {
+		return nil, e
+	}
+	srv.Handler = r.WrapHTTP(srv.Handler)
+	return r, nil
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -390,6 +404,7 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	srv *http.Server,
 	entClient *ent.Client,
 	rdb *redis.Client,
 	opsMetricsCollector *service.OpsMetricsCollector,
@@ -417,6 +432,7 @@ func provideCleanup(
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	usageJournalWorker *service.UsageJournalWorkerRuntime,
 	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
@@ -612,6 +628,12 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"UsageJournalWorker", func() error {
+				if usageJournalWorker != nil {
+					usageJournalWorker.Stop()
+				}
+				return nil
+			}},
 			{"OAuthService", func() error {
 				oauth.Stop()
 				return nil
@@ -739,6 +761,12 @@ func provideCleanup(
 			}
 		}
 
+		if usageJournalWorker.Enabled() {
+			if e := service.DrainUsageJournal(ctx, srv, usageRecordWorkerPool, usageJournalWorker); e != nil {
+				log.Printf("[Cleanup] journal drain incomplete; infrastructure left open: %v", e)
+				return
+			}
+		}
 		runParallel(parallelSteps)
 		runSequential(infraSteps)
 

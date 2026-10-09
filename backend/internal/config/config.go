@@ -946,6 +946,11 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// Explicit opt-in; startup validates the reviewed journal schema. Default off.
+	UsageJournalDraftEnabled         bool  `mapstructure:"usage_journal_draft_enabled"`
+	UsageJournalMaxPending           int   `mapstructure:"usage_journal_max_pending"`
+	UsageJournalMaxPendingAgeSeconds int   `mapstructure:"usage_journal_max_pending_age_seconds"`
+	UsageJournalMaxRelationBytes     int64 `mapstructure:"usage_journal_max_relation_bytes"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1987,6 +1992,10 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 }
 
 func setDefaults() {
+	viper.SetDefault("gateway.usage_journal_draft_enabled", false)
+	viper.SetDefault("gateway.usage_journal_max_pending", 0)
+	viper.SetDefault("gateway.usage_journal_max_pending_age_seconds", 0)
+	viper.SetDefault("gateway.usage_journal_max_relation_bytes", 0)
 	viper.SetDefault("run_mode", RunModeStandard)
 
 	// Server
@@ -2646,6 +2655,9 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if e := c.ValidateUsageJournal(); e != nil {
+		return e
+	}
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)
 	if err != nil {
 		return fmt.Errorf("security.forwarded_client_ip_headers: %w", err)
@@ -3860,4 +3872,26 @@ func warnIfInsecureURL(field, raw string) {
 	if strings.EqualFold(u.Scheme, "http") {
 		slog.Warn("url uses http scheme; use https in production to avoid token leakage", "field", field)
 	}
+}
+
+// ValidateUsageJournal does not query or migrate a database. The Wire runtime
+// separately validates exact schema/version before its worker or HTTP listener.
+func (c *Config) ValidateUsageJournal() error {
+	if !c.Gateway.UsageJournalDraftEnabled {
+		return nil
+	}
+	if c.Gateway.CodexImageGenerationBridgeEnabled {
+		return fmt.Errorf("usage journal text scope requires codex image generation bridge disabled")
+	}
+	if NormalizeRunMode(c.RunMode) == RunModeSimple {
+		return fmt.Errorf("usage journal requires standard run mode")
+	}
+	policy := strings.TrimSpace(c.Gateway.UsageRecord.OverflowPolicy)
+	if policy != "" && policy != UsageRecordOverflowPolicySync {
+		return fmt.Errorf("usage journal requires sync billing overflow policy")
+	}
+	if c.Gateway.UsageJournalMaxPending <= 0 || c.Gateway.UsageJournalMaxPendingAgeSeconds <= 0 || c.Gateway.UsageJournalMaxRelationBytes <= 0 {
+		return fmt.Errorf("usage journal requires explicit positive pending, age and relation-byte limits")
+	}
+	return nil
 }

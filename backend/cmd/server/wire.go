@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"log"
 	"net/http"
 	"sync"
@@ -56,11 +57,21 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 		// Cleanup function provider
 		provideCleanup,
+		provideUsageJournalRuntime,
 
 		// Application struct
 		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup"),
 	)
 	return nil, nil
+}
+
+func provideUsageJournalRuntime(cfg *config.Config, db *sql.DB, srv *http.Server) (*service.UsageJournalWorkerRuntime, error) {
+	r := service.NewUsageJournalWorkerRuntime(cfg, repository.NewUsageJournalRepository(db))
+	if e := r.Start(); e != nil {
+		return nil, e
+	}
+	srv.Handler = r.WrapHTTP(srv.Handler)
+	return r, nil
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -82,6 +93,7 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	srv *http.Server,
 	entClient *ent.Client,
 	rdb *redis.Client,
 	opsMetricsCollector *service.OpsMetricsCollector,
@@ -109,6 +121,7 @@ func provideCleanup(
 	emailQueue *service.EmailQueueService,
 	billingCache *service.BillingCacheService,
 	usageRecordWorkerPool *service.UsageRecordWorkerPool,
+	usageJournalWorker *service.UsageJournalWorkerRuntime,
 	subscriptionService *service.SubscriptionService,
 	oauth *service.OAuthService,
 	openaiOAuth *service.OpenAIOAuthService,
@@ -305,6 +318,12 @@ func provideCleanup(
 				}
 				return nil
 			}},
+			{"UsageJournalWorker", func() error {
+				if usageJournalWorker != nil {
+					usageJournalWorker.Stop()
+				}
+				return nil
+			}},
 			{"OAuthService", func() error {
 				oauth.Stop()
 				return nil
@@ -432,6 +451,12 @@ func provideCleanup(
 			}
 		}
 
+		if usageJournalWorker.Enabled() {
+			if e := service.DrainUsageJournal(ctx, srv, usageRecordWorkerPool, usageJournalWorker); e != nil {
+				log.Printf("[Cleanup] journal drain incomplete; infrastructure left open: %v", e)
+				return
+			}
+		}
 		runParallel(parallelSteps)
 		runSequential(infraSteps)
 

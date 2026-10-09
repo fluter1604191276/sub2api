@@ -9,6 +9,12 @@ import (
 	"github.com/google/wire"
 )
 
+// ProvideGroupHandlerPreservingR4 keeps the dependencies of the checked-in r4
+// runtime when Wire is regenerated. The old WithConfig provider dropped both.
+func ProvideGroupHandlerPreservingR4(a service.AdminService, d *service.DashboardService, c *service.GroupCapacityService, s *service.SmartSchedulerPreviewService, r *service.GroupRecoveryProbeBillingService) *admin.GroupHandler {
+	return admin.NewGroupHandler(a, d, c, s, r)
+}
+
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
 	dashboardHandler *admin.DashboardHandler,
@@ -252,7 +258,7 @@ var ProviderSet = wire.NewSet(
 	// Admin handlers
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
-	admin.NewGroupHandlerWithConfig,
+	ProvideGroupHandlerPreservingR4,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,

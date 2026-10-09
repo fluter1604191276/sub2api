@@ -51,6 +51,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
 
 	cleanup := provideCleanup(
+		nil, // HTTP server: default-disabled lifecycle test
 		nil, // entClient
 		nil, // redis
 		&service.OpsMetricsCollector{},
@@ -78,6 +79,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		emailQueueSvc,
 		billingCacheSvc,
 		&service.UsageRecordWorkerPool{},
+		nil, // default-disabled journal runtime
 		&service.SubscriptionService{},
 		oauthSvc,
 		openAIOAuthSvc,

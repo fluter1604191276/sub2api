@@ -2,9 +2,13 @@ package repository
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -28,6 +32,17 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 
 	cmd.Normalize()
+	attemptToken := ""
+	if cmd.UsageJournalSnapshot != nil {
+		if err := cmd.UsageJournalSnapshot.Validate(cmd); err != nil {
+			return nil, err
+		}
+		var token [16]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return nil, err
+		}
+		attemptToken = hex.EncodeToString(token[:])
+	}
 	if cmd.RequestID == "" {
 		return nil, service.ErrUsageBillingRequestIDRequired
 	}
@@ -47,7 +62,22 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 	if !applied {
+		if cmd.UsageJournalSnapshot != nil {
+			if err := verifyExistingUsageJournal(ctx, tx, cmd); err != nil {
+				return nil, err
+			}
+		}
 		return &service.UsageBillingApplyResult{Applied: false}, nil
+	}
+	if cmd.UsageJournalSnapshot != nil {
+		found, _, err := lookupUsageJournal(ctx, tx, cmd)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			// Journal remains authoritative after dedup/archive retention.
+			return &service.UsageBillingApplyResult{Applied: false}, nil
+		}
 	}
 
 	result := &service.UsageBillingApplyResult{Applied: true}
@@ -55,7 +85,24 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 
+	if cmd.UsageJournalSnapshot != nil {
+		if err := insertUsageJournalSnapshot(ctx, tx, cmd, result, attemptToken); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(); err != nil {
+		if cmd.UsageJournalSnapshot != nil {
+			// COMMIT errors do not establish rollback. Resolve only by the durable
+			// original key; never execute effects or construct another snapshot.
+			resolveCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			found, savedResult, resolveErr := lookupUsageJournal(resolveCtx, r.db, cmd, attemptToken)
+			if resolveErr == nil && found {
+				return savedResult, nil
+			}
+			return nil, fmt.Errorf("usage billing commit uncertain: %w", err)
+		}
 		return nil, err
 	}
 	tx = nil

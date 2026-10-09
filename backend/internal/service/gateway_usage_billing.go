@@ -337,6 +337,16 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
+	if deps.usageJournalEnabled || usageJournalDraftEnabled(deps.cfg) {
+		if cmd == nil || cmd.RequestID == "" || repo == nil {
+			return false, ErrUsageJournalStableKeyRequired
+		}
+		snapshot, err := NewUsageJournalSnapshot(cmd, usageLog)
+		if err != nil {
+			return false, err
+		}
+		cmd.UsageJournalSnapshot = snapshot
+	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps)
 		return true, nil
@@ -541,6 +551,7 @@ func detachUpstreamContext(ctx context.Context) (context.Context, context.Cancel
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）
 type billingDeps struct {
+	usageJournalEnabled   bool
 	accountRepo           AccountRepository
 	userRepo              UserRepository
 	userSubRepo           UserSubscriptionRepository
@@ -836,6 +847,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if usageJournalDraftEnabled(s.cfg) {
+			return ErrUsageJournalStableKeyRequired
+		}
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
@@ -867,11 +881,16 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}, s.billingDeps(), s.usageBillingRepo)
 
 	if billingErr != nil {
+		if usageJournalDraftEnabled(s.cfg) {
+			return billingErr
+		}
 		usageLog.ActualCost = 0
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		return billingErr
 	}
-	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
+	if !usageJournalDraftEnabled(s.cfg) {
+		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
+	}
 
 	return nil
 }
