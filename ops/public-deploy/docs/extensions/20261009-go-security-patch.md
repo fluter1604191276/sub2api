@@ -35,3 +35,10 @@ Owner/status: isolated local development; no push/merge/deploy authorization.
 Official sources: https://go.dev/doc/devel/release#go1.27.2 and
 https://github.com/golang/net/releases/tag/v0.60.0. Static called findings do
 not prove actual exploitability; source scans do not replace binary scans.
+
+Fresh Go 1.27.2 verification exposed an Ent schema importer incompatibility:
+x/tools v0.49.0 cannot decode export-data V5. Official v0.50.0 is the minimum
+compatible importer and the focused schema test passes after this upgrade.
+CI golangci-lint moves from v2.13 to v2.14 for the same importer support; no
+linter is disabled. govulncheck stays v1.8.0 and is rebuilt with Go 1.27.2.
+The failed first validation is retained, and the final SHA is revalidated.
