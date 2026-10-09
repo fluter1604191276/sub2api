@@ -82,6 +82,31 @@ The archive includes:
 
 The archive contains secrets. Keep it private.
 
+The backup script requires Linux Bash and GNU-compatible `ln -T` and file-operand
+`sync`. It creates private, unique temporary files in the backup directory and
+serializes runs with `.sub2api-backup.lock`. The final archive name appears only
+after a nonempty database dump, nested gzip/tar checks, exact outer member-list
+and byte comparisons, permission 0600, and a successful file flush. Atomic
+hard-link publication refuses existing files, directories and symlinks; it does
+not overwrite a backup even if a name collision occurs during publication.
+
+Only a successful publication starts retention. Any command or cleanup failure
+returns nonzero. A failure after publication may leave a verified final archive;
+this does not turn the overall run into success. Cleanup tries every owned
+working/temp path and preserves the original error. A failed cleanup or SIGKILL
+can leave private temporary files or a lock requiring inspection; the script
+never removes an unowned lock automatically. Backup controls come from the
+invoking environment; deployment `.env` is loaded only for the database dump and
+cannot override those controls.
+
+Validation streams member comparisons without extracting another full backup,
+but reads the compressed archive multiple times. This change does not provide a
+capacity preflight, power-loss durability of directory entries, or consistent
+snapshots of data/Redis while they are being written. Recovery testing uses
+synthetic PostgreSQL plus stopped Redis RDB/AOF snapshots; live production
+recovery remains a separate gate. Run `python3 test_backup_sub2api.py` on Linux
+for isolated failure and publication regression tests (no real Docker or SSH).
+
 Run on the VPS:
 
 ```bash

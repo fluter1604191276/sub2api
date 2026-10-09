@@ -178,3 +178,11 @@ application's observed startup configuration, not arbitrary unknown callback or
 listener integrations. Any new startup integration needs explicit compatibility
 review. New-source full tests/scans, exact image binding, hosted CI and remaining
 runtime/deployment gates still apply; this inventory entry does not approve release.
+
+## Backup Failure Atomicity
+
+Candidate backup publication now validates private temporary archives before
+creating an atomic, no-replace final name. Existing backup names cannot be
+overwritten; error/cleanup status and retention sequencing remain explicit.
+See `extensions/20261009-backup-atomicity.md` for tests and recovery boundaries.
+This candidate record does not authorize a production script update or release.

@@ -93,3 +93,9 @@ jobs:
       - run: python -m pip install -r .github/release-tools/requirements-release.txt
       - run: python -m unittest discover -s .github/release-tools -p 'test_release_matrix.py'
       - run: bash -n .github/release-tools/release-images.sh
+      - name: Backup failure atomicity and operations regressions
+        run: |
+          bash -n ops/public-deploy/backup-sub2api.sh
+          python -B ops/public-deploy/test_backup_sub2api.py
+          python -B ops/public-deploy/test_release_bundle.py
+          python -B -m unittest discover -s ops/public-deploy/upstream-rates -p 'test_*.py'
