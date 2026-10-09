@@ -969,3 +969,71 @@ func TestTokenRefreshService_NonRetryableGrokFailureInvalidatesTokenCache(t *tes
 	require.Zero(t, setTempUnschedCalls)
 	require.Equal(t, 1, invalidator.count())
 }
+
+// Model the interval between physical deadline expiry and timer Err publication.
+// No sleep or timer scheduling is needed to reproduce this state deterministically.
+type tokenRefreshDelayedDeadlineContext struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c tokenRefreshDelayedDeadlineContext) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func TestTokenRefreshAttemptDeadlineExceededBeforeTimerErrIsPublished(t *testing.T) {
+	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name     string
+		deadline time.Time
+		want     bool
+	}{
+		{"expired-with-Err-nil", now.Add(-time.Nanosecond), true},
+		{"exact-boundary-with-Err-nil", now, true},
+		{"not-expired", now.Add(time.Nanosecond), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attemptCtx := tokenRefreshDelayedDeadlineContext{Context: context.Background(), deadline: tc.deadline}
+			require.NoError(t, attemptCtx.Err(), "simulate timer publication lag")
+			require.Equal(t, tc.want, tokenRefreshAttemptDeadlineExceeded(context.Background(), attemptCtx, now))
+		})
+	}
+}
+
+func TestTokenRefreshAttemptDeadlineParentCancellationRemainsAuthoritative(t *testing.T) {
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	attemptCtx := tokenRefreshDelayedDeadlineContext{Context: context.Background(), deadline: now.Add(-time.Second)}
+	require.False(t, tokenRefreshAttemptDeadlineExceeded(parent, attemptCtx, now))
+	require.ErrorIs(t, parent.Err(), context.Canceled)
+}
+
+func TestTokenRefreshAttemptDeadlineExpiredParentBeforeTimerErrIsPublished(t *testing.T) {
+	now := time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC)
+	for _, deadline := range []time.Time{now.Add(-time.Nanosecond), now} {
+		parent := tokenRefreshDelayedDeadlineContext{Context: context.Background(), deadline: deadline}
+		attempt := tokenRefreshDelayedDeadlineContext{Context: context.Background(), deadline: now.Add(-time.Second)}
+		require.NoError(t, parent.Err())
+		require.ErrorIs(t, tokenRefreshContextError(parent, now), context.DeadlineExceeded)
+		require.False(t, tokenRefreshAttemptDeadlineExceeded(parent, attempt, now), "expired parent must not become retry/cooldown evidence")
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	parent := tokenRefreshDelayedDeadlineContext{Context: canceled, deadline: now.Add(-time.Second)}
+	require.ErrorIs(t, tokenRefreshContextError(parent, now), context.Canceled, "explicit cancellation retains precedence")
+}
+
+func TestTokenRefreshService_ExpiredParentDeadlineWithErrNilStopsWithoutMutation(t *testing.T) {
+	repo := &poolHealthAccountRepo{}
+	refresher := &poolHealthRefresher{}
+	svc := newPoolHealthService(repo, refresher, config.TokenRefreshConfig{MaxRetries: 1})
+	parent := tokenRefreshDelayedDeadlineContext{Context: context.Background(), deadline: time.Now().Add(-time.Second)}
+	require.NoError(t, parent.Err())
+	account := grokPoolAccount(44)
+	err := svc.refreshWithRetry(parent, &account, refresher, nil, time.Hour)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Zero(t, refresher.calls.Load())
+	_, updatedIDs, setErrorCalls, setTempUnschedCalls := repo.snapshot()
+	require.Empty(t, updatedIDs)
+	require.Zero(t, setErrorCalls)
+	require.Zero(t, setTempUnschedCalls)
+}

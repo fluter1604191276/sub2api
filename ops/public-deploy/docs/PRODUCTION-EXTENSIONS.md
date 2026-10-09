@@ -195,3 +195,11 @@ bounded known-cost cleanup, and optional internal-cost rule arrays is recorded i
 unknown-cost reservations and scheduling policies are retained. Exact new source,
 image and verification evidence must be bound before any formal gate promotion;
 this inventory entry does not approve release or production operations.
+
+## Refresh Deadline Correction
+
+The local integration late-success failure and its deadline correction are
+recorded in `extensions/20261009-refresh-deadline.md`. Parent request deadlines
+remain cancellation signals; the existing already durable unified refresh cleanup
+contract is retained. New source and image evidence is separate from de40. This
+entry does not authorize production action or promote a release gate.

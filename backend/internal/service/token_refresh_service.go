@@ -828,6 +828,32 @@ func (s *TokenRefreshService) refreshWithRetry(ctx context.Context, account *Acc
 	return s.refreshWithRetryWithRateGate(ctx, account, refresher, executor, refreshWindow, nil)
 }
 
+// tokenRefreshContextError observes expiry even before a timer publishes Err.
+// An explicitly reported cancellation takes precedence over the deadline.
+func tokenRefreshContextError(ctx context.Context, now time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); ok && !now.Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+// tokenRefreshAttemptDeadlineExceeded also checks the deadline itself: the
+// timer goroutine can publish Err after a refresher has already returned late.
+// Parent cancellation remains authoritative in the caller's cleanup path.
+func tokenRefreshAttemptDeadlineExceeded(parentCtx, attemptCtx context.Context, now time.Time) bool {
+	if tokenRefreshContextError(parentCtx, now) != nil {
+		return false
+	}
+	if errors.Is(attemptCtx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	deadline, ok := attemptCtx.Deadline()
+	return ok && !now.Before(deadline)
+}
+
 func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 	ctx context.Context,
 	account *Account,
@@ -840,7 +866,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 	maxRetries := s.maxRetries()
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		if err := ctx.Err(); err != nil {
+		if err := tokenRefreshContextError(ctx, time.Now()); err != nil {
 			return err
 		}
 		releaseAttempt := func() {}
@@ -904,7 +930,10 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			if releaseRate != nil {
 				releaseRate()
 			}
-			attemptTimedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+			if err == nil {
+				err = tokenRefreshContextError(ctx, time.Now())
+			}
+			attemptTimedOut := tokenRefreshAttemptDeadlineExceeded(ctx, attemptCtx, time.Now())
 			if err == nil && newCredentials != nil && !attemptTimedOut {
 				newCredentials["_token_version"] = time.Now().UnixMilli()
 				if saveErr := persistAccountCredentials(attemptCtx, s.accountRepo, account, newCredentials); saveErr != nil {
@@ -914,9 +943,15 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 				}
 			}
 		}
-		attemptTimedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil
+		attemptTimedOut := tokenRefreshAttemptDeadlineExceeded(ctx, attemptCtx, time.Now())
 		cancelAttempt()
 		releaseAttempt()
+		if parentErr := tokenRefreshContextError(ctx, time.Now()); parentErr != nil {
+			if credentialsPersisted {
+				s.postRefreshStateSyncWithCleanup(ctx, account)
+			}
+			return parentErr
+		}
 		persistedAfterAttemptDeadline := attemptTimedOut && credentialsPersisted && err == nil
 		if attemptTimedOut && !persistedAfterAttemptDeadline && !isProviderScopedTerminalRefreshError(err) {
 			cause := err
@@ -934,7 +969,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 		}
 
 		if err == nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
+			if ctxErr := tokenRefreshContextError(ctx, time.Now()); ctxErr != nil {
 				if credentialsPersisted {
 					s.postRefreshStateSyncWithCleanup(ctx, account)
 				}
@@ -951,7 +986,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			s.postRefreshActions(ctx, account)
 			return nil
 		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
+		if ctxErr := tokenRefreshContextError(ctx, time.Now()); ctxErr != nil {
 			if credentialsPersisted {
 				s.postRefreshStateSyncWithCleanup(ctx, account)
 			}
@@ -1069,7 +1104,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			}
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	if err := tokenRefreshContextError(ctx, time.Now()); err != nil {
 		return err
 	}
 
