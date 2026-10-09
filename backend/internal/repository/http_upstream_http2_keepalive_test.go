@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
 	"net/url"
 	"testing"
 	"time"
@@ -23,14 +26,12 @@ func http2KeepAliveTestPoolSettings() poolSettings {
 	}
 }
 
-// requireHTTP2Configured 断言 http2 已显式挂到 http.Transport 上。
-// x/net/http2 在 go1.27 && !http2legacy 下是标准库 HTTP/2 的包装：ConfigureTransports 通过
-// Transport.RegisterProtocol("http/2") 注册配置并打开 Protocols.HTTP2（TLSNextProto 不承载 h2 入口），
-// ReadIdleTimeout/PingTimeout 在建连时映射为 http.HTTP2Config.SendPingTimeout/PingTimeout。
+// requireHTTP2Configured checks explicit native HTTP/2 protocol selection.
 func requireHTTP2Configured(t *testing.T, tr *http.Transport, msg string) {
 	t.Helper()
 	require.NotNil(t, tr.Protocols, msg)
 	require.True(t, tr.Protocols.HTTP2(), msg)
+	require.NotNil(t, tr.HTTP2, msg)
 }
 
 // 长流 / OpenAI 上游改走 HTTP/2 后，池化连接被代理/NAT 静默掐断会成为“死连接”：
@@ -49,14 +50,31 @@ func TestEnableHTTP2KeepAlive_EnablesPingHealthCheck(t *testing.T) {
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			tr := &http.Transport{}
-			h2, err := enableHTTP2KeepAlive(tr, tc.mode)
-			require.NoError(t, err)
-			require.NotNil(t, h2, "必须返回已配置的 *http2.Transport")
-			require.Equal(t, tc.readIdleTimeout, h2.ReadIdleTimeout)
+			h2 := enableHTTP2KeepAlive(tr, tc.mode)
+			require.NotNil(t, h2, "必须返回已配置的 *http.HTTP2Config")
+			require.Equal(t, tc.readIdleTimeout, h2.SendPingTimeout)
 			require.Equal(t, tc.pingTimeout, h2.PingTimeout, "各模式应使用独立的 PING 应答期限")
 			requireHTTP2Configured(t, tr, "http2 必须已挂到底层 http.Transport 上")
 		})
 	}
+}
+
+func TestEnableHTTP2KeepAlivePreservesOtherTransportSettings(t *testing.T) {
+	protocols := new(http.Protocols)
+	protocols.SetUnencryptedHTTP2(true)
+	h2 := &http.HTTP2Config{MaxReadFrameSize: 64 * 1024, StrictMaxConcurrentRequests: true}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	tr := &http.Transport{Protocols: protocols, HTTP2: h2, TLSClientConfig: tlsConfig}
+	require.Same(t, h2, enableHTTP2KeepAlive(tr, upstreamProtocolModeOpenAIH2))
+	require.Same(t, protocols, tr.Protocols)
+	require.False(t, tr.Protocols.HTTP1(), "preserve an explicit HTTP/1 selection")
+	require.True(t, tr.Protocols.UnencryptedHTTP2())
+	require.True(t, tr.Protocols.HTTP2())
+	require.Same(t, tlsConfig, tr.TLSClientConfig)
+	require.Equal(t, 64*1024, tr.HTTP2.MaxReadFrameSize)
+	require.True(t, tr.HTTP2.StrictMaxConcurrentRequests)
+	require.Equal(t, openAIHTTP2ReadIdleTimeout, tr.HTTP2.SendPingTimeout)
+	require.Equal(t, openAIHTTP2PingTimeout, tr.HTTP2.PingTimeout)
 }
 
 // long_stream_h2 模式构建的 Transport 必须带上 H2 PING 健康探测，从源头剔除死连接。
@@ -74,6 +92,7 @@ func TestBuildUpstreamTransport_NonHTTP2_NotEagerlyConfigured(t *testing.T) {
 			tr, err := buildUpstreamTransport(http2KeepAliveTestPoolSettings(), nil, mode)
 			require.NoError(t, err)
 			require.Nil(t, tr.Protocols, "非 H2 模式不应主动配置 http2 keepalive")
+			require.Nil(t, tr.HTTP2, "非 H2 模式不应主动配置 PING")
 			require.Nil(t, tr.TLSNextProto["h2"], "非 H2 模式不应主动配置 http2 keepalive")
 		})
 	}
@@ -133,4 +152,88 @@ func TestBuildUpstreamTransport_HTTP2_WithHTTPProxy_EnablesKeepAlive(t *testing.
 			require.NotNil(t, tr.Proxy, "HTTP 代理仍须通过 Transport.Proxy 生效")
 		})
 	}
+}
+
+// Cancellation must reset only the selected stream, preserving a simultaneous
+// response and the pooled connection used by the next legitimate request.
+func TestNativeHTTP2TransportCancellationPreservesOtherStreamAndReuse(t *testing.T) {
+	release := make(chan struct{})
+	cancelObserved := make(chan struct{})
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = http.NewResponseController(w).Flush()
+		switch r.URL.Path {
+		case "/cancel":
+			<-r.Context().Done()
+			close(cancelObserved)
+		case "/held":
+			select {
+			case <-release:
+				_, _ = io.WriteString(w, "held complete")
+			case <-r.Context().Done():
+			}
+		default:
+			_, _ = io.WriteString(w, "next complete")
+		}
+	}))
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	defer srv.Close()
+	defer srv.CloseClientConnections()
+	tr, err := buildUpstreamTransport(http2KeepAliveTestPoolSettings(), nil, upstreamProtocolModeLongStreamH2)
+	require.NoError(t, err)
+	defer tr.CloseIdleConnections()
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	ctx, finish := context.WithTimeout(t.Context(), 5*time.Second)
+	defer finish()
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var originalConn net.Conn
+	cancelCtx = httptrace.WithClientTrace(cancelCtx, &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { originalConn = info.Conn }})
+	req, err := http.NewRequestWithContext(cancelCtx, http.MethodGet, srv.URL+"/cancel", nil)
+	require.NoError(t, err)
+	canceled, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	defer func() { _ = canceled.Body.Close() }()
+	require.Equal(t, 2, canceled.ProtoMajor)
+	var heldConn net.Conn
+	heldCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { heldConn = info.Conn }})
+	req, err = http.NewRequestWithContext(heldCtx, http.MethodGet, srv.URL+"/held", nil)
+	require.NoError(t, err)
+	held, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	defer func() { _ = held.Body.Close() }()
+	require.Equal(t, 2, held.ProtoMajor)
+	require.Same(t, originalConn, heldConn, "fixture must have two active streams on one connection")
+	cancel()
+	_, err = io.ReadAll(io.LimitReader(canceled.Body, 1024))
+	require.ErrorIs(t, err, context.Canceled)
+	select {
+	case <-cancelObserved:
+	case <-ctx.Done():
+		t.Fatal("server did not observe stream cancellation")
+	}
+	close(release)
+	body, err := io.ReadAll(io.LimitReader(held.Body, 1024))
+	require.NoError(t, err)
+	require.Equal(t, "held complete", string(body))
+	require.NoError(t, held.Body.Close())
+	var reused bool
+	var nextConn net.Conn
+	traceCtx := httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) {
+		reused = info.Reused
+		nextConn = info.Conn
+	}})
+	req, err = http.NewRequestWithContext(traceCtx, http.MethodGet, srv.URL+"/next", nil)
+	require.NoError(t, err)
+	next, err := tr.RoundTrip(req)
+	require.NoError(t, err)
+	defer func() { _ = next.Body.Close() }()
+	body, err = io.ReadAll(io.LimitReader(next.Body, 1024))
+	require.NoError(t, err)
+	require.Equal(t, "next complete", string(body))
+	require.True(t, reused, "stream cancellation must retain the pooled HTTP/2 connection")
+	require.Same(t, originalConn, nextConn)
 }
