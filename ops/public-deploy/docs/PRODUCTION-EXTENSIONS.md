@@ -1,5 +1,10 @@
 # Production Extension Inventory
 
+The 2026-10-09 security toolchain successor (Go 1.27.2 and x/net v0.60.0)
+is recorded in `extensions/20261009-go-security-patch.md`. It preserves the
+quota-history policy B and requires fresh source/binary security and protocol
+verification; it does not authorize a production switch.
+
 This is the authoritative inventory of site-specific Sub2API behavior that must survive an upstream update. It is capability-oriented: a file list alone is not enough because Docker can omit source files, generated frontend assets can be stale, and a route can exist while its runtime behavior is broken.
 
 Every release manifest must record the status and evidence for each capability below. New二开 must be added here before it is eligible for production.
