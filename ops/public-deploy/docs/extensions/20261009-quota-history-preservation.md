@@ -58,6 +58,14 @@ This patch belongs to `official-0214-compatibility` and `ops-baseline` capabilit
 Unit contract/checksum tests and real PostgreSQL regression tests cover preserved
 rows, timestamps/windows, explicit zero/positive limits, pre-archived rows,
 idempotence, hidden defaults and a zero-initialized future active row.
+The flusher skips snapshots whose three limit pointers are all nil, so a late
+old unlimited snapshot cannot overwrite a newly configured row. Explicit zero
+and positive limit snapshots are still written. Real PG/Redis interleaving
+regression captures a snapshot before archive/new-limit/cache invalidation and
+flushes it afterwards. This guard does not solve the existing finite-limit
+clear/recreate or reset/flusher races, nor cache invalidation failure; keep those
+separate concurrency/enforcement gates.
+
 Full candidate tests, independent code/architecture reviews and a new image are
 required. The prior e0 SHA/digest and test results cannot identify or approve this
 patch. Formal `allow_release` stays false until all gates close, including native

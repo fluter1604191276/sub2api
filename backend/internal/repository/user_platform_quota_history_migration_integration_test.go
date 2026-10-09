@@ -4,7 +4,10 @@ package repository
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"testing"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
@@ -104,4 +107,63 @@ func TestUserPlatformQuotaHistoryMigration_ArchiveAndFreshLimit(t *testing.T) {
 	preserved, err := repo.GetByUserPlatform(ctx, userID, "grok")
 	require.NoError(t, err)
 	require.InDelta(t, 8.0, preserved.WeeklyUsageUSD, 1e-10, "existing configured usage remains")
+}
+
+// Capture an actual Redis snapshot, then perform the administrative transition
+// before the actual flusher writes. The late snapshot must not refill new usage.
+type quotaHistoryInterleavingCache struct {
+	service.BillingCache
+	afterRead func()
+}
+
+func (c *quotaHistoryInterleavingCache) BatchGetUserPlatformQuotaCache(ctx context.Context, keys []service.UserPlatformQuotaKey) ([]*service.UserPlatformQuotaCacheEntry, error) {
+	entries, err := c.BillingCache.BatchGetUserPlatformQuotaCache(ctx, keys)
+	if err == nil && c.afterRead != nil {
+		hook := c.afterRead
+		c.afterRead = nil
+		hook()
+	}
+	return entries, err
+}
+func TestUserPlatformQuotaHistoryMigration_LateUnlimitedRedisSnapshot(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	ctx = dbent.NewTxContext(ctx, tx)
+	client := tx.Client()
+	userID := mustCreateUserForQuota(t, client)
+	_, err := client.ExecContext(ctx, `INSERT INTO user_platform_quotas (user_id,platform,monthly_usage_usd,monthly_window_start) VALUES ($1,'openai',0.75,now())`, userID)
+	require.NoError(t, err)
+	repo := NewUserPlatformQuotaRepository(client)
+	cache := NewBillingCache(testRedis(t))
+	now := time.Now().UTC().Truncate(time.Second)
+	entry := &service.UserPlatformQuotaCacheEntry{DailyUsageUSD: 0.25, WeeklyUsageUSD: 0.5, MonthlyUsageUSD: 0.75, DailyWindowStart: &now, WeeklyWindowStart: &now, MonthlyWindowStart: &now, SchemaVersion: service.UserPlatformQuotaCacheSchemaV1}
+	require.NoError(t, cache.SetUserPlatformQuotaCache(ctx, userID, "openai", entry, time.Minute))
+	require.NoError(t, cache.IncrUserPlatformQuotaUsageCache(ctx, userID, "openai", 0.0, time.Minute, true))
+	interleaving := &quotaHistoryInterleavingCache{BillingCache: cache}
+	interleaving.afterRead = func() {
+		content, readErr := migrations.FS.ReadFile("238_purge_unlimited_user_platform_quotas.sql")
+		require.NoError(t, readErr)
+		_, execErr := client.ExecContext(ctx, string(content))
+		require.NoError(t, execErr)
+		limit := 0.5
+		require.NoError(t, repo.UpsertForUser(ctx, userID, []UserPlatformQuotaRecord{{Platform: "openai", MonthlyLimitUSD: &limit}}))
+		require.NoError(t, cache.DeleteUserPlatformQuotaCache(ctx, userID, "openai"))
+	}
+	tw, err := service.NewTimingWheelService()
+	require.NoError(t, err)
+	defer tw.Stop()
+	cfg := &config.Config{}
+	flusher := service.NewUserPlatformQuotaUsageFlusher(cfg, interleaving, NewUserPlatformQuotaServiceAdapter(repo), tw)
+	flusher.Stop() // public shutdown path flushes one captured batch synchronously
+	require.Nil(t, interleaving.afterRead, "the actual Redis batch must have been read")
+	active, err := repo.GetByUserPlatform(ctx, userID, "openai")
+	require.NoError(t, err)
+	require.NotNil(t, active)
+	require.Zero(t, active.DailyUsageUSD)
+	require.Zero(t, active.WeeklyUsageUSD)
+	require.Zero(t, active.MonthlyUsageUSD)
+	require.Nil(t, active.DailyWindowStart)
+	require.Nil(t, active.WeeklyWindowStart)
+	require.Nil(t, active.MonthlyWindowStart)
+	require.Equal(t, 1, querySingleInt(t, ctx, client, "SELECT count(*) FROM user_platform_quotas WHERE user_id=$1 AND deleted_at IS NOT NULL AND monthly_usage_usd=0.75", userID))
 }

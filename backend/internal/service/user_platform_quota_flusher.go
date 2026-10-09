@@ -150,6 +150,12 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 		if e == nil {
 			continue
 		}
+		// Unlimited sentinel snapshots belong to the old no-limit state. Never
+		// write them into a later newly configured active row for the same key.
+		// A non-nil zero is an explicit limit and must still be persisted.
+		if e.DailyLimitUSD == nil && e.WeeklyLimitUSD == nil && e.MonthlyLimitUSD == nil {
+			continue
+		}
 		if e.DailyWindowStart == nil || e.WeeklyWindowStart == nil || e.MonthlyWindowStart == nil {
 			continue
 		}

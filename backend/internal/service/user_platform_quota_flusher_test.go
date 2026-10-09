@@ -71,7 +71,9 @@ func flusherPtrTime(t time.Time) *time.Time { return &t }
 
 func makeEntry(daily, weekly, monthly float64) *UserPlatformQuotaCacheEntry {
 	now := time.Now().UTC()
+	limit := 1000.0
 	return &UserPlatformQuotaCacheEntry{
+		DailyLimitUSD:      &limit,
 		DailyUsageUSD:      daily,
 		WeeklyUsageUSD:     weekly,
 		MonthlyUsageUSD:    monthly,
@@ -507,5 +509,50 @@ func TestScenario_NinetyPercentCompany(t *testing.T) {
 	}
 	if len(cache.readdCalled) != 0 {
 		t.Errorf("90%% company: Readd should not be called, got %d calls", len(cache.readdCalled))
+	}
+}
+
+// Old unlimited snapshots must not overwrite a later first-limit active row.
+func TestFlusher_UnlimitedSnapshotSkippedConfiguredZeroAndPositiveRetained(t *testing.T) {
+	unlimited := makeEntry(1, 2, 3)
+	unlimited.DailyLimitUSD = nil
+	zero, positive := 0.0, 10.0
+	explicitZero := makeEntry(4, 5, 6)
+	explicitZero.DailyLimitUSD = &zero
+	weekly := makeEntry(7, 8, 9)
+	weekly.DailyLimitUSD = nil
+	weekly.WeeklyLimitUSD = &positive
+	monthly := makeEntry(10, 11, 12)
+	monthly.DailyLimitUSD = nil
+	monthly.MonthlyLimitUSD = &positive
+	cache := &mockQuotaDirtyCache{
+		popSequence: [][]UserPlatformQuotaKey{{{UserID: 1, Platform: "openai"}, {UserID: 2, Platform: "openai"}, {UserID: 3, Platform: "openai"}, {UserID: 4, Platform: "openai"}}},
+		getEntries:  []*UserPlatformQuotaCacheEntry{unlimited, explicitZero, weekly, monthly},
+	}
+	writer := &mockQuotaSnapshotWriter{}
+	f := newTestFlusher(cache, writer)
+	f.flush()
+	if len(writer.receivedSnaps) != 3 {
+		t.Fatalf("received %d snapshots, want 3", len(writer.receivedSnaps))
+	}
+	for i, snap := range writer.receivedSnaps {
+		if snap.UserID != int64(i+2) || snap.DailyUsageUSD != float64(4+3*i) {
+			t.Fatalf("configured snapshot changed: %+v", snap)
+		}
+	}
+	if f.metrics.FlushBatchSizeTotal.Load() != 3 || f.metrics.FlushSuccessTotal.Load() != 1 || len(cache.readdCalled) != 0 {
+		t.Fatal("unexpected metrics or readd")
+	}
+}
+
+func TestFlusher_OnlyUnlimitedSnapshotsLeaveDirtySetWithoutWriting(t *testing.T) {
+	entry := makeEntry(1, 2, 3)
+	entry.DailyLimitUSD = nil
+	cache := &mockQuotaDirtyCache{popSequence: [][]UserPlatformQuotaKey{{{UserID: 1, Platform: "openai"}}}, getEntries: []*UserPlatformQuotaCacheEntry{entry}}
+	writer := &mockQuotaSnapshotWriter{}
+	f := newTestFlusher(cache, writer)
+	f.flush()
+	if len(writer.receivedSnaps) != 0 || len(cache.readdCalled) != 0 || f.metrics.FlushSuccessTotal.Load() != 0 || f.metrics.FlushErrorTotal.Load() != 0 {
+		t.Fatal("unlimited snapshots should be consumed without writes or errors")
 	}
 }
