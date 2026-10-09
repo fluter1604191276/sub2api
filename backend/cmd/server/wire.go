@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
 	"sync"
 	"time"
 
@@ -25,7 +24,7 @@ import (
 )
 
 type Application struct {
-	Server        *http.Server
+	Server        *server.ManagedHTTPServer
 	PromptAudit   *securityaudit.PromptService
 	PluginManager *service.PluginManager
 	Cleanup       func()

@@ -20,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 	"log"
-	"net/http"
 	"sync"
 	"time"
 )
@@ -196,7 +195,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	groupRecoveryProbeRepository := repository.NewGroupRecoveryProbeRepository(db)
 	smartSchedulerPreviewService := service.ProvideSmartSchedulerPreviewService(adminService, dashboardService, concurrencyService, groupRecoveryProbeRepository)
 	groupRecoveryProbeBillingService := service.NewGroupRecoveryProbeBillingService(settingRepository, apiKeyRepository, accountRepository, groupRecoveryProbeRepository, channelService, billingService, billingCacheService)
-	groupHandler := admin.NewGroupHandler(adminService, dashboardService, groupCapacityService, smartSchedulerPreviewService, groupRecoveryProbeBillingService)
+	groupHandler := handler.ProvideGroupHandlerWithSiteServices(adminService, dashboardService, groupCapacityService, smartSchedulerPreviewService, groupRecoveryProbeBillingService)
 	claudeUsageFetcher := repository.NewClaudeUsageFetcher(httpUpstream)
 	antigravityQuotaFetcher := service.NewAntigravityQuotaFetcher(proxyRepository, configConfig)
 	grokQuotaFetcher := service.NewGrokQuotaFetcher()
@@ -336,7 +335,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
 	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient)
-	httpServer := server.ProvideHTTPServer(configConfig, engine)
+	managedHTTPServer := server.ProvideHTTPServer(configConfig, engine)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
 	opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, emailService, redisClient, configConfig, proxyRepository)
@@ -359,7 +358,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
 	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, groupRecoveryProbeRunner, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	application := &Application{
-		Server:        httpServer,
+		Server:        managedHTTPServer,
 		PromptAudit:   promptService,
 		PluginManager: pluginManager,
 		Cleanup:       v,
@@ -370,7 +369,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 // wire.go:
 
 type Application struct {
-	Server        *http.Server
+	Server        *server.ManagedHTTPServer
 	PromptAudit   *securityaudit.PromptService
 	PluginManager *service.PluginManager
 	Cleanup       func()

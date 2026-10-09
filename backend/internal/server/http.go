@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"log"
 	"log/slog"
 	"net/http"
@@ -17,7 +18,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
-	"golang.org/x/net/http2"
 )
 
 // ProviderSet 提供服务器层的依赖
@@ -110,7 +110,7 @@ func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器
-func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
+func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *ManagedHTTPServer {
 	httpHandler := http.Handler(router)
 	server := &http.Server{
 		Addr:           cfg.Server.Address(),
@@ -133,34 +133,24 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 		log.Printf("Global max request body size: %d bytes (%.2f MB)", globalMaxSize, float64(globalMaxSize)/(1<<20))
 	}
 
-	// 根据配置决定是否启用 H2C
+	h2Idle := time.Duration(cfg.Server.H2C.IdleTimeout) * time.Second
 	if cfg.Server.H2C.Enabled {
-		h2cConfig := cfg.Server.H2C
-		if err := http2.ConfigureServer(server, &http2.Server{
-			MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,
-			IdleTimeout:                  time.Duration(h2cConfig.IdleTimeout) * time.Second,
-			MaxReadFrameSize:             uint32(h2cConfig.MaxReadFrameSize),
-			MaxUploadBufferPerConnection: int32(h2cConfig.MaxUploadBufferPerConnection),
-			MaxUploadBufferPerStream:     int32(h2cConfig.MaxUploadBufferPerStream),
-		}); err != nil {
-			log.Printf("Failed to configure HTTP/2 Cleartext (h2c): %v", err)
-		} else {
-			protocols := new(http.Protocols)
-			protocols.SetHTTP1(true)
-			protocols.SetUnencryptedHTTP2(true)
-			server.Protocols = protocols
-			log.Printf("HTTP/2 Cleartext (h2c) enabled: max_concurrent_streams=%d, idle_timeout=%ds, max_read_frame_size=%d, max_upload_buffer_per_connection=%d, max_upload_buffer_per_stream=%d",
-				h2cConfig.MaxConcurrentStreams,
-				h2cConfig.IdleTimeout,
-				h2cConfig.MaxReadFrameSize,
-				h2cConfig.MaxUploadBufferPerConnection,
-				h2cConfig.MaxUploadBufferPerStream,
-			)
+		c := cfg.Server.H2C
+		server.HTTP2 = &http.HTTP2Config{MaxConcurrentStreams: int(c.MaxConcurrentStreams), MaxReadFrameSize: c.MaxReadFrameSize, MaxReceiveBufferPerConnection: c.MaxUploadBufferPerConnection, MaxReceiveBufferPerStream: c.MaxUploadBufferPerStream}
+		server.TLSConfig = &tls.Config{NextProtos: []string{"h2", "http/1.1"}}
+		server.Protocols = new(http.Protocols)
+		server.Protocols.SetHTTP1(true)
+		server.Protocols.SetUnencryptedHTTP2(true)
+		if h2Idle == 0 {
+			h2Idle = server.IdleTimeout
+			if h2Idle == 0 {
+				h2Idle = server.ReadTimeout
+			}
 		}
 	}
 
 	server.Handler = httpHandler
-	return server
+	return newManagedHTTPServer(server, cfg.Server.H2C.Enabled, h2Idle)
 }
 
 func derefInt64(p *int64) int64 {

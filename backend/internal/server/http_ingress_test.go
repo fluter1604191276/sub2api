@@ -163,7 +163,7 @@ func TestHTTPServerGlobalBodyLimit(t *testing.T) {
 	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
 
-func serveIngressTestServer(t *testing.T, srv *http.Server) (string, func()) {
+func serveIngressTestServer(t *testing.T, srv *ManagedHTTPServer) (string, func()) {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

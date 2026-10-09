@@ -166,3 +166,15 @@ The 2026-10-09 unlimited quota history policy B is recorded in
 `official-0214-compatibility` and `ops-baseline`. Its pending migration archives
 historical unlimited rows and requires a new commit, image and manifest.
 The original 238 SQL is retained outside embedded migrations for audit.
+
+The 2026-10-09 native HTTP server lifecycle candidate is recorded in
+`extensions/20261009-managed-http-lifecycle.md`. It retains the default
+`server.h2c.enabled=false` native delegate path and independent H1/H2 idle timers
+when enabled. It uses public APIs and owns shared admission, both native servers
+and pending classifiers through one shutdown budget. A pure Wire provider wrapper
+retains the preexisting five group scheduler/probe dependencies on regeneration;
+no group configuration, billing or Policy B behavior changes. This covers the
+application's observed startup configuration, not arbitrary unknown callback or
+listener integrations. Any new startup integration needs explicit compatibility
+review. New-source full tests/scans, exact image binding, hosted CI and remaining
+runtime/deployment gates still apply; this inventory entry does not approve release.

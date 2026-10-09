@@ -231,6 +231,12 @@ func ProvideHandlers(
 	}
 }
 
+// ProvideGroupHandlerWithSiteServices retains the existing generated site's
+// scheduler/probe dependencies when Wire regenerates the application graph.
+func ProvideGroupHandlerWithSiteServices(adminService service.AdminService, dashboard *service.DashboardService, capacity *service.GroupCapacityService, scheduler *service.SmartSchedulerPreviewService, probeBilling *service.GroupRecoveryProbeBillingService) *admin.GroupHandler {
+	return admin.NewGroupHandler(adminService, dashboard, capacity, scheduler, probeBilling)
+}
+
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
@@ -258,7 +264,7 @@ var ProviderSet = wire.NewSet(
 	// Admin handlers
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
-	admin.NewGroupHandlerWithConfig,
+	ProvideGroupHandlerWithSiteServices,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,
