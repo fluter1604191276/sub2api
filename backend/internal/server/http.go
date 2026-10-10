@@ -142,16 +142,22 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 			MaxReceiveBufferPerConnection: int(int32(h2cConfig.MaxUploadBufferPerConnection)),
 			MaxReceiveBufferPerStream:     int(int32(h2cConfig.MaxUploadBufferPerStream)),
 		}
-		// HTTP2-IDLE-20261010: retain Go 1.27.2/x-net 0.60's native idle
-		// bridge and graceful shutdown. HTTP2Config cannot independently retain
-		// configured H1/H2 idle (defaults 120s/75s). Only this exact SA1019 and
-		// the idle-field SA1019 below are temporarily excluded in .golangci.yml.
-		// Review on SDK/module/linter or ingress/lifecycle changes; see
-		// ops/public-deploy/docs/extensions/20261010-http2-idle-waiver.md.
-		if err := http2.ConfigureServer(server, &http2.Server{
-			// HTTP2-IDLE-20261010: independent H2 GOAWAY idle; other diagnostics stay enabled.
-			IdleTimeout: time.Duration(h2cConfig.IdleTimeout) * time.Second,
-		}); err != nil {
+		// HTTP2-IDLE-20261010: Go 1.27.2/x-net 0.60 captures the default
+		// HTTP/2 idle from Server.IdleTimeout during ConfigureServer. Configure
+		// before publishing this server, then restore the independent H1 idle.
+		// Zero H2 idle retains the existing H1/ReadTimeout fallback; nonzero
+		// values, including negative builder inputs, retain their own value.
+		// Revalidate this version-dependent bridge and native shutdown on any
+		// SDK/module/lifecycle change; see 20261010-http2-idle-waiver.md.
+		configureH2Idle := func() error {
+			h1Idle := server.IdleTimeout
+			defer func() { server.IdleTimeout = h1Idle }()
+			if h2cConfig.IdleTimeout != 0 {
+				server.IdleTimeout = time.Duration(h2cConfig.IdleTimeout) * time.Second
+			}
+			return http2.ConfigureServer(server, nil)
+		}
+		if err := configureH2Idle(); err != nil {
 			log.Printf("Failed to configure HTTP/2 Cleartext (h2c): %v", err)
 		} else {
 			protocols := new(http.Protocols)

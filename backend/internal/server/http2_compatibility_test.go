@@ -145,6 +145,55 @@ func TestIngressHTTP2PublicLimitsPreserveIndependentIdle(t *testing.T) {
 	}
 }
 
+// These invalid-for-production zero/negative inputs check constructor fallback
+// compatibility only; production config validation must continue rejecting them.
+func TestIngressHTTP2IdleFallbackBuilderBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		h2Idle int
+	}{
+		{"zero falls back to H1", 0},
+		{"negative disables H2 idle", -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.GET("/ok", func(c *gin.Context) { c.String(http.StatusOK, "ok") })
+			srv := ProvideHTTPServer(boundedH2CTestConfig(1, tc.h2Idle), router)
+			require.Equal(t, time.Second, srv.IdleTimeout, "H1 idle must be restored before Serve")
+			addr, stop := serveIngressTestServer(t, srv)
+			defer stop()
+			h1, err := net.DialTimeout("tcp", addr, time.Second)
+			require.NoError(t, err)
+			defer func() { _ = h1.Close() }()
+			reader := bufio.NewReader(h1)
+			h1Get(t, h1, reader)
+			h2, fr := openBoundedH2C(t, addr)
+			h2Ready := time.Now()
+			if tc.h2Idle == 0 {
+				readIdleGoAway(t, h2, fr)
+				return
+			}
+			require.NoError(t, h1.SetReadDeadline(time.Now().Add(3*time.Second)))
+			_, err = reader.ReadByte()
+			require.ErrorIs(t, err, io.EOF, "H1 must keep its restored positive idle")
+			// Wait past H2's own would-be 1s deadline, not merely H1's
+			// earlier deadline; an inherited idle must fail this wire check.
+			time.Sleep(time.Until(h2Ready.Add(1500 * time.Millisecond)))
+			data := [8]byte{8, 7, 6, 5, 4, 3, 2, 1}
+			require.NoError(t, fr.WritePing(false, data))
+			for {
+				frame, err := fr.ReadFrame()
+				require.NoError(t, err)
+				require.IsNotType(t, &http2.GoAwayFrame{}, frame, "negative H2 idle must not inherit H1 idle")
+				if ping, ok := frame.(*http2.PingFrame); ok && ping.IsAck() {
+					require.Equal(t, data, ping.Data)
+					return
+				}
+			}
+		})
+	}
+}
+
 func TestIngressHTTP2ActiveStreamAndGracefulShutdown(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once

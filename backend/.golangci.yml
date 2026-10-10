@@ -125,16 +125,13 @@ linters:
     rules:
       # HTTP2-IDLE-20261010: user-approved temporary compatibility exception.
       # Match all four dimensions: path + source line + exact SA1019 + linter.
+      # The nil-config bridge avoids the deprecated Server type and IdleTimeout field.
       # Go1.27.2/x-net0.60 preserves H1=120s/H2=75s and native shutdown here.
       # Review triggers/task: ops/public-deploy/docs/extensions/20261010-http2-idle-waiver.md
       - path: '^internal/server/http\.go$'
         linters: [ staticcheck ]
-        source: '^\s*if err := http2\.ConfigureServer\(server, &http2\.Server\{$'
+        source: '^\s*return http2\.ConfigureServer\(server, nil\)$'
         text: '^SA1019: golang\.org/x/net/http2\.ConfigureServer is deprecated: Set \[http\.Server\.Protocols\] instead\.[ ]$'
-      - path: '^internal/server/http\.go$'
-        linters: [ staticcheck ]
-        source: '^\s*IdleTimeout: time\.Duration\(h2cConfig\.IdleTimeout\) \* time\.Second,$'
-        text: '^SA1019: \(golang\.org/x/net/http2\.Server\)\.IdleTimeout is deprecated: Use \[http\.Server\.IdleTimeout\] instead\.[ ]$'
 
       # G703/G704 污点分析在测试文件中只会命中 httptest mock 与测试者自设的
       # 环境变量路径，不构成攻击面；且该分析跨环境结果不稳定（本地/CI 报告的
