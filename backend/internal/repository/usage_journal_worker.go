@@ -276,7 +276,7 @@ func (r *UsageJournalRepository) ValidateSchema(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var trusted bool
 	if e = tx.QueryRowContext(ctx, `SELECT bool_and(to_regclass(x.name)=to_regclass(format('%I.%I',current_schema(),x.name))) FROM (VALUES ('usage_recovery_journal_v1'),('usage_logs'),('usage_group_rollup_state'),('usage_billing_dedup'),('usage_billing_dedup_archive')) x(name)`).Scan(&trusted); e != nil {
 		return e
@@ -315,7 +315,7 @@ func (r *UsageJournalRepository) Observe(ctx context.Context) (service.UsageJour
 	if e != nil {
 		return o, e
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var class string
 		var n int64
