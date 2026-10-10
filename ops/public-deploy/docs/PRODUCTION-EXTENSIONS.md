@@ -10,6 +10,7 @@ Every release manifest must record the status and evidence for each capability b
 
 | ID | Capability | Required evidence | Risk surface | Current status |
 | --- | --- | --- | --- | --- |
+| usage-recovery-journal | Opt-in atomic billing receipt and immutable journal; consumer writes usage logs without rebilling | extensions/20261010-usage-journal.md, migration 241, journal/handler/provider tests, final image evidence | User-charge transaction, gateway compatibility, retained storage; default false | Independent r4 repair branch; production blocked |
 | scheduler | Smart account scheduling, sticky-session escape, exploration, score-aware selection | gateway_scheduling.go, openai_gateway_passthrough.go, openai gateway stream handlers, scheduler and sticky-escape tests, admin settings/routes | Routing, availability, session affinity | Required |
 | scheduled-probe | Scheduled probe plans, budget/attribution, result handling, scheduler linkage | scheduled_test_runner_service.go, scheduled_test_service.go, scheduled_test_handler.go, probe tests | Upstream cost, account availability | Required |
 | quality-score | Account/group 1h and 24h quality score, grade, first-token and duration metrics | account stats service/repository, AccountsView.vue, relevant API/routes/tests | Scheduling decisions, operator visibility | Required |
