@@ -22,7 +22,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 )
 
 type codexModelsHTTPUpstreamStub struct {
@@ -1502,6 +1501,7 @@ func TestIsRetryableCodexModelsManifestTransportError(t *testing.T) {
 		{name: "upstream configuration error", err: errors.New("upstream error: invalid proxy")},
 		{name: "proxy connection configuration error", err: errors.New("proxy connection error: invalid configuration")},
 		{name: "canceled request", err: context.Canceled},
+		{name: "cancellation before GOAWAY text", err: fmt.Errorf("http2: GOAWAY: %w", context.Canceled)},
 		{
 			name: "redirect policy error",
 			err: &url.Error{
@@ -1528,8 +1528,8 @@ func TestIsRetryableCodexModelsManifestTransportError(t *testing.T) {
 			retryable: true,
 		},
 		{
-			name:      "typed HTTP2 GOAWAY",
-			err:       http2.GoAwayError{ErrCode: http2.ErrCodeNo},
+			name:      "wrapped legacy HTTP2 GOAWAY",
+			err:       fmt.Errorf("manifest transport: %w", errors.New("http2: server sent GOAWAY and closed the connection; LastStreamID=1, ErrCode=NO_ERROR, debug=\"\"")),
 			retryable: true,
 		},
 		{
