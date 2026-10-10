@@ -130,11 +130,11 @@ linters:
       - path: '^internal/server/http\.go$'
         linters: [ staticcheck ]
         source: '^\s*if err := http2\.ConfigureServer\(server, &http2\.Server\{$'
-        text: '^SA1019: golang\.org/x/net/http2\.ConfigureServer is deprecated: Set \[http\.Server\.Protocols\] instead\.$'
+        text: '^SA1019: golang\.org/x/net/http2\.ConfigureServer is deprecated: Set \[http\.Server\.Protocols\] instead\.[ ]$'
       - path: '^internal/server/http\.go$'
         linters: [ staticcheck ]
         source: '^\s*IdleTimeout: time\.Duration\(h2cConfig\.IdleTimeout\) \* time\.Second,$'
-        text: '^SA1019: \(golang\.org/x/net/http2\.Server\)\.IdleTimeout is deprecated: Use \[http\.Server\.IdleTimeout\] instead\.$'
+        text: '^SA1019: \(golang\.org/x/net/http2\.Server\)\.IdleTimeout is deprecated: Use \[http\.Server\.IdleTimeout\] instead\.[ ]$'
 
       # G703/G704 污点分析在测试文件中只会命中 httptest mock 与测试者自设的
       # 环境变量路径，不构成攻击面；且该分析跨环境结果不稳定（本地/CI 报告的
