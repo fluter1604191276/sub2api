@@ -34,3 +34,31 @@ Disabling the usage journal does not isolate this shared-mapper financial behavi
 ## Noncalled module records
 
 The patched-source govulncheck scan is zero called/zero imported-package findings but initially retained seven required-module-only records. Official minimum fixes x/image0.45.0 and klauspost/compress1.18.7 close six of these (GO-2026-6222/5066/5062/5061/4961 and GO-2026-5841). Use normal Go module resolution and existing SDK, without scan suppression. Remaining GO-2026-5932 concerns unmaintained x/crypto/openpgp with no patch; that package is not imported or called by this source. Preserve the module record and verify the actual final binary separately; source success does not mean zero module findings or approve plugins/runtime use.
+
+
+## Follow-up: preserve r4 financial flags and narrow HTTP/2 compatibility
+
+The follow-up removes only `ForceOpenAIFast` and `FreeOpenAIFast` mappings added by
+1c0f88a. r4 selected these columns but did not materialize them; restoring them
+changed cold authentication and shared group reads. The Codex manifest mapping
+remains. No billing formula, stored flag, historical record or schema is changed.
+The original `TestGetByKeyForAuthCarriesGroupForceOpenAIFast` True assertions stay
+unchanged and are expected to fail: its desired contract conflicts with the r4
+financial baseline. This is an explicit release blocker, not an accepted waiver.
+A new financial activation gate or accepting changed financial behavior is outside
+this minimal repair and must not be silently introduced to make CI green.
+
+Four H2 limits move to public `http.Server.HTTP2`; legacy integer conversions
+are retained. `ConfigureServer` and legacy `IdleTimeout` remain unsuppressed:
+Go1.27.2 public HTTP2Config cannot preserve separate H1/H2 server idle timeouts.
+The legacy bridge still registers native graceful shutdown. No new listener
+multiplexer, timer, private adapter, nolint or relaxed CI scope is introduced.
+Real loopback tests assert wire SETTINGS/windows, independent idle timeouts in
+both directions, active streams, graceful Shutdown, Close cancellation and H2C-off.
+
+braces3.0.3 HIGH GHSA-vfj7-8cjw-p6xm remains in eight dev-only dependency paths
+from useful TS ESLint7.18 and Tailwind3.4.19 roots. Official advisory has no patch.
+Removing those tools, substituting brace-expansion, or forcing chokidar4 changes
+contracts and does not safely eliminate all paths. No major upgrade, local fork,
+audit exception or deadline extension is included in this repair. Release remains
+NO-GO and allow_release=false; production and real paid upstream are untouched.

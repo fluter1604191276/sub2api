@@ -136,12 +136,18 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	// 根据配置决定是否启用 H2C
 	if cfg.Server.H2C.Enabled {
 		h2cConfig := cfg.Server.H2C
+		server.HTTP2 = &http.HTTP2Config{
+			MaxConcurrentStreams:          int(h2cConfig.MaxConcurrentStreams),
+			MaxReadFrameSize:              int(uint32(h2cConfig.MaxReadFrameSize)),
+			MaxReceiveBufferPerConnection: int(int32(h2cConfig.MaxUploadBufferPerConnection)),
+			MaxReceiveBufferPerStream:     int(int32(h2cConfig.MaxUploadBufferPerStream)),
+		}
+		// HTTP2Config has no independent server idle timeout. Keep this
+		// compatibility bridge so H2 retains its configured timeout while H1
+		// retains Server.IdleTimeout. Both deprecated references remain visible
+		// to staticcheck until a public API can preserve that contract.
 		if err := http2.ConfigureServer(server, &http2.Server{
-			MaxConcurrentStreams:         h2cConfig.MaxConcurrentStreams,
-			IdleTimeout:                  time.Duration(h2cConfig.IdleTimeout) * time.Second,
-			MaxReadFrameSize:             uint32(h2cConfig.MaxReadFrameSize),
-			MaxUploadBufferPerConnection: int32(h2cConfig.MaxUploadBufferPerConnection),
-			MaxUploadBufferPerStream:     int32(h2cConfig.MaxUploadBufferPerStream),
+			IdleTimeout: time.Duration(h2cConfig.IdleTimeout) * time.Second,
 		}); err != nil {
 			log.Printf("Failed to configure HTTP/2 Cleartext (h2c): %v", err)
 		} else {
