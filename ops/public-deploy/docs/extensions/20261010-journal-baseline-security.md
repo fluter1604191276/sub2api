@@ -62,3 +62,14 @@ Removing those tools, substituting brace-expansion, or forcing chokidar4 changes
 contracts and does not safely eliminate all paths. No major upgrade, local fork,
 audit exception or deadline extension is included in this repair. Release remains
 NO-GO and allow_release=false; production and real paid upstream are untouched.
+
+
+## Explicit r4 test-contract closure (2026-10-10)
+
+The former `TestGetByKeyForAuthCarriesGroupForceOpenAIFast` expectations were correct at their original introduction: `95982a508f1d708879a11c6760df4523ec475c2d` added Force projection together with its assertion; `7dcf72846183028b7eb32864211f9f492884cc9a` added Free projection together with its assertion. r4 `06d2674d660a65abb8f2bb0a63b6e032eb35c937` retains that test blob but omits both shared mapper assignments. e0 `e0bf1fee1c628562851bfdc5c4842a46a89a6fb2` maps both flags and therefore activates them on cold reads. This is a real routing/pricing difference, not a dependency fix.
+
+The user explicitly selected r4's actual production semantics for this repair and authorized legitimate contract revision. The renamed integration test keeps both assertions, now False, and proves the stored flags are True through independent SQL. A separate four-combination PostgreSQL regression checks actual cold auth, shared Group Get/List, multiplier preservation and unchanged database flags before and after pure snapshot construction. It does not execute the unregistered journal SQL table or migrate production.
+
+The real `applyUsageBilling` boundary is tested with journal off/on: amounts, request identity and idempotency fingerprint are identical, relation pointers are not persisted in the journal, and cold false auth projections remain false through the real cache codec. This boundary is downstream of pricing; it does not independently prove every RecordUsage Fast price. The existing explicit true cache roundtrip remains unchanged: existing hot caches and Create/Update in-memory groups are not forcibly masked. No financial recomputation, upstream calls or cache flush was performed.
+
+HTTP/2 migration remains blocked on two SA1019 warnings. Four server limits use public Go 1.27 HTTP2Config; the old idle bridge preserves independently configured H1/H2 timeouts and graceful shutdown. Public HTTP2Config has no separate idle field. Removing that bridge or equalizing timeouts would change the contract. A separately reviewed protocol demultiplexing/two-Server lifecycle design would exceed this patch scope; no broad suppression or timeout reduction is authorized here. `allow_release=false` remains in force regardless of test/image progress.

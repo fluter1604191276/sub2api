@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func journalDraftInput() (*UsageBillingCommand, *UsageLog) {
@@ -135,5 +138,68 @@ func TestUsageJournalDraftHooksActualApplyEntryAndDefaultsOff(t *testing.T) {
 		if (repo.cmd.UsageJournalSnapshot != nil) != enabled {
 			t.Fatalf("enabled=%v snapshot=%v", enabled, repo.cmd.UsageJournalSnapshot != nil)
 		}
+	}
+}
+
+// The real Apply entry is captured before any database/upstream side effect.
+// Models the r4 cold projection established by repository integration tests.
+// Journal activation must not turn on
+// unmapped routing/pricing flags or change the existing billing command.
+func TestUsageJournalApplyPreservesR4ColdFastAndBillingContract(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("journal_%t", enabled), func(t *testing.T) {
+			_, log := journalDraftInput()
+			group := &Group{ID: 50, Platform: PlatformOpenAI, RateMultiplier: 1.25, Hydrated: true}
+			groupID := group.ID
+			key := &APIKey{ID: 2, UserID: 1, GroupID: &groupID, Group: group, User: &User{ID: 1, Status: StatusActive}, Status: StatusActive}
+			log.Group, log.APIKey = group, key
+			p := &postUsageBillingParams{Cost: &CostBreakdown{TotalCost: 2, ActualCost: 2.5}, User: key.User, APIKey: key, Account: &Account{ID: 3}}
+			cfg := &config.Config{}
+			// Build the off control in every subtest, including filtered runs.
+			control := &journalCaptureBillingRepo{}
+			_, controlErr := applyUsageBilling(context.Background(), log.RequestID, log, p, &billingDeps{cfg: cfg}, control)
+			require.ErrorIs(t, controlErr, errJournalCaptureStop)
+			require.NotNil(t, control.cmd)
+			require.Nil(t, control.cmd.UsageJournalSnapshot)
+			baseline := *control.cmd
+			cfg.Gateway.UsageJournalDraftEnabled = enabled
+			repo := &journalCaptureBillingRepo{}
+			applied, err := applyUsageBilling(context.Background(), log.RequestID, log, p, &billingDeps{cfg: cfg}, repo)
+			require.ErrorIs(t, err, errJournalCaptureStop)
+			require.False(t, applied)
+			require.NotNil(t, repo.cmd)
+			require.False(t, group.ForceOpenAIFast)
+			require.False(t, group.FreeOpenAIFast)
+			require.Equal(t, 1.25, group.RateMultiplier)
+			require.Same(t, group, key.Group)
+			require.Equal(t, 2.5, repo.cmd.BalanceCost)
+			snapshot := repo.cmd.UsageJournalSnapshot
+			plain := *repo.cmd
+			plain.UsageJournalSnapshot = nil
+			if !enabled {
+				require.Nil(t, snapshot)
+			} else {
+				require.Equal(t, baseline, plain, "journal must preserve amounts, identity and idempotency fingerprint")
+				require.NotNil(t, snapshot)
+				require.NoError(t, snapshot.Validate(repo.cmd))
+				decoded, err := snapshot.DecodeLog()
+				require.NoError(t, err)
+				require.Nil(t, decoded.Group)
+				require.Nil(t, decoded.APIKey)
+				require.Equal(t, 2.5, decoded.ActualCost)
+			}
+			// A cold false auth projection must stay false across the real cache codec.
+			svc := &APIKeyService{}
+			payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: svc.snapshotFromAPIKey(context.Background(), key)})
+			require.NoError(t, err)
+			var cached APIKeyAuthCacheEntry
+			require.NoError(t, json.Unmarshal(payload, &cached))
+			materialized, used, err := svc.applyAuthCacheEntry("synthetic", &cached)
+			require.NoError(t, err)
+			require.True(t, used)
+			require.False(t, materialized.Group.ForceOpenAIFast)
+			require.False(t, materialized.Group.FreeOpenAIFast)
+			require.Equal(t, 1.25, materialized.Group.RateMultiplier)
+		})
 	}
 }

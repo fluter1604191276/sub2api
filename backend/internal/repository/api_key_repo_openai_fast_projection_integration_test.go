@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGetByKeyForAuthCarriesGroupForceOpenAIFast(t *testing.T) {
+func TestGetByKeyForAuthPreservesR4InactiveOpenAIFastProjection(t *testing.T) {
 	ctx := context.Background()
 	suffix := time.Now().UnixNano()
 	group := mustCreateGroup(t, integrationEntClient, &service.Group{
@@ -38,9 +38,20 @@ func TestGetByKeyForAuthCarriesGroupForceOpenAIFast(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	// The original Force/Free True contract was correct when its mapper rows
+	// were introduced. This branch deliberately freezes r4's actual cold-read
+	// contract: stored true remains true, but these flags are not projected.
+	// Reactivating them is a separate routing/pricing change, not journal repair.
+	var storedForce, storedFree bool
+	require.NoError(t, integrationDB.QueryRowContext(ctx,
+		"SELECT force_openai_fast, free_openai_fast FROM groups WHERE id = $1", group.ID).
+		Scan(&storedForce, &storedFree))
+	require.True(t, storedForce)
+	require.True(t, storedFree)
+
 	got, err := apiKeyRepo.GetByKeyForAuth(ctx, keyValue)
 	require.NoError(t, err)
 	require.NotNil(t, got.Group)
-	require.True(t, got.Group.ForceOpenAIFast)
-	require.True(t, got.Group.FreeOpenAIFast)
+	require.False(t, got.Group.ForceOpenAIFast)
+	require.False(t, got.Group.FreeOpenAIFast)
 }
