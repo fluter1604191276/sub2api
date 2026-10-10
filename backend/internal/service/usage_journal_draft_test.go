@@ -115,11 +115,11 @@ type journalCaptureBillingRepo struct {
 	cmd *UsageBillingCommand
 }
 
-var journalCaptureStop = errors.New("synthetic stop after actual Apply boundary")
+var errJournalCaptureStop = errors.New("synthetic stop after actual Apply boundary")
 
 func (r *journalCaptureBillingRepo) Apply(_ context.Context, cmd *UsageBillingCommand) (*UsageBillingApplyResult, error) {
 	r.cmd = cmd
-	return nil, journalCaptureStop
+	return nil, errJournalCaptureStop
 }
 func TestUsageJournalDraftHooksActualApplyEntryAndDefaultsOff(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
@@ -129,7 +129,7 @@ func TestUsageJournalDraftHooksActualApplyEntryAndDefaultsOff(t *testing.T) {
 		cfg.Gateway.UsageJournalDraftEnabled = enabled
 		repo := &journalCaptureBillingRepo{}
 		_, e := applyUsageBilling(context.Background(), log.RequestID, log, p, &billingDeps{cfg: cfg}, repo)
-		if !errors.Is(e, journalCaptureStop) {
+		if !errors.Is(e, errJournalCaptureStop) {
 			t.Fatal(e)
 		}
 		if (repo.cmd.UsageJournalSnapshot != nil) != enabled {

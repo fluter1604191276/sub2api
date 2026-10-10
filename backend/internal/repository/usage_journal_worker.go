@@ -29,7 +29,8 @@ func (r *UsageJournalRepository) ProcessNext(ctx context.Context) (bool, error) 
 	if e != nil {
 		return false, e
 	}
-	defer tx.Rollback()
+	// Rollback is cleanup after every path, including successful Commit.
+	defer func() { _ = tx.Rollback() }()
 	var key, raw, sha, fingerprint string
 	var apiKeyID int64
 	e = tx.QueryRowContext(ctx, `SELECT request_id,api_key_id,payload_json,snapshot_sha256,request_fingerprint FROM usage_recovery_journal_v1 WHERE state='pending' AND retry_after<=now() ORDER BY retry_after,created_at,request_id,api_key_id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&key, &apiKeyID, &raw, &sha, &fingerprint)
@@ -183,13 +184,15 @@ func usageJournalLogMatches(ctx context.Context, tx *sql.Tx, log *service.UsageL
 	for rows.Next() {
 		var col, typ string
 		if e = rows.Scan(&col, &typ); e != nil {
-			rows.Close()
+			_ = rows.Close() // Preserve the original scan failure.
 			return false, e
 		}
 		types[col] = typ
 	}
 	e = rows.Err()
-	rows.Close()
+	if closeErr := rows.Close(); e == nil {
+		e = closeErr
+	}
 	if e != nil {
 		return false, e
 	}

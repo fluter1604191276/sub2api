@@ -161,7 +161,8 @@ func (r *UsageJournalWorkerRuntime) monitor(ctx context.Context, control UsageJo
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.Sample(ctx, control)
+			// Sample records UNKNOWN/unhealthy on failure; the monitor keeps sampling.
+			_ = r.Sample(ctx, control)
 		}
 	}
 }
@@ -264,7 +265,8 @@ func (r *UsageJournalWorkerRuntime) WrapHTTP(next http.Handler) http.Handler {
 		if req.Method == http.MethodPost && !r.supportedPayload(req) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			io.WriteString(w, `{"error":{"type":"service_unavailable","code":"usage_journal_payload_unsupported","message":"This usage persistence scope requires a text request without hosted tools"}}`)
+			// A failed client write must not retry or forward a rejected request.
+			_, _ = io.WriteString(w, `{"error":{"type":"service_unavailable","code":"usage_journal_payload_unsupported","message":"This usage persistence scope requires a text request without hosted tools"}}`)
 			return
 		}
 		next.ServeHTTP(w, req)
@@ -289,7 +291,7 @@ func (r *UsageJournalWorkerRuntime) supportedPayload(req *http.Request) bool {
 	if e != nil || int64(len(body)) > limit {
 		return false
 	}
-	req.Body.Close()
+	_ = req.Body.Close() // Complete bytes were read; retain them for the next handler.
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	var v map[string]json.RawMessage
 	if json.Unmarshal(body, &v) != nil || v == nil {
