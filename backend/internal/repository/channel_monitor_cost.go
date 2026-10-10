@@ -28,7 +28,7 @@ func (r *channelMonitorRepository) reconcileMonitorCosts(ctx context.Context, st
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(724193521)`); err != nil {
 		return err
 	}

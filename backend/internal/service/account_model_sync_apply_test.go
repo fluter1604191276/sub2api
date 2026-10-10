@@ -86,7 +86,8 @@ func TestApplyAccountModelMappingsDefaultSyncAndExplicitAdd(t *testing.T) {
 			s := &AccountTestService{accountRepo: r}
 			result := s.ApplyAccountModelMappings(context.Background(), []AccountModelSyncApplyItem{{AccountID: 1, Version: a.UpdatedAt.Format(time.RFC3339Nano), Models: []string{"new"}, Mode: mode}})
 			require.Equal(t, "applied", result[0].Status)
-			mapping := r.written["model_mapping"].(map[string]any)
+			mapping, ok := r.written["model_mapping"].(map[string]any)
+			require.True(t, ok, "model_mapping must preserve the JSON map contract")
 			require.Equal(t, "target", mapping["alias"])
 			_, retained := mapping["old"]
 			require.Equal(t, mode == "add", retained)

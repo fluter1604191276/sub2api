@@ -13,7 +13,7 @@ import (
 func TestMonitorCostHistoryRollback(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	repo := &channelMonitorRepository{db: db}
 	mock.ExpectBegin()
 	mock.ExpectExec(`INSERT INTO channel_monitor_histories`).WillReturnError(errors.New("write failed"))

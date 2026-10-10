@@ -90,6 +90,10 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
+	probeConfig, err := service.NormalizeGroupRecoveryProbeConfig(groupIn.RecoveryProbeConfig())
+	if err != nil {
+		return fmt.Errorf("normalize group recovery probe config: %w", err)
+	}
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
@@ -157,13 +161,13 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
 		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
 		SetStreamStickyEscapeEnabled(groupIn.StreamStickyEscapeEnabled).
-		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
-		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
-		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).
-		SetRecoveryProbeIntervalSeconds(groupIn.RecoveryProbeIntervalSeconds).
-		SetRecoveryProbeAttemptsPerRound(groupIn.RecoveryProbeAttemptsPerRound).
-		SetRecoveryProbeIdleThresholdSeconds(groupIn.RecoveryProbeIdleThresholdSeconds).
-		SetRecoveryProbeBackoffCapSeconds(groupIn.RecoveryProbeBackoffCapSeconds).
+		SetRecoveryProbeEnabled(probeConfig.Enabled).
+		SetRecoveryProbeMode(probeConfig.Mode).
+		SetRecoveryProbeModel(probeConfig.Model).
+		SetRecoveryProbeIntervalSeconds(probeConfig.IntervalSeconds).
+		SetRecoveryProbeAttemptsPerRound(probeConfig.AttemptsPerRound).
+		SetRecoveryProbeIdleThresholdSeconds(probeConfig.IdleThresholdSeconds).
+		SetRecoveryProbeBackoffCapSeconds(probeConfig.BackoffCapSeconds).
 		SetNillablePoolModeEnabled(groupIn.PoolModeEnabled).
 		SetNillablePoolModeRetryCount(groupIn.PoolModeRetryCount).
 		SetNillableCustomErrorCodesEnabled(groupIn.CustomErrorCodesEnabled)
@@ -192,6 +196,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	groupIn.ID = created.ID
 	groupIn.CreatedAt = created.CreatedAt
 	groupIn.UpdatedAt = created.UpdatedAt
+	groupIn.ApplyRecoveryProbeConfig(probeConfig)
 	return nil
 }
 
@@ -296,6 +301,13 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	if groupIn == nil {
+		return errors.New("group is nil")
+	}
+	probeConfig, err := service.NormalizeGroupRecoveryProbeConfig(groupIn.RecoveryProbeConfig())
+	if err != nil {
+		return fmt.Errorf("normalize group recovery probe config: %w", err)
+	}
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
@@ -355,13 +367,13 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetProfitSafetyBuffer(groupIn.ProfitSafetyBuffer).
 		SetSmartSchedulerEnabled(groupIn.SmartSchedulerEnabled).
 		SetStreamStickyEscapeEnabled(groupIn.StreamStickyEscapeEnabled).
-		SetRecoveryProbeEnabled(groupIn.RecoveryProbeEnabled).
-		SetRecoveryProbeMode(groupIn.RecoveryProbeMode).
-		SetRecoveryProbeModel(groupIn.RecoveryProbeModel).
-		SetRecoveryProbeIntervalSeconds(groupIn.RecoveryProbeIntervalSeconds).
-		SetRecoveryProbeAttemptsPerRound(groupIn.RecoveryProbeAttemptsPerRound).
-		SetRecoveryProbeIdleThresholdSeconds(groupIn.RecoveryProbeIdleThresholdSeconds).
-		SetRecoveryProbeBackoffCapSeconds(groupIn.RecoveryProbeBackoffCapSeconds)
+		SetRecoveryProbeEnabled(probeConfig.Enabled).
+		SetRecoveryProbeMode(probeConfig.Mode).
+		SetRecoveryProbeModel(probeConfig.Model).
+		SetRecoveryProbeIntervalSeconds(probeConfig.IntervalSeconds).
+		SetRecoveryProbeAttemptsPerRound(probeConfig.AttemptsPerRound).
+		SetRecoveryProbeIdleThresholdSeconds(probeConfig.IdleThresholdSeconds).
+		SetRecoveryProbeBackoffCapSeconds(probeConfig.BackoffCapSeconds)
 	if groupIn.PoolModeEnabled != nil {
 		builder = builder.SetPoolModeEnabled(*groupIn.PoolModeEnabled)
 	} else {
@@ -488,6 +500,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
 	groupIn.UpdatedAt = updated.UpdatedAt
+	groupIn.ApplyRecoveryProbeConfig(probeConfig)
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
 	}

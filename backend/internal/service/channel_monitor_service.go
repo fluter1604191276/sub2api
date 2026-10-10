@@ -825,7 +825,11 @@ func (s *ChannelMonitorService) settleProbeBudget(ctx context.Context, reservati
 		}
 		actual += result.EstimatedCostUSD
 	}
-	repo := s.repo.(channelMonitorBudgetRepository)
+	repo, ok := s.repo.(channelMonitorBudgetRepository)
+	if !ok {
+		slog.Error("channel_monitor: budget settlement repository unavailable")
+		return // Keep the conservative reservation when settlement is unavailable.
+	}
 	if err := repo.SettleDailyBudget(ctx, reservation.Day, reservation.Reserved, actual); err != nil {
 		slog.Error("channel_monitor: settle daily budget failed", "error", err)
 	}

@@ -95,6 +95,115 @@ func (s *GroupRepoSuite) TestCreateGetUpdate_SmartSchedulerEnabled() {
 	s.Require().False(reloaded.SmartSchedulerEnabled)
 }
 
+// Use the real repository and migrated PostgreSQL constraints. No probe runner
+// is started: enabled configuration here is synthetic persisted data only.
+func (s *GroupRepoSuite) TestRecoveryProbeZeroDefaultsPersistAndReset() {
+	for _, tc := range []struct {
+		name                        string
+		enabled                     bool
+		mode                        string
+		interval, attempts, backoff int
+	}{
+		{"disabled-smart", false, "", 900, 1, 1800},
+		{"enabled-smart", true, " SMART ", 900, 1, 1800},
+		{"disabled-manual", false, "manual", 900, 1, 1800},
+		{"disabled-high-frequency", false, "high_frequency", 15, 5, 300},
+		{"enabled-high-frequency", true, "high_frequency", 15, 5, 300},
+	} {
+		s.Run(tc.name, func() {
+			model := ""
+			if tc.enabled {
+				model = " synthetic-model "
+			}
+			input := &service.Group{Name: "probe-default-" + tc.name, Platform: service.PlatformOpenAI,
+				RateMultiplier: 1, Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard,
+				RecoveryProbeEnabled: tc.enabled, RecoveryProbeMode: tc.mode, RecoveryProbeModel: model}
+			s.Require().NoError(s.repo.Create(s.ctx, input))
+			got, err := s.repo.GetByID(s.ctx, input.ID)
+			s.Require().NoError(err)
+			s.Require().Equal(input.RecoveryProbeConfig(), got.RecoveryProbeConfig())
+			s.Require().Equal(tc.enabled, got.RecoveryProbeEnabled)
+			s.Require().Equal(tc.interval, got.RecoveryProbeIntervalSeconds)
+			s.Require().Equal(tc.attempts, got.RecoveryProbeAttemptsPerRound)
+			s.Require().Equal(3600, got.RecoveryProbeIdleThresholdSeconds)
+			s.Require().Equal(tc.backoff, got.RecoveryProbeBackoffCapSeconds)
+			s.Require().Equal(strings.TrimSpace(model), got.RecoveryProbeModel)
+			got.RecoveryProbeIntervalSeconds = 86400
+			got.RecoveryProbeAttemptsPerRound = 3
+			got.RecoveryProbeBackoffCapSeconds = 86400
+			s.Require().NoError(s.repo.Update(s.ctx, got))
+			explicit, err := s.repo.GetByID(s.ctx, input.ID)
+			s.Require().NoError(err)
+			s.Require().Equal(got.RecoveryProbeConfig(), explicit.RecoveryProbeConfig())
+			explicit.RecoveryProbeIntervalSeconds = 0
+			explicit.RecoveryProbeAttemptsPerRound = 0
+			explicit.RecoveryProbeIdleThresholdSeconds = 0
+			explicit.RecoveryProbeBackoffCapSeconds = 0
+			s.Require().NoError(s.repo.Update(s.ctx, explicit))
+			reset, err := s.repo.GetByID(s.ctx, input.ID)
+			s.Require().NoError(err)
+			s.Require().Equal(input.RecoveryProbeConfig(), reset.RecoveryProbeConfig())
+		})
+	}
+}
+
+func (s *GroupRepoSuite) TestRecoveryProbeInvalidConfigDoesNotWrite() {
+	input := &service.Group{Name: "probe-validation", Platform: service.PlatformOpenAI, RateMultiplier: 1,
+		Status: service.StatusActive, SubscriptionType: service.SubscriptionTypeStandard}
+	s.Require().NoError(s.repo.Create(s.ctx, input))
+	original := input.RecoveryProbeConfig()
+	for _, tc := range []struct {
+		name   string
+		change func(*service.Group)
+	}{
+		{"enabled-empty-model", func(g *service.Group) { g.RecoveryProbeEnabled = true }},
+		{"unknown-mode", func(g *service.Group) { g.RecoveryProbeMode = "unsupported" }},
+		{"negative-attempts", func(g *service.Group) { g.RecoveryProbeAttemptsPerRound = -1 }},
+		{"excess-attempts", func(g *service.Group) { g.RecoveryProbeAttemptsPerRound = 6 }},
+		{"short-interval", func(g *service.Group) { g.RecoveryProbeIntervalSeconds = 59 }},
+		{"long-interval", func(g *service.Group) { g.RecoveryProbeIntervalSeconds = 86401 }},
+		{"idle-threshold", func(g *service.Group) { g.RecoveryProbeIdleThresholdSeconds = 1 }},
+		{"short-backoff", func(g *service.Group) { g.RecoveryProbeBackoffCapSeconds = 59 }},
+		{"long-backoff", func(g *service.Group) { g.RecoveryProbeBackoffCapSeconds = 86401 }},
+	} {
+		s.Run(tc.name, func() {
+			before, err := s.tx.Client().Group.Query().Count(s.ctx)
+			s.Require().NoError(err)
+			var outboxBefore int
+			s.Require().NoError(scanSingleRow(s.ctx, s.tx, "SELECT COUNT(*) FROM scheduler_outbox", nil, &outboxBefore))
+			candidate := *input
+			candidate.ID = 0
+			candidate.Name = "probe-invalid-" + tc.name
+			tc.change(&candidate)
+			s.Require().Error(s.repo.Create(s.ctx, &candidate))
+			s.Require().Zero(candidate.ID)
+			after, err := s.tx.Client().Group.Query().Count(s.ctx)
+			s.Require().NoError(err)
+			s.Require().Equal(before, after)
+			candidate.ID = input.ID
+			s.Require().Error(s.repo.Update(s.ctx, &candidate))
+			got, err := s.repo.GetByID(s.ctx, input.ID)
+			s.Require().NoError(err)
+			s.Require().Equal(original, got.RecoveryProbeConfig())
+			var outboxAfter int
+			s.Require().NoError(scanSingleRow(s.ctx, s.tx, "SELECT COUNT(*) FROM scheduler_outbox", nil, &outboxAfter))
+			s.Require().Equal(outboxBefore, outboxAfter)
+		})
+	}
+	// The database guard still independently rejects an explicit invalid value.
+	_, err := s.tx.ExecContext(s.ctx, "SAVEPOINT probe_check_guard")
+	s.Require().NoError(err)
+	_, err = s.tx.ExecContext(s.ctx, "UPDATE groups SET recovery_probe_attempts_per_round=0 WHERE id=$1", input.ID)
+	s.Require().ErrorContains(err, "groups_recovery_probe_attempts_check")
+	_, err = s.tx.ExecContext(s.ctx, "ROLLBACK TO SAVEPOINT probe_check_guard")
+	s.Require().NoError(err)
+	_, err = s.tx.ExecContext(s.ctx, "RELEASE SAVEPOINT probe_check_guard")
+	s.Require().NoError(err)
+	got, err := s.repo.GetByID(s.ctx, input.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(original, got.RecoveryProbeConfig())
+}
+
 func (s *GroupRepoSuite) TestCreateGetUpdate_RecoveryProbeConfig() {
 	group := &service.Group{
 		Name:                              "test-recovery-probe",

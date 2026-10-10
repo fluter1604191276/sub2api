@@ -217,10 +217,6 @@ func firstMonitorUsageInt(root gjson.Result, paths ...string) int64 {
 	return 0
 }
 
-func monitorUsageKnown(usage UsageTokens) bool {
-	return usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheCreationTokens > 0 || usage.CacheReadTokens > 0
-}
-
 // estimateMonitorProbeReservation prices an intentionally high token bound:
 // one token per serialized request byte plus the configured output ceiling.
 // Bodies without a usable ceiling cannot receive a capped reservation.

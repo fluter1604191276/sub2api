@@ -146,3 +146,5 @@ behavior for that group without changing the smart-scheduler master switch.
 ## Required Release Records
 
 发布记录至少要能回答四个问题：这次镜像由哪个源码快照构建、包含哪些二开、每项二开如何验证、失败时恢复哪个镜像和 Compose。登记文件、release manifest 和测试输出必须随候选版本保存；不能只依赖 Codex 会话上下文或个人记忆。
+
+- Independent r4 journal baseline repair (development only): [20261010-journal-baseline-security](extensions/20261010-journal-baseline-security.md). Patched toolchain/dependencies, preserved group CHECK/default semantics and full regression; own SHA/digest required, no production release authorization.

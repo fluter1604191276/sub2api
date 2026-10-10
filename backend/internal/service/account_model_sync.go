@@ -100,10 +100,6 @@ type accountModelSyncCredentialWriter interface {
 	UpdateModelMappingIfUnchanged(context.Context, int64, map[string]any, map[string]any, time.Time) error
 }
 
-type accountModelSyncExtraWriter interface {
-	UpdateExtra(context.Context, int64, map[string]any) error
-}
-
 type modelDiscoveryError struct {
 	statusCode int
 	message    string
@@ -478,7 +474,7 @@ func (s *AccountTestService) discoverAccountModels(ctx context.Context, account 
 	if err != nil {
 		return nil, errors.New("upstream model discovery request failed")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, &modelDiscoveryError{statusCode: resp.StatusCode, message: fmt.Sprintf("upstream returned HTTP %d", resp.StatusCode)}
 	}

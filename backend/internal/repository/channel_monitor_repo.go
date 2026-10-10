@@ -296,7 +296,7 @@ func (r *channelMonitorRepository) InsertHistoryBatch(ctx context.Context, rows 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, row := range rows {
 		var quota any
 		if row.Quota != nil {

@@ -171,7 +171,7 @@ func TestFindPricingForModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := findPricingForModel(tt.list, tt.platform, tt.model)
+			result := findNonImagePricingForModel(tt.list, tt.platform, tt.model)
 			if tt.wantNil {
 				require.Nil(t, result)
 				return
@@ -608,7 +608,7 @@ func TestTryModelFilePricingWithServiceTier_PriorityUsesFastPricing(t *testing.T
 		},
 	})
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryModelFilePricingWithServiceTier(bs, "gpt-5.6-sol", tokens, "priority")
+	result := tryModelFilePricing(bs, "gpt-5.6-sol", tokens, "priority", time.Time{})
 	require.NotNil(t, result)
 	require.InDelta(t, 0.4, *result, 1e-12)
 }

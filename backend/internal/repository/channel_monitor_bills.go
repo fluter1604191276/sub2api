@@ -25,7 +25,7 @@ func (r *channelMonitorRepository) DailyBills(ctx context.Context, start, end ti
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := make([]service.ChannelMonitorDailyBill, 0)
 	for rows.Next() {
 		var row service.ChannelMonitorDailyBill
@@ -35,5 +35,11 @@ func (r *channelMonitorRepository) DailyBills(ctx context.Context, start, end ti
 		}
 		result = append(result, row)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

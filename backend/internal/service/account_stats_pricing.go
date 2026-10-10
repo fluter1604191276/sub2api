@@ -97,10 +97,6 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	return &breakdown.TotalCost
 }
 
-func tryModelFilePricingWithServiceTier(billingService *BillingService, model string, tokens UsageTokens, serviceTier string) *float64 {
-	return tryModelFilePricing(billingService, model, tokens, serviceTier, time.Time{})
-}
-
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
@@ -202,41 +198,6 @@ func matchAccountStatsRule(rule *AccountStatsPricingRule, accountID, groupID int
 		}
 	}
 	return false
-}
-
-// findPricingForModel 在定价列表中查找匹配的模型定价。
-// 先精确匹配，再通配符匹配（按配置顺序，先匹配先使用）。
-func findPricingForModel(pricingList []ChannelModelPricing, platform, modelLower string) *ChannelModelPricing {
-	// 精确匹配优先
-	for i := range pricingList {
-		p := &pricingList[i]
-		if !isPlatformMatch(platform, p.Platform) {
-			continue
-		}
-		for _, m := range p.Models {
-			if strings.ToLower(m) == modelLower {
-				return p
-			}
-		}
-	}
-	// 通配符匹配：按配置顺序，先匹配先使用
-	for i := range pricingList {
-		p := &pricingList[i]
-		if !isPlatformMatch(platform, p.Platform) {
-			continue
-		}
-		for _, m := range p.Models {
-			ml := strings.ToLower(m)
-			if !strings.HasSuffix(ml, "*") {
-				continue
-			}
-			prefix := strings.TrimSuffix(ml, "*")
-			if strings.HasPrefix(modelLower, prefix) {
-				return p
-			}
-		}
-	}
-	return nil
 }
 
 // isPlatformMatch 判断平台是否匹配（空平台视为不限平台）。

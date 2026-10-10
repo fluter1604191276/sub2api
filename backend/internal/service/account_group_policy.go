@@ -1,7 +1,5 @@
 package service
 
-import "encoding/json"
-
 // ApplyGroupPoolErrorPolicy returns a request-local account copy with explicit
 // group overrides applied. Nil group fields inherit the account value; a
 // configured group field is authoritative, including false and empty arrays.
@@ -66,18 +64,4 @@ func (g *Group) HasPoolErrorPolicyOverride() bool {
 		g.PoolModeRetryStatusCodes != nil ||
 		g.CustomErrorCodesEnabled != nil ||
 		g.CustomErrorCodes != nil)
-}
-
-// normalizePolicyJSON is used by tests and future API adapters that receive
-// JSON-number arrays instead of native integer slices.
-func normalizePolicyJSON(value any) ([]int, bool) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return nil, false
-	}
-	var result []int
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, false
-	}
-	return result, true
 }
