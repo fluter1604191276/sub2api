@@ -149,3 +149,5 @@ behavior for that group without changing the smart-scheduler master switch.
 
 - Independent r4 journal baseline repair (development only): [20261010-journal-baseline-security](extensions/20261010-journal-baseline-security.md). Patched toolchain/dependencies, preserved group CHECK/default semantics and full regression; own SHA/digest required, no production release authorization.
 - Minimal r4 runtime package repair (development only): [20261010-runtime-security-packages](extensions/20261010-runtime-security-packages.md). Alpine3.21 OpenSSL/zlib fix thresholds; own new SHA/digest and actual-image/native acceptance required; cancelled release stays blocked.
+
+- Local build-tool recursion repair proposal (not deployed): [20261012-braces-depth-guard](extensions/20261012-braces-depth-guard.md). Exact pnpm patch for braces3.0.3; official HIGH remains disclosed, new source/image verification and explicit security disposition required.

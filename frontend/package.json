@@ -6,14 +6,15 @@
   "scripts": {
     "dev": "vite",
     "check:i18n": "vitest run src/i18n/__tests__/localeKeyCompleteness.spec.ts",
-    "build": "pnpm run check:i18n && vue-tsc -b && vite build",
+    "build": "pnpm run test:braces-security && pnpm run check:i18n && vue-tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts --fix",
     "lint:check": "eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest",
-    "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:run": "pnpm run test:braces-security && vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:braces-security": "node --stack_size=512 --max-old-space-size=64 --test security/test-braces-depth-guard.mjs"
   },
   "dependencies": {
     "@airwallex/components-sdk": "^1.30.2",
@@ -82,6 +83,9 @@
       "flatted@>=3.0.0 <3.4.2": "3.4.2",
       "lodash@>=4.0.0 <4.18.0": "4.18.0",
       "browserslist@>=4.0.0 <4.28.7": "4.28.7"
+    },
+    "patchedDependencies": {
+      "braces@3.0.3": "patches/braces@3.0.3.patch"
     }
   }
 }
