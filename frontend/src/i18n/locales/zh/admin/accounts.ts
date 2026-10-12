@@ -1,5 +1,27 @@
 export default {
     accounts: {
+      priorityConversion: {
+        "title": "按倍率换算优先级",
+        "description": "选中账号按 ceil(账号倍率 × 1000) 换算，倍率 0 写 1。确认后覆盖已有优先级；默认优先级保持 50。",
+        "multiplier": "账号倍率",
+        "oldPriority": "当前优先级",
+        "newPriority": "新优先级",
+        "result": "结果 / 原因",
+        "confirm": "确认覆盖",
+        "applied": "已更新",
+        "summary": "已确认更新 {count} 个账号，其余账号的结果见列表。",
+        "previewFailed": "无法加载预览，请关闭后重试。",
+        "applyFailed": "无法确认写入结果，请关闭并重新加载预览后再操作。",
+        "reasons": {
+          "missing_multiplier": "缺少倍率",
+          "invalid_multiplier": "倍率无效",
+          "negative_multiplier": "倍率为负数",
+          "priority_out_of_range": "优先级超出存储范围",
+          "account_unavailable": "账号已删除或不可用",
+          "preview_changed": "账号已变化，请重新预览",
+          "update_failed": "更新未确认，请重新预览"
+        }
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

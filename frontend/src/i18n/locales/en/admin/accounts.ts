@@ -1,5 +1,27 @@
 export default {
     accounts: {
+      priorityConversion: {
+        "title": "Convert multiplier to priority",
+        "description": "For selected accounts: ceil(account multiplier × 1000), with 0 → 1. Confirm to overwrite existing priorities. Default priority stays 50.",
+        "multiplier": "Multiplier",
+        "oldPriority": "Current priority",
+        "newPriority": "New priority",
+        "result": "Result / reason",
+        "confirm": "Confirm overwrite",
+        "applied": "Updated",
+        "summary": "Confirmed updates for {count} accounts. See the remaining results in the list.",
+        "previewFailed": "Could not load the preview. Close and try again.",
+        "applyFailed": "Could not confirm the result. Close and reload a fresh preview before trying again.",
+        "reasons": {
+          "missing_multiplier": "Missing multiplier",
+          "invalid_multiplier": "Invalid multiplier",
+          "negative_multiplier": "Negative multiplier",
+          "priority_out_of_range": "Priority exceeds the stored range",
+          "account_unavailable": "Account deleted or unavailable",
+          "preview_changed": "Account changed; preview again",
+          "update_failed": "Update was not confirmed; preview again"
+        }
+      },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',
       createAccount: 'Create Account',

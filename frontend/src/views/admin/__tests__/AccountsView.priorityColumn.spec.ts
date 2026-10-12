@@ -3,7 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
 
-const { listAccounts } = vi.hoisted(() => ({
+const { listAccounts, authState } = vi.hoisted(() => ({
+  authState: { isAdmin: true },
   listAccounts: vi.fn()
 }))
 
@@ -31,7 +32,7 @@ vi.mock('@/stores/app', () => ({
 }))
 
 vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({ token: 'test-token', isSimpleMode: false })
+  useAuthStore: () => ({ ...authState, token: 'test-token', isSimpleMode: false })
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -46,7 +47,7 @@ const DataTableStub = {
   props: ['columns'],
   emits: ['sort'],
   template: `
-    <div data-test="data-table">
+    <div data-test="data-table"><slot name="header-select" />
       <span v-for="column in columns" :key="column.key" :data-column="column.key">
         {{ column.sortable ? 'sortable' : 'fixed' }}
       </span>
@@ -67,6 +68,7 @@ function mountView() {
         AccountTableActions: { template: '<div><slot name="after" /></div>' },
         AccountTableFilters: true,
         AccountBulkActionsBar: true,
+        AccountPriorityConversionDialog: { props: ['show', 'accountIds'], template: '<div v-if="show" data-test="priority-dialog">{{ accountIds.join(",") }}</div>' },
         Pagination: true,
         ConfirmDialog: true,
         AccountActionMenu: true,
@@ -98,6 +100,7 @@ function mountView() {
 
 describe('admin AccountsView priority column preferences', () => {
   beforeEach(() => {
+    authState.isAdmin = true
     localStorage.clear()
     listAccounts.mockReset().mockResolvedValue({
       items: [],
@@ -151,5 +154,32 @@ describe('admin AccountsView priority column preferences', () => {
       expect.arrayContaining(['today_stats', 'scheduler_score'])
     )
     expect(JSON.parse(localStorage.getItem('account-hidden-columns') || '[]')).not.toContain('priority')
+  })
+})
+
+
+describe('account multiplier conversion entry', () => {
+  it('shows an administrator the disabled entry until accounts are selected, then opens their preview', async () => {
+    localStorage.clear(); authState.isAdmin = true
+    listAccounts.mockResolvedValue({ items: [
+      { id: 1, name: 'synthetic-a', status: 'active', platform: 'openai', type: 'apikey' },
+      { id: 2, name: 'synthetic-b', status: 'active', platform: 'openai', type: 'apikey' }
+    ], total: 2, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('button[title="admin.accounts.moreActions"]').trigger('click')
+    const entry = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.priorityConversion.title'))!
+    expect(entry.attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-test="data-table"] input[type="checkbox"]').setValue(true)
+    await flushPromises()
+    const selectedEntry = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.priorityConversion.title'))!
+    expect(selectedEntry.attributes('disabled')).toBeUndefined()
+    await selectedEntry.trigger('click')
+    expect(wrapper.get('[data-test="priority-dialog"]').text()).toBe('1,2')
+  })
+  it('does not expose the conversion entry to a non-administrator', async () => {
+    localStorage.clear(); authState.isAdmin = false
+    const wrapper = mountView(); await flushPromises()
+    await wrapper.get('button[title="admin.accounts.moreActions"]').trigger('click')
+    expect(wrapper.text()).not.toContain('admin.accounts.priorityConversion.title')
   })
 })

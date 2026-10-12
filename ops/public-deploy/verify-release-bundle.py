@@ -42,18 +42,29 @@ REQUIRED_CAPABILITIES = (
     "channel-monitor-budget",
     "smart-probe-modes",
     "account-model-sync-preview",
-    "official-0214-compatibility",
+    "account-priority-conversion",
+    "official-0215-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
 )
 
-OFFICIAL_VERSION = "0.2.14"
+OFFICIAL_VERSION = "0.2.15"
 OFFICIAL_VERSION_FILE = "backend/cmd/server/VERSION"
 IMAGE_INSPECTION_TIMEOUT_SECONDS = 120
 CONTAINER_CLEANUP_TIMEOUT_SECONDS = 30
 STREAM_CHUNK_SIZE = 1024 * 1024
 
 CAPABILITY_FILES = {
+    "account-priority-conversion": (
+        "backend/internal/service/account_priority_conversion.go",
+        "backend/internal/repository/account_priority_conversion.go",
+        "backend/internal/handler/admin/account_priority_conversion.go",
+        "backend/internal/service/account_priority_conversion_test.go",
+        "backend/internal/repository/account_priority_conversion_local_integration_test.go",
+        "frontend/src/components/admin/account/AccountPriorityConversionDialog.vue",
+        "frontend/src/components/admin/account/__tests__/AccountPriorityConversionDialog.spec.ts",
+        "ops/public-deploy/docs/extensions/20261012-account-priority-conversion.md",
+    ),
     "scheduler": (
         "backend/internal/service/gateway_scheduling.go",
         "backend/internal/service/openai_account_scheduler.go",
@@ -252,7 +263,7 @@ CAPABILITY_FILES = {
         "frontend/src/components/admin/account/AccountModelSyncDialog.vue",
         "frontend/src/api/admin/accounts.ts",
     ),
-    "official-0214-compatibility": (
+    "official-0215-compatibility": (
         OFFICIAL_VERSION_FILE,
         "backend/internal/domain/model_allowlist.go",
         "backend/internal/handler/admin/admin_basic_handlers_test.go",
@@ -261,6 +272,7 @@ CAPABILITY_FILES = {
         "frontend/src/views/admin/__tests__/modelAllowlistCandidates.spec.ts",
         "ops/public-deploy/docs/extensions/20261005-official-0213-compatibility.md",
         "ops/public-deploy/docs/extensions/20261008-official-0214-candidate.md",
+        "ops/public-deploy/docs/extensions/20261012-official-0215-candidate.md",
     ),
     "public-catalog-contract": (
         "backend/internal/handler/catalog_metadata.go",
@@ -309,6 +321,7 @@ REQUIRED_TESTS = (
 # They are deliberately small, stable runtime symbols/log labels rather than
 # version strings, so a stale or partially merged image cannot pass on its tag.
 IMAGE_CAPABILITY_MARKERS = {
+    "account-priority-conversion": ("/priority-conversion/preview", "/priority-conversion/apply"),
     "scheduler": (
         "smart_scheduler",
         "sticky.smart_scheduler_switched",
@@ -348,7 +361,7 @@ IMAGE_CAPABILITY_MARKERS = {
         "openai_generic_upstream_failure",
         "openai_generic_upstream_failure_cooldown",
     ),
-    "official-0214-compatibility": (OFFICIAL_VERSION, "model-allowlist-candidates"),
+    "official-0215-compatibility": (OFFICIAL_VERSION, "model-allowlist-candidates"),
     "public-catalog-contract": (
         "configured_not_live",
         "before_group_multiplier",

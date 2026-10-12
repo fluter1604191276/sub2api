@@ -10,6 +10,7 @@ Every release manifest must record the status and evidence for each capability b
 
 | ID | Capability | Required evidence | Risk surface | Current status |
 | --- | --- | --- | --- | --- |
+| account-priority-conversion | Administrator-only manual per-account decimal multiplier to priority preview/confirmation | extensions/20261012-account-priority-conversion.md, service/repository/handler/UI tests, new image evidence | Existing account priority only; no pricing/default/algorithm change | Required |
 | scheduler | Smart account scheduling, sticky-session escape, exploration, score-aware selection | gateway_scheduling.go, openai_gateway_passthrough.go, openai gateway stream handlers, scheduler and sticky-escape tests, admin settings/routes | Routing, availability, session affinity | Required |
 | scheduled-probe | Scheduled probe plans, budget/attribution, result handling, scheduler linkage | scheduled_test_runner_service.go, scheduled_test_service.go, scheduled_test_handler.go, probe tests | Upstream cost, account availability | Required |
 | quality-score | Account/group 1h and 24h quality score, grade, first-token and duration metrics | account stats service/repository, AccountsView.vue, relevant API/routes/tests | Scheduling decisions, operator visibility | Required |
@@ -31,7 +32,7 @@ Every release manifest must record the status and evidence for each capability b
 | responses-tools | Responses tool parsing, streaming custom tool events, bridge behavior | apicompat converters and fixtures | Client protocol, terminal capability | Partial by design; release blocker unless route is explicit |
 | upstream-ledger | Upstream pricing, account-cost and mapping audit tools | ops/public-deploy/upstream-rates, sanitized snapshot/ledger tests | Cost audit, mapping decisions | Required |
 | ops-baseline | Backups, role marker, release evidence, container-compatible image smoke, upstream-rate maintenance | ops/public-deploy, release manifest, backup tests | Recovery and auditability | Required |
-| official-0214-compatibility | Official Sub2API through v0.2.14 behavior retained alongside site-specific extensions | official compatibility records (including extensions/20261008-official-0214-candidate.md), backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
+| official-0215-compatibility | Official Sub2API through v0.2.15 behavior retained alongside site-specific extensions | official compatibility records (including extensions/20261008-official-0214-candidate.md), backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
 
 ## Status Semantics
 
@@ -147,13 +148,13 @@ behavior for that group without changing the smart-scheduler master switch.
 
 The 2026-10-08 frontend dependency security patch is recorded in
 `extensions/20261008-frontend-security-patches.md` under
-`official-0214-compatibility` and `ops-baseline`. It requires a new image and
+`official-0215-compatibility` and `ops-baseline`. It requires a new image and
 manifest; the previous candidate's image digest cannot identify this patch.
 
 发布记录至少要能回答四个问题：这次镜像由哪个源码快照构建、包含哪些二开、每项二开如何验证、失败时恢复哪个镜像和 Compose。登记文件、release manifest 和测试输出必须随候选版本保存；不能只依赖 Codex 会话上下文或个人记忆。
 
 The 2026-10-09 unlimited quota history policy B is recorded in
 `extensions/20261009-quota-history-preservation.md` under
-`official-0214-compatibility` and `ops-baseline`. Its pending migration archives
+`official-0215-compatibility` and `ops-baseline`. Its pending migration archives
 historical unlimited rows and requires a new commit, image and manifest.
 The original 238 SQL is retained outside embedded migrations for audit.

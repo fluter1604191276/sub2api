@@ -123,6 +123,10 @@
                           {{ t('admin.accounts.toolActions') }}
                         </div>
                       </div>
+                      <button v-if="authStore.isAdmin" class="account-tools-menu-item" :disabled="!selIds.length" @click="openPriorityConversion">
+                        <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300"><Icon name="sort" size="sm" /></span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.priorityConversion.title') }}</span>
+                      </button>
                       <button class="account-tools-menu-item" @click="openErrorPassthrough">
                         <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
                           <Icon name="shield" size="sm" />
@@ -595,6 +599,7 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <AccountPriorityConversionDialog :show="showPriorityConversion" :account-ids="priorityConversionIds" @close="showPriorityConversion = false" @updated="reload" />
     <AccountModelSyncDialog :show="showModelSyncDialog" :entries="modelSyncEntries" @close="showModelSyncDialog = false" @applied="handleModelSyncApplied" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
@@ -602,6 +607,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import AccountPriorityConversionDialog from '@/components/admin/account/AccountPriorityConversionDialog.vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -656,6 +662,15 @@ import type { Account, AccountListGroup, AccountListItem, AccountPlatform, Accou
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const showPriorityConversion = ref(false)
+const priorityConversionIds = ref<number[]>([])
+const openPriorityConversion = () => {
+  if (!authStore.isAdmin || !selIds.value.length) return
+  closeAccountToolsDropdown()
+  priorityConversionIds.value = [...selIds.value]
+  showPriorityConversion.value = true
+}
+
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])

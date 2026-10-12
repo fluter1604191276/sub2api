@@ -1604,7 +1604,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
       apiRule,
       groupPlatformMap,
       form.platforms.map(section => section.platform),
-      platformOrder,
+      platformOrder.value,
     ) as GroupPlatform | null
     if (!targetPlatform) throw new Error('No supported platform is available for account stats pricing rules')
 

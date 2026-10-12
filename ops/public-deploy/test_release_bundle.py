@@ -82,11 +82,11 @@ class ReleaseManifestStructureTests(unittest.TestCase):
                          set(verify.IMAGE_CAPABILITY_MARKERS))
 
     def test_official_0213_compatibility_requires_authentic_version_evidence(self):
-        self.assertIn("official-0214-compatibility", verify.REQUIRED_CAPABILITIES)
-        self.assertIn("official-0214-compatibility", manifest_generator.CAPABILITY_IDS)
+        self.assertIn("official-0215-compatibility", verify.REQUIRED_CAPABILITIES)
+        self.assertIn("official-0215-compatibility", manifest_generator.CAPABILITY_IDS)
         self.assertIn(
             verify.OFFICIAL_VERSION_FILE,
-            verify.CAPABILITY_FILES["official-0214-compatibility"],
+            verify.CAPABILITY_FILES["official-0215-compatibility"],
         )
         repo_root = SCRIPT_DIR.parents[1]
         self.assertEqual(
@@ -105,7 +105,7 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         finally:
             verify.file_text = original_file_text
         self.assertIn(
-            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.14'",
+            "official compatibility VERSION is 'candidate-tag-only'; expected '0.2.15'",
             errors,
         )
 
@@ -326,11 +326,11 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertIsNotNone(processes[0].poll())
 
     def test_official_024_image_smoke_requires_version_and_route_markers(self):
-        complete = verify.inspect_binary_capabilities(b"0.2.14 model-allowlist-candidates")
-        self.assertEqual("present", complete["official-0214-compatibility"]["status"])
+        complete = verify.inspect_binary_capabilities(b"0.2.15 model-allowlist-candidates")
+        self.assertEqual("present", complete["official-0215-compatibility"]["status"])
 
         tag_only = verify.inspect_binary_capabilities(b"official-024-candidate")
-        self.assertEqual("missing", tag_only["official-0214-compatibility"]["status"])
+        self.assertEqual("missing", tag_only["official-0215-compatibility"]["status"])
 
     def test_public_catalog_contract_is_required_with_source_and_image_evidence(self):
         capability = "public-catalog-contract"

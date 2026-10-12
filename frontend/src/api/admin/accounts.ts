@@ -1230,7 +1230,36 @@ export async function refreshOpenCodeGoUsage(id: number): Promise<OpenCodeGoUsag
   return data
 }
 
+export interface PriorityConversionRow {
+  account_id: number
+  name: string
+  rate_multiplier: string | null
+  old_priority: number
+  new_priority: number | null
+  reason?: string
+  applied: boolean
+}
+
+export interface PriorityConversionResult {
+  rows: PriorityConversionRow[]
+  updated: number
+}
+
+export async function previewPriorityConversion(accountIds: number[]): Promise<PriorityConversionResult> {
+  const { data } = await apiClient.post<PriorityConversionResult>('/admin/accounts/priority-conversion/preview', { account_ids: accountIds })
+  return data
+}
+
+export async function applyPriorityConversion(rows: PriorityConversionRow[]): Promise<PriorityConversionResult> {
+  const accounts = rows.filter(row => !row.reason && row.new_priority !== null && row.rate_multiplier !== null)
+    .map(row => ({ account_id: row.account_id, rate_multiplier: row.rate_multiplier, old_priority: row.old_priority }))
+  const { data } = await apiClient.post<PriorityConversionResult>('/admin/accounts/priority-conversion/apply', { accounts })
+  return data
+}
+
 export const accountsAPI = {
+  previewPriorityConversion,
+  applyPriorityConversion,
   list,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,
