@@ -158,3 +158,9 @@ The 2026-10-09 unlimited quota history policy B is recorded in
 `official-0215-compatibility` and `ops-baseline`. Its pending migration archives
 historical unlimited rows and requires a new commit, image and manifest.
 The original 238 SQL is retained outside embedded migrations for audit.
+
+Runtime security candidate (2026-10-12) retains the existing ops-baseline and
+all product capabilities; see extensions/20261012-runtime-security-patches.md.
+Only the final Docker runtime stage and official Alpine package patch floors
+change. Exact new image and offline linkage/security evidence remain mandatory;
+no journal, financial rule change, new capability waiver or production operation.

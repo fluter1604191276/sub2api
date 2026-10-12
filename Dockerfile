@@ -105,7 +105,7 @@ FROM ${POSTGRES_IMAGE} AS pg-client
 # -----------------------------------------------------------------------------
 # Stage 4: Final Runtime Image
 # -----------------------------------------------------------------------------
-FROM ${ALPINE_IMAGE}
+FROM ${ALPINE_IMAGE} AS runtime
 
 # Re-declare build metadata in the final stage so BuildKit can persist it as
 # OCI labels instead of keeping it scoped to the builder stage.
@@ -125,6 +125,9 @@ LABEL org.opencontainers.image.source-snapshot="${SOURCE_SNAPSHOT}"
 
 # Install runtime dependencies
 RUN apk add --no-cache \
+    'libcrypto3>=3.3.7-r2' \
+    'libssl3>=3.3.7-r2' \
+    'zlib>=1.3.2-r1' \
     ca-certificates \
     tzdata \
     su-exec \
