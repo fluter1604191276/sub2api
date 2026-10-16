@@ -200,6 +200,33 @@ export interface SyncPricingModelsResult {
   models: string[]
 }
 
+/**
+ * Read-only model names derived from the accounts currently configured for a
+ * channel.  They describe configuration, rather than live availability or a
+ * price rule to be saved.
+ */
+export interface ChannelConfiguredModel {
+  name: string
+  platform: string
+}
+
+export interface ChannelConfiguredModelCatalogChannel {
+  channel_id: number
+  models: ChannelConfiguredModel[]
+}
+
+export interface ChannelConfiguredModelCatalog {
+  source: 'configured_accounts'
+  availability: 'configured_not_live'
+  channels: ChannelConfiguredModelCatalogChannel[]
+}
+
+/** Fetch the configured-account model catalog without changing channel pricing. */
+export async function getModelCatalog(): Promise<ChannelConfiguredModelCatalog> {
+  const { data } = await apiClient.get<ChannelConfiguredModelCatalog>('/admin/channels/model-catalog')
+  return data
+}
+
 export type ModelCalibrationSkipReason =
   | 'no_target_models'
   | 'no_pricing'
@@ -281,6 +308,7 @@ const channelsAPI = {
   create,
   update,
   remove,
+  getModelCatalog,
   getModelDefaultPricing,
   syncPricingModels,
   previewModelCalibration,

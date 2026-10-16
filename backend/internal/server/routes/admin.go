@@ -806,6 +806,7 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	channels := admin.Group("/channels")
 	{
 		channels.GET("", h.Admin.Channel.List)
+		channels.GET("/model-catalog", h.Admin.Channel.GetModelCatalog)
 		channels.GET("/model-pricing", h.Admin.Channel.GetModelDefaultPricing)
 		channels.GET("/pricing/sync-models", h.Admin.Channel.SyncPricingModels)
 		channels.GET("/model-calibration/preview", h.Admin.Channel.PreviewModelCalibration)

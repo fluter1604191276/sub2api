@@ -19,7 +19,7 @@ func TestCatalogMetadataContract(t *testing.T) {
 	now := time.Date(2026, time.September, 12, 3, 4, 5, 987, time.FixedZone("CST", 8*60*60))
 	metadata := newCatalogMetadata(now, catalogUserRateUnavailableFallback)
 
-	require.Equal(t, catalogSourceConfiguredChannels, metadata.Source)
+	require.Equal(t, catalogSourceConfiguredAccounts, metadata.Source)
 	require.Equal(t, catalogAvailabilityConfiguredNotLive, metadata.Availability)
 	require.Equal(t, catalogPricingBasisBeforeGroup, metadata.PricingBasis)
 	require.Equal(t, catalogPolicyPresentationOnly, metadata.Policy)
@@ -39,7 +39,7 @@ func TestAvailableCatalogMetadataHeadersPreserveArrayData(t *testing.T) {
 	response.Success(c, []userAvailableChannel{})
 
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, catalogSourceConfiguredChannels, w.Header().Get(catalogHeaderSource))
+	require.Equal(t, catalogSourceConfiguredAccounts, w.Header().Get(catalogHeaderSource))
 	require.Equal(t, catalogAvailabilityConfiguredNotLive, w.Header().Get(catalogHeaderAvailability))
 	require.Equal(t, catalogPricingBasisBeforeGroup, w.Header().Get(catalogHeaderPricingBasis))
 	require.Equal(t, catalogPolicyPresentationOnly, w.Header().Get(catalogHeaderPolicy))

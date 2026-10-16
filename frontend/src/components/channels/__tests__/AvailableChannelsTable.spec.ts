@@ -192,4 +192,27 @@ describe('AvailableChannelsTable', () => {
     expect(wrapper.find('[data-icon="refresh"]').exists()).toBe(true)
     expect(wrapper.find('.available-category').exists()).toBe(false)
   })
+
+  it('keeps same-platform sections tied to their own group model pools after refresh', async () => {
+    const section = (id: number, name: string) => ({
+      platform: 'openai',
+      groups: [{ id, name: `Pool ${id}`, platform: 'openai', subscription_type: 'standard', rate_multiplier: 1, peak_rate_enabled: false, peak_start: '', peak_end: '', peak_rate_multiplier: 1, is_exclusive: false }],
+      supported_models: [{ name, platform: 'openai', pricing: null }],
+    })
+    const first = section(10, 'gpt-6.1-sol')
+    const second = section(20, 'other-pool-model')
+    const wrapper = mountTable({ rows: [{ name: 'Shared channel', description: '', platforms: [first, second] }] })
+    await wrapper.setProps({ rows: [{ name: 'Shared channel', description: '', platforms: [second, first] }] })
+    const articles = wrapper.findAll('.available-channel-row')
+    expect(articles).toHaveLength(2)
+    for (const article of articles) {
+      const group = article.find('[data-group-badge]').text()
+      const model = article.find('[data-model-chip]').text()
+      if (group.includes('Pool 10')) expect(model).toContain('gpt-6.1-sol')
+      else {
+        expect(group).toContain('Pool 20')
+        expect(model).toContain('other-pool-model')
+      }
+    }
+  })
 })

@@ -8,9 +8,10 @@ import {
 } from '@/constants/platformCatalog'
 import ChannelsView from '@/views/admin/ChannelsView.vue'
 
-const { listChannels, getGroups, syncPricingModels, showSuccess, showError } = vi.hoisted(() => ({
+const { listChannels, getGroups, getModelCatalog, syncPricingModels, showSuccess, showError } = vi.hoisted(() => ({
   listChannels: vi.fn(),
   getGroups: vi.fn(),
+  getModelCatalog: vi.fn(),
   syncPricingModels: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn()
@@ -18,7 +19,7 @@ const { listChannels, getGroups, syncPricingModels, showSuccess, showError } = v
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    channels: { list: listChannels, syncPricingModels },
+    channels: { list: listChannels, getModelCatalog, syncPricingModels },
     groups: { getAll: getGroups },
     settings: { getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false }) }
   }
@@ -47,7 +48,10 @@ function mountView() {
           props: ['entry'],
           template: '<div class="pricing-entry">{{ entry.models.join(", ") }}</div>'
         }),
-        DataTable: true,
+        DataTable: defineComponent({
+          props: ['data'],
+          template: '<section><template v-for="row in data"><slot name="cell-configured_model_count" :row="row" /><slot name="cell-actions" :row="row" /></template></section>'
+        }),
         Pagination: true,
         ConfirmDialog: true,
         EmptyState: true,
@@ -86,6 +90,7 @@ describe('ChannelsView pricing model sync', () => {
     localStorage.clear()
     listChannels.mockResolvedValue({ items: [], total: 0 })
     getGroups.mockResolvedValue([])
+    getModelCatalog.mockResolvedValue({ source: 'configured_accounts', availability: 'configured_not_live', channels: [] })
     syncPricingModels.mockReset()
   })
 
@@ -150,6 +155,90 @@ describe('ChannelsView pricing model sync', () => {
     expect(wrapper.get('.pricing-entry').text()).toBe('gpt-latest')
     expect(visibleSyncButtons(wrapper)[0].attributes('disabled')).toBeUndefined()
     expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows configured account models read-only without adding them to price rules', async () => {
+    const channel = {
+      id: 23,
+      name: 'OpenAI channel',
+      description: '',
+      status: 'active',
+      billing_model_source: 'channel_mapped',
+      restrict_models: false,
+      group_ids: [4],
+      model_pricing: [{
+        platform: 'openai', models: ['gpt-old'], billing_mode: 'token',
+        input_price: null, output_price: null, cache_write_price: null, cache_read_price: null,
+        image_input_price: null, image_output_price: null, per_request_price: null, intervals: [], time_pricing: null
+      }],
+      model_mapping: {}, apply_pricing_to_account_stats: false, account_stats_pricing_rules: [],
+      created_at: '', updated_at: ''
+    }
+    listChannels.mockResolvedValue({ items: [channel], total: 1 })
+    getGroups.mockResolvedValue([{ id: 4, name: 'OpenAI', platform: 'openai', rate_multiplier: 1 }])
+    getModelCatalog.mockResolvedValue({
+      source: 'configured_accounts', availability: 'configured_not_live',
+      channels: [{ channel_id: 23, models: [{ name: 'gpt-6.1-sol', platform: 'openai' }] }]
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-testid="configured-model-count"]').text()).toBe('1')
+    expect(wrapper.get('[data-testid="configured-model-count"]').attributes('title')).toContain('gpt-6.1-sol (openai)')
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).toContain('gpt-6.1-sol')
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).not.toContain('gpt-old')
+    expect(wrapper.get('.pricing-entry').text()).toBe('gpt-old')
+    expect(getModelCatalog).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('refreshes the read-only model overview from the latest account configuration', async () => {
+    const channel = {
+      id: 23, name: 'OpenAI channel', description: '', status: 'active', billing_model_source: 'channel_mapped',
+      restrict_models: false, group_ids: [4], model_pricing: [], model_mapping: {},
+      apply_pricing_to_account_stats: false, account_stats_pricing_rules: [], created_at: '', updated_at: ''
+    }
+    listChannels.mockResolvedValue({ items: [channel], total: 1 })
+    getGroups.mockResolvedValue([{ id: 4, name: 'OpenAI', platform: 'openai', rate_multiplier: 1 }])
+    getModelCatalog
+      .mockResolvedValueOnce({ source: 'configured_accounts', availability: 'configured_not_live', channels: [{ channel_id: 23, models: [{ name: 'gpt-old', platform: 'openai' }] }] })
+      .mockResolvedValueOnce({ source: 'configured_accounts', availability: 'configured_not_live', channels: [{ channel_id: 23, models: [{ name: 'gpt-6.1-sol', platform: 'openai' }] }] })
+      .mockResolvedValueOnce({ source: 'configured_accounts', availability: 'configured_not_live', channels: [{ channel_id: 23, models: [{ name: 'gpt-6.1-astra', platform: 'openai' }] }] })
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).toContain('gpt-6.1-sol')
+
+    await wrapper.find('[title="common.refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).toContain('gpt-6.1-astra')
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).not.toContain('gpt-6.1-sol')
+    wrapper.unmount()
+  })
+
+  it('does not present a stale model as configured when the catalog request fails', async () => {
+    const channel = {
+      id: 23, name: 'OpenAI channel', description: '', status: 'active', billing_model_source: 'channel_mapped',
+      restrict_models: false, group_ids: [4], model_pricing: [], model_mapping: {},
+      apply_pricing_to_account_stats: false, account_stats_pricing_rules: [], created_at: '', updated_at: ''
+    }
+    listChannels.mockResolvedValue({ items: [channel], total: 1 })
+    getGroups.mockResolvedValue([{ id: 4, name: 'OpenAI', platform: 'openai', rate_multiplier: 1 }])
+    getModelCatalog.mockRejectedValue(new Error('unavailable'))
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).toContain('admin.channels.form.configuredModelsUnavailable')
+    expect(wrapper.get('[data-testid="configured-model-overview"]').text()).not.toContain('gpt-6.1-sol')
     wrapper.unmount()
   })
 })

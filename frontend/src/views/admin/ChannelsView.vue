@@ -98,6 +98,23 @@
             </span>
           </template>
 
+          <template #cell-configured_model_count="{ row }">
+            <span v-if="configuredModelCatalogLoading" class="text-xs text-gray-400">
+              {{ t('common.loading', 'Loading...') }}
+            </span>
+            <span
+              v-else-if="configuredModelCatalogError"
+              class="text-xs text-amber-600 dark:text-amber-400"
+              :title="t('admin.channels.form.configuredModelsUnavailable')"
+            >—</span>
+            <span
+              v-else
+              class="inline-flex items-center rounded bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-950/40 dark:text-sky-200"
+              :title="configuredModelTooltip(row.id)"
+              data-testid="configured-model-count"
+            >{{ configuredModelEntriesFor(row.id).length }}</span>
+          </template>
+
           <template #cell-created_at="{ value }">
             <span class="text-sm text-gray-600 dark:text-gray-400">
               {{ formatDate(value) }}
@@ -500,6 +517,26 @@
             </div>
 
             <!-- Model Mapping -->
+            <section
+              v-if="editingChannel"
+              class="rounded-lg border border-sky-200 bg-sky-50 p-3 dark:border-sky-900/70 dark:bg-sky-950/20"
+              data-testid="configured-model-overview"
+            >
+              <div class="flex items-baseline justify-between gap-3">
+                <h4 class="text-xs font-medium text-sky-900 dark:text-sky-200">{{ t('admin.channels.form.configuredModels') }}</h4>
+                <span v-if="configuredModelCatalog" class="text-[11px] text-sky-700 dark:text-sky-300">
+                  {{ t('admin.channels.form.configuredModelsCount', { count: configuredModelsFor(editingChannel.id, section.platform).length }) }}
+                </span>
+              </div>
+              <p class="mt-1 text-[11px] text-sky-800/80 dark:text-sky-200/80">{{ t('admin.channels.form.configuredModelsHint') }}</p>
+              <p v-if="configuredModelCatalogLoading" class="mt-2 text-xs text-sky-700 dark:text-sky-300">{{ t('common.loading', 'Loading...') }}</p>
+              <p v-else-if="configuredModelCatalogError" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('admin.channels.form.configuredModelsUnavailable') }}</p>
+              <p v-else-if="configuredModelsFor(editingChannel.id, section.platform).length === 0" class="mt-2 text-xs text-sky-700 dark:text-sky-300">{{ t('admin.channels.form.configuredModelsEmpty') }}</p>
+              <div v-else class="mt-2 flex flex-wrap gap-1">
+                <span v-for="model in configuredModelsFor(editingChannel.id, section.platform)" :key="model" class="rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-sky-900 shadow-sm dark:bg-dark-800 dark:text-sky-100">{{ model }}</span>
+              </div>
+            </section>
+
             <div>
               <div class="mb-1 flex items-center justify-between">
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelMapping', 'Model Mapping') }}</label>
@@ -767,6 +804,7 @@ import { adminAPI } from '@/api/admin'
 import type {
   Channel,
   ChannelModelPricing,
+  ChannelConfiguredModelCatalog,
   CreateChannelRequest,
   UpdateChannelRequest,
   AccountStatsPricingRule,
@@ -831,6 +869,7 @@ const columns = computed<Column[]>(() => [
   { key: 'status', label: t('admin.channels.columns.status', 'Status'), sortable: true },
   { key: 'group_count', label: t('admin.channels.columns.groups', 'Groups'), sortable: false },
   { key: 'pricing_count', label: t('admin.channels.columns.pricing', 'Pricing'), sortable: false },
+  { key: 'configured_model_count', label: t('admin.channels.columns.configuredModels', 'Account models'), sortable: false },
   { key: 'created_at', label: t('admin.channels.columns.createdAt', 'Created'), sortable: true },
   { key: 'actions', label: t('admin.channels.columns.actions', 'Actions'), sortable: false }
 ])
@@ -879,6 +918,10 @@ const showCalibrationDialog = ref(false)
 const calibrationLoading = ref(false)
 const calibrationApplying = ref(false)
 const calibrationPreview = ref<ChannelModelCalibrationPreview | null>(null)
+const configuredModelCatalog = ref<ChannelConfiguredModelCatalog | null>(null)
+const configuredModelCatalogLoading = ref(false)
+const configuredModelCatalogError = ref(false)
+let configuredModelCatalogRequest = 0
 
 const calibrationRelevantChannels = computed(() =>
   (calibrationPreview.value?.channels || []).filter(channel => channel.changed || channel.skipped.length > 0)
@@ -1471,7 +1514,52 @@ function apiToForm(channel: Channel): PlatformSection[] {
 }
 
 // ── Load data ──
+async function loadConfiguredModelCatalog() {
+  const request = ++configuredModelCatalogRequest
+  configuredModelCatalogLoading.value = true
+  configuredModelCatalogError.value = false
+  try {
+    const catalog = await adminAPI.channels.getModelCatalog()
+    if (request !== configuredModelCatalogRequest) return
+    configuredModelCatalog.value = catalog
+  } catch {
+    if (request !== configuredModelCatalogRequest) return
+    // An unavailable catalog must never leave stale names that imply a model
+    // is still configured or supported.
+    configuredModelCatalog.value = null
+    configuredModelCatalogError.value = true
+  } finally {
+    if (request === configuredModelCatalogRequest) configuredModelCatalogLoading.value = false
+  }
+}
+
+function configuredModelEntriesFor(channelId: number): Array<{ name: string, platform: string }> {
+  const channel = configuredModelCatalog.value?.channels.find(item => item.channel_id === channelId)
+  if (!channel) return []
+  const unique = new Map<string, { name: string, platform: string }>()
+  for (const model of channel.models) {
+    if (model.name && model.platform) unique.set(`${model.platform}\u0000${model.name}`, model)
+  }
+  return [...unique.values()].sort((left, right) =>
+    left.platform.localeCompare(right.platform) || left.name.localeCompare(right.name)
+  )
+}
+
+function configuredModelsFor(channelId: number, platform: string): string[] {
+  return configuredModelEntriesFor(channelId)
+    .filter(model => model.platform === platform)
+    .map(model => model.name)
+}
+
+function configuredModelTooltip(channelId: number): string {
+  const models = configuredModelEntriesFor(channelId)
+  return models.length > 0
+    ? models.map(model => `${model.name} (${model.platform})`).join(', ')
+    : t('admin.channels.form.configuredModelsEmpty')
+}
+
 async function loadChannels() {
+  void loadConfiguredModelCatalog()
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
   abortController = ctrl
@@ -1579,7 +1667,7 @@ async function openEditDialog(channel: Channel) {
   form.billing_model_source = channel.billing_model_source || 'channel_mapped'
   form.apply_pricing_to_account_stats = channel.apply_pricing_to_account_stats || false
   // Must load groups first so apiToForm can map groupID → platform
-  await Promise.all([loadGroups(), loadAllChannelsForConflict()])
+  await Promise.all([loadGroups(), loadAllChannelsForConflict(), loadConfiguredModelCatalog()])
   form.platforms = apiToForm(channel)
 
   // Distribute channel-level rules into per-platform sections

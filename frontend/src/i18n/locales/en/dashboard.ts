@@ -696,7 +696,7 @@ export default {
     loadFailed: 'Failed to load model plaza',
     noSearchResult: 'No matching models',
     anonymousHint: 'Sign in to see your exclusive groups and personal rates',
-    configuredAvailability: 'Shows configured channels; it is not a live account health signal',
+    configuredAvailability: 'Models come from configured accounts; this is not a live availability signal',
     rateUnavailable: 'Your personal price could not be confirmed; showing the group effective price',
     priceView: 'Price basis',
     clearFilters: 'Clear filters',

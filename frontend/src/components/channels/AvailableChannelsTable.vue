@@ -35,7 +35,7 @@
 
         <article
           v-for="row in category.rows"
-          :key="`${row.channelName}-${row.section.platform}-${row.category}`"
+          :key="`${row.channelName}-${row.section.platform}-${row.category}-${row.section.groups.map(group => group.id).join(',')}`"
           class="available-channel-row"
         >
           <div class="channel-identity">

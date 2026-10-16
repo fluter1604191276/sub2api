@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -127,6 +128,81 @@ func TestListAvailable_SortedByName(t *testing.T) {
 	require.Equal(t, "charlie", out[2].Name)
 }
 
+func TestListAvailable_AccountCatalogProjectsPerGroupAliasesAndPricing(t *testing.T) {
+	wildcardPrice := 0.42
+	exactPrice := 0.84
+	channels := []Channel{{
+		ID: 1, Name: "catalog", Status: StatusActive, GroupIDs: []int64{10, 20}, RestrictModels: true, BillingModelSource: BillingModelSourceRequested,
+		ModelMapping: map[string]map[string]string{PlatformOpenAI: {"public-sol": "gpt-6.1-sol"}},
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformOpenAI, Models: []string{"public-*"}, InputPrice: &wildcardPrice},
+			{Platform: PlatformOpenAI, Models: []string{"public-sol"}, InputPrice: &exactPrice},
+		},
+	}}
+	groups := []Group{
+		{ID: 10, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"public-sol"}}},
+		{ID: 20, Platform: PlatformOpenAI},
+	}
+	account := catalogAccount(1, PlatformOpenAI, []int64{10}, map[string]any{"gpt-*": "gpt-*"}, []string{"gpt-6.1-sol"})
+	otherGroup := catalogAccount(2, PlatformOpenAI, []int64{20}, map[string]any{"gpt-6.1-codex": "gpt-6.1-codex"}, []string{"gpt-6.1-codex"})
+	stub := &catalogAccountRepositoryStub{accounts: []Account{account, otherGroup}}
+	svc := newAvailableChannelService(channels, &stubGroupRepoForAvailable{activeGroups: groups})
+	svc.modelCatalog = NewAccountModelCatalog(stub)
+
+	out, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Len(t, out, 1)
+	require.Len(t, out[0].GroupModels[10], 1)
+	require.Equal(t, "public-sol", out[0].GroupModels[10][0].Name)
+	require.Equal(t, exactPrice, *out[0].GroupModels[10][0].Pricing.InputPrice, "exact pricing wins over an earlier wildcard")
+	require.Empty(t, out[0].GroupModels[20], "restrict_models rejects unpriced account candidates")
+	require.Len(t, out[0].SupportedModels, 1)
+	require.Equal(t, "public-sol", out[0].SupportedModels[0].Name)
+	require.Equal(t, wildcardPrice, *channels[0].ModelPricing[0].InputPrice, "catalogue projection must not mutate persisted pricing")
+	require.Equal(t, exactPrice, *channels[0].ModelPricing[1].InputPrice, "catalogue projection must not mutate persisted pricing")
+}
+
+func TestListAvailable_AccountCatalogRefreshesWithoutTransientFlapping(t *testing.T) {
+	groups := []Group{{ID: 10, Platform: PlatformOpenAI}}
+	channel := Channel{ID: 1, Status: StatusActive, GroupIDs: []int64{10}}
+	stub := &catalogAccountRepositoryStub{accounts: []Account{
+		catalogAccount(1, PlatformOpenAI, []int64{10}, map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}, nil),
+	}}
+	svc := newAvailableChannelService([]Channel{channel}, &stubGroupRepoForAvailable{activeGroups: groups})
+	svc.modelCatalog = NewAccountModelCatalog(stub)
+
+	first, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "gpt-6.1-sol", first[0].GroupModels[10][0].Name)
+
+	until := time.Now().Add(time.Hour)
+	stub.accounts[0] = catalogAccount(1, PlatformOpenAI, []int64{10}, map[string]any{"gpt-6.1-codex": "gpt-6.1-codex"}, nil)
+	stub.accounts[0].RateLimitResetAt = &until
+	second, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "gpt-6.1-codex", second[0].GroupModels[10][0].Name, "configured changes refresh while temporary rate limiting remains visible")
+
+	stub.accounts[0].Schedulable = false
+	third, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, third[0].GroupModels[10])
+	stub.accounts[0].Schedulable = true
+	stub.accounts[0].GroupIDs = []int64{20}
+	fourth, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, fourth[0].GroupModels[10], "removing group membership removes the model")
+	stub.accounts[0].GroupIDs = []int64{10}
+	stub.accounts[0].Status = "disabled"
+	fifth, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, fifth[0].GroupModels[10])
+	stub.accounts = nil
+	sixth, err := svc.ListAvailable(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, sixth[0].GroupModels[10], "deleted accounts cannot remain in a cached catalogue")
+	require.Equal(t, 6, stub.calls, "one account batch query per read")
+}
+
 func TestListAvailable_ListAllErrorPropagates(t *testing.T) {
 	// ListAll 返回错误时 ListAvailable 应直接返回包装后的错误，且不再访问 groupRepo（短路）。
 	sentinel := errors.New("list-all-boom")
@@ -189,6 +265,7 @@ func TestPricingNeedsFallback(t *testing.T) {
 			Intervals:   []PricingInterval{{TierLabel: "1K"}, {TierLabel: "2K"}},
 		}, true},
 		{"flat input set", &ChannelModelPricing{InputPrice: testPtrFloat64(3e-6)}, false},
+		{"image input set", &ChannelModelPricing{ImageInputPrice: testPtrFloat64(3e-6)}, false},
 		{"flat per_request set", &ChannelModelPricing{PerRequestPrice: testPtrFloat64(0.04)}, false},
 		{"interval with price", &ChannelModelPricing{
 			Intervals: []PricingInterval{{TierLabel: "1K", PerRequestPrice: testPtrFloat64(0.04)}},

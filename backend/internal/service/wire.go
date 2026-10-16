@@ -735,8 +735,13 @@ func ProvideChannelService(
 	authCacheInvalidator APIKeyAuthCacheInvalidator,
 	pricingService *PricingService,
 	accountRepo AccountRepository,
+	modelCatalog *AccountModelCatalog,
+	compositeRouteResolver *CompositeRouteResolver,
 ) *ChannelService {
-	return NewChannelService(repo, groupRepo, authCacheInvalidator, pricingService, accountRepo)
+	modelCatalog.SetCompositeRouteResolver(compositeRouteResolver)
+	channelService := NewChannelService(repo, groupRepo, authCacheInvalidator, pricingService, accountRepo)
+	channelService.modelCatalog = modelCatalog
+	return channelService
 }
 
 // ProvideOpsScheduledReportService creates and starts OpsScheduledReportService.
@@ -1043,6 +1048,7 @@ var ProviderSet = wire.NewSet(
 	ProvideGroupRecoveryProbeRunner,
 	NewGroupCapacityService,
 	ProvideSmartSchedulerPreviewService,
+	NewAccountModelCatalog,
 	ProvideChannelService,
 	wire.Bind(new(ChannelCacheInvalidator), new(*ChannelService)),
 	NewModelPricingResolver,

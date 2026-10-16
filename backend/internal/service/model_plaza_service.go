@@ -78,7 +78,7 @@ type PlazaGroup struct {
 
 // ModelPlazaService 聚合模型广场数据。
 //
-// 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
+// 模型枚举来自账户配置投影；token 模型的展示单价与阶梯由 BillingService 的阶梯表
 // 查询给出（与扣费走同一条解析链与计费函数），图片/按次模型沿用渠道/分组档位价。
 type ModelPlazaService struct {
 	channelRepo    ChannelRepository
@@ -86,6 +86,7 @@ type ModelPlazaService struct {
 	pricingService *PricingService
 	billingService *BillingService
 	resolver       *ModelPricingResolver
+	modelCatalog   *AccountModelCatalog
 }
 
 // NewModelPlazaService 创建模型广场服务。
@@ -95,6 +96,7 @@ func NewModelPlazaService(
 	pricingService *PricingService,
 	billingService *BillingService,
 	resolver *ModelPricingResolver,
+	modelCatalog *AccountModelCatalog,
 ) *ModelPlazaService {
 	return &ModelPlazaService{
 		channelRepo:    channelRepo,
@@ -102,6 +104,7 @@ func NewModelPlazaService(
 		pricingService: pricingService,
 		billingService: billingService,
 		resolver:       resolver,
+		modelCatalog:   modelCatalog,
 	}
 }
 
@@ -126,6 +129,18 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	var accountsByGroup map[int64][]Account
+	var compositeRoutes map[int64][]CompositeModelRoute
+	if s.modelCatalog != nil {
+		accountsByGroup, err = s.modelCatalog.Load(ctx, groups)
+		if err != nil {
+			return nil, fmt.Errorf("load account model catalog: %w", err)
+		}
+		compositeRoutes, err = s.modelCatalog.LoadCompositeCatalogRoutes(ctx, groups)
+		if err != nil {
+			return nil, fmt.Errorf("load composite catalog routes: %w", err)
+		}
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -170,15 +185,22 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		if ch.Status != StatusActive {
 			continue
 		}
+		catalogCache := accountCatalogChannelCache(ch, groups)
 		ch.normalizeBillingModelSource()
-		supported := ch.SupportedModels()
-		fillGlobalPricingFallback(s.pricingService, supported)
 
 		for _, gid := range ch.GroupIDs {
 			pg, ok := byGroup[gid]
 			if !ok {
 				continue
 			}
+			supported := ch.SupportedModels()
+			if accountsByGroup != nil {
+				supported, err = s.modelCatalog.ProjectChannelWithCacheAndRoutes(ctx, catalogCache, ch, groupEnt[gid], accountsByGroup[gid], compositeRoutes[gid])
+				if err != nil {
+					return nil, fmt.Errorf("project account model catalog: %w", err)
+				}
+			}
+			fillGlobalPricingFallback(s.pricingService, supported)
 			idx := modelIdx[gid]
 			if idx == nil {
 				idx = make(map[modelKey]int, len(supported))
@@ -256,6 +278,10 @@ func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaMode
 			Platform: m.Platform,
 		})
 		if err == nil && sched != nil && len(sched.Tiers) > 0 {
+			if !plazaScheduleHasPrice(m.Pricing, sched) {
+				m.Pricing = nil
+				return
+			}
 			m.Pricing = withDefaultMaxReasoningEffortMultiplier(plazaPricingFromSchedule(m.Pricing, sched), m.Name)
 			if len(sched.Tiers) > 1 {
 				m.LongContextBasis = sched.Basis

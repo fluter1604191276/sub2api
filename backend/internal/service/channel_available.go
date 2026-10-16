@@ -37,11 +37,16 @@ type AvailableChannel struct {
 	RestrictModels     bool
 	Groups             []AvailableGroupRef
 	SupportedModels    []SupportedModel
+	// GroupModels is the account-derived, group-scoped model catalogue. It is
+	// non-nil when AccountModelCatalog is wired; SupportedModels remains the
+	// channel-wide union for administrative/legacy consumers.
+	GroupModels map[int64][]SupportedModel
 }
 
 // ListAvailable 返回所有渠道的可用视图：每个渠道附带关联分组信息与支持模型列表。
 //
-// 支持模型通过 (*Channel).SupportedModels() 计算（mapping ∪ pricing 并联）。
+// 注入 AccountModelCatalog 后，支持模型由持久可用账户的有限模型证据投影，
+// 再按渠道映射、限制与分组白名单过滤；未注入时保留历史渠道配置视图供旧测试使用。
 // 对于渠道未配置定价的模型，进一步用 PricingService 的全局 LiteLLM 数据合成
 // 一份展示用定价，让用户看到默认价格而非"未配置"。
 //
@@ -61,8 +66,10 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		return nil, fmt.Errorf("list active groups: %w", err)
 	}
 	groupByID := make(map[int64]AvailableGroupRef, len(groups))
+	groupEntityByID := make(map[int64]*Group, len(groups))
 	for i := range groups {
 		g := groups[i]
+		groupEntityByID[g.ID] = &groups[i]
 		groupByID[g.ID] = AvailableGroupRef{
 			ID:                 g.ID,
 			Name:               g.Name,
@@ -76,10 +83,23 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 			IsExclusive:        g.IsExclusive,
 		}
 	}
+	var accountsByGroup map[int64][]Account
+	var compositeRoutes map[int64][]CompositeModelRoute
+	if s.modelCatalog != nil {
+		accountsByGroup, err = s.modelCatalog.Load(ctx, groups)
+		if err != nil {
+			return nil, fmt.Errorf("load account model catalog: %w", err)
+		}
+		compositeRoutes, err = s.modelCatalog.LoadCompositeCatalogRoutes(ctx, groups)
+		if err != nil {
+			return nil, fmt.Errorf("load composite catalog routes: %w", err)
+		}
+	}
 
 	out := make([]AvailableChannel, 0, len(channels))
 	for i := range channels {
 		ch := &channels[i]
+		catalogCache := accountCatalogChannelCache(ch, groups)
 		groups := make([]AvailableGroupRef, 0, len(ch.GroupIDs))
 		for _, gid := range ch.GroupIDs {
 			if ref, ok := groupByID[gid]; ok {
@@ -91,7 +111,40 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		ch.normalizeBillingModelSource()
 
 		supported := ch.SupportedModels()
-		fillGlobalPricingFallback(s.pricingService, supported)
+		groupModels := map[int64][]SupportedModel(nil)
+		if accountsByGroup != nil {
+			groupModels = make(map[int64][]SupportedModel, len(groups))
+			union := make([]SupportedModel, 0)
+			unionSeen := make(map[string]struct{})
+			for _, group := range groups {
+				if !channelHasGroup(ch, group.ID) {
+					continue
+				}
+				projected, err := s.modelCatalog.ProjectChannelWithCacheAndRoutes(ctx, catalogCache, ch, groupEntityByID[group.ID], accountsByGroup[group.ID], compositeRoutes[group.ID])
+				if err != nil {
+					return nil, fmt.Errorf("project account model catalog: %w", err)
+				}
+				fillGlobalPricingFallback(s.pricingService, projected)
+				groupModels[group.ID] = projected
+				for _, model := range projected {
+					key := model.Platform + "\x00" + strings.ToLower(model.Name)
+					if _, exists := unionSeen[key]; exists {
+						continue
+					}
+					unionSeen[key] = struct{}{}
+					union = append(union, model)
+				}
+			}
+			sort.SliceStable(union, func(i, j int) bool {
+				if union[i].Platform != union[j].Platform {
+					return union[i].Platform < union[j].Platform
+				}
+				return strings.ToLower(union[i].Name) < strings.ToLower(union[j].Name)
+			})
+			supported = union
+		} else {
+			fillGlobalPricingFallback(s.pricingService, supported)
+		}
 
 		out = append(out, AvailableChannel{
 			ID:                 ch.ID,
@@ -102,6 +155,7 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 			RestrictModels:     ch.RestrictModels,
 			Groups:             groups,
 			SupportedModels:    supported,
+			GroupModels:        groupModels,
 		})
 	}
 
@@ -109,6 +163,208 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
 	return out, nil
+}
+
+func channelHasGroup(channel *Channel, groupID int64) bool {
+	if channel == nil {
+		return false
+	}
+	for _, id := range channel.GroupIDs {
+		if id == groupID {
+			return true
+		}
+	}
+	return false
+}
+
+// channelCatalogModels keeps account-derived membership separate from the
+// channel's persisted price cards. RestrictModels remains an admission rule;
+// otherwise a configured account model may be shown with nil pricing until an
+// administrator configures a price or the global display fallback has one.
+func (c *AccountModelCatalog) ProjectChannel(ctx context.Context, channel *Channel, group *Group, accounts []Account) ([]SupportedModel, error) {
+	if group == nil {
+		return nil, nil
+	}
+	routes, err := c.LoadCompositeCatalogRoutes(ctx, []Group{*group})
+	if err != nil {
+		return nil, err
+	}
+	return c.ProjectChannelWithCacheAndRoutes(ctx, accountCatalogChannelCache(channel, []Group{*group}), channel, group, accounts, routes[group.ID])
+}
+
+func (c *AccountModelCatalog) ProjectChannelWithCacheAndRoutes(ctx context.Context, cache *channelCache, channel *Channel, group *Group, accounts []Account, routes []CompositeModelRoute) ([]SupportedModel, error) {
+	return channelCatalogModels(ctx, c, cache, channel, group, accounts, routes)
+}
+
+func accountCatalogChannelCache(channel *Channel, groups []Group) *channelCache {
+	if channel == nil {
+		return newEmptyChannelCache()
+	}
+	platforms := make(map[int64]string, len(channel.GroupIDs))
+	for _, group := range groups {
+		if channelHasGroup(channel, group.ID) {
+			platforms[group.ID] = group.Platform
+		}
+	}
+	return populateChannelCache([]Channel{*channel}, platforms)
+}
+
+func channelCatalogModels(ctx context.Context, catalog *AccountModelCatalog, cache *channelCache, channel *Channel, group *Group, accounts []Account, routes []CompositeModelRoute) ([]SupportedModel, error) {
+	if channel == nil || group == nil {
+		return nil, nil
+	}
+	if cache == nil {
+		cache = accountCatalogChannelCache(channel, []Group{*group})
+	}
+	seen := make(map[string]struct{})
+	out := make([]SupportedModel, 0)
+	add := func(platform, name string, account *Account, upstreamOverride string) {
+		if name == "" || account == nil {
+			return
+		}
+		// Composite routing replaces the request model before channel mapping
+		// and restriction checks. Keep the public ID only for display/allowlists.
+		routingModel := name
+		if upstreamOverride != "" {
+			routingModel = upstreamOverride
+		}
+		mapped := lookupMappingAcrossPlatforms(cache, group.ID, platform, strings.ToLower(routingModel))
+		if mapped == "" {
+			mapped = routingModel
+		}
+		if !account.IsModelSupported(mapped) || !group.ModelAllowlist.Allows(name) {
+			return
+		}
+		restrictionModel := billingModelForRestriction(channel.BillingModelSource, routingModel, mapped)
+		if restrictionModel == "" {
+			restrictionModel = account.GetMappedModel(mapped)
+		}
+		if channel.RestrictModels && lookupPricingAcrossPlatforms(cache, group.ID, platform, strings.ToLower(restrictionModel)) == nil {
+			return
+		}
+		// A route/account target is not an authoritative price for a public
+		// alias. Keep unknown aliases unpriced rather than guessing its target.
+		pricing := lookupPricingAcrossPlatforms(cache, group.ID, platform, strings.ToLower(name))
+		if pricing != nil {
+			copy := pricing.Clone()
+			pricing = &copy
+		}
+		key := platform + "\x00" + strings.ToLower(name)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, SupportedModel{Name: name, Platform: platform, Pricing: pricing})
+	}
+
+	candidates := make(map[string]struct{})
+	for i := range accounts {
+		account := &accounts[i]
+		for _, name := range accountCatalogPublicModelIDs(account) {
+			candidates[name] = struct{}{}
+		}
+		for _, mapping := range catalogChannelMappings(channel, catalogDisplayPlatform(group, account)) {
+			for name := range mapping {
+				if strings.TrimSpace(name) != "" && !strings.Contains(name, "*") {
+					candidates[name] = struct{}{}
+				}
+			}
+		}
+	}
+	for _, route := range routes {
+		if normalizeCompositeRouteMatchType(route.MatchType) == CompositeRouteMatchExact {
+			if name := strings.TrimSpace(route.PublicModel); name != "" && !strings.Contains(name, "*") {
+				candidates[name] = struct{}{}
+			}
+		}
+	}
+	names := make([]string, 0, len(candidates))
+	for name := range candidates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if group.Platform != PlatformComposite {
+			for i := range accounts {
+				add(catalogDisplayPlatform(group, &accounts[i]), name, &accounts[i], "")
+			}
+			continue
+		}
+		// Membership is endpoint-independent: preserve each configured destination
+		// that can actually accept this finite name on at least one known endpoint.
+		for _, destination := range catalogCompositeDestinations(routes, name, accounts) {
+			for i := range accounts {
+				if accounts[i].Platform == destination.TargetPlatform {
+					add(destination.TargetPlatform, name, &accounts[i], destination.UpstreamModel)
+				}
+			}
+		}
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Platform != out[j].Platform {
+			return out[i].Platform < out[j].Platform
+		}
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, nil
+}
+
+func catalogCompositeDestinations(routes []CompositeModelRoute, model string, accounts []Account) []CompositeRouteDecision {
+	endpoints := []string{CompositeRouteEndpointMessages, CompositeRouteEndpointCountTokens,
+		CompositeRouteEndpointResponses, CompositeRouteEndpointChatCompletions,
+		CompositeRouteEndpointEmbeddings, CompositeRouteEndpointImages, CompositeRouteEndpointGemini}
+	out := make([]CompositeRouteDecision, 0, 1)
+	seen := make(map[string]bool)
+	for _, endpoint := range endpoints {
+		platform, upstream := "", model
+		if route, matched := matchCompositeRoute(routes, model, endpoint); matched {
+			platform = route.TargetPlatform
+			if target := strings.TrimSpace(route.UpstreamModel); target != "" {
+				upstream = target
+			}
+		} else {
+			ambiguous := false
+			for _, account := range accounts {
+				if !explicitModelMappingClaims(account, model) {
+					continue
+				}
+				if platform != "" && platform != account.Platform {
+					ambiguous = true
+					break
+				}
+				platform = account.Platform
+			}
+			if ambiguous {
+				continue
+			}
+			if platform == "" {
+				platform, _ = DetectModelPlatform(model)
+			}
+		}
+		if !isConcreteRequestPlatform(platform) {
+			continue
+		}
+		key := platform + "\x00" + upstream
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, CompositeRouteDecision{Matched: true, PublicModel: model, TargetPlatform: platform, UpstreamModel: upstream})
+		}
+	}
+	return out
+}
+
+func catalogChannelMappings(channel *Channel, platform string) []map[string]string {
+	if channel == nil {
+		return nil
+	}
+	mappings := make([]map[string]string, 0, len(matchingPlatforms(platform)))
+	for _, candidatePlatform := range matchingPlatforms(platform) {
+		if mapping := channel.ModelMapping[candidatePlatform]; len(mapping) > 0 {
+			mappings = append(mappings, mapping)
+		}
+	}
+	return mappings
 }
 
 // fillGlobalPricingFallback 对未命中渠道定价的支持模型，从全局 LiteLLM 数据合成一份
@@ -138,7 +394,7 @@ func pricingNeedsFallback(p *ChannelModelPricing) bool {
 	}
 	if p.InputPrice != nil || p.OutputPrice != nil ||
 		p.CacheWritePrice != nil || p.CacheWrite1hPrice != nil || p.CacheReadPrice != nil ||
-		p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
+		p.ImageInputPrice != nil || p.ImageOutputPrice != nil || p.PerRequestPrice != nil {
 		return false
 	}
 	for _, iv := range p.Intervals {

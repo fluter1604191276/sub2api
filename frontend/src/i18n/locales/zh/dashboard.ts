@@ -729,7 +729,7 @@ export default {
     loadFailed: '加载模型广场失败',
     noSearchResult: '没有匹配的模型',
     anonymousHint: '登录后可查看你的专属分组与专属倍率',
-    configuredAvailability: '展示已配置渠道，不代表账号当前健康可调度',
+    configuredAvailability: '模型来自已配置账号，不代表账号当前健康可调度',
     rateUnavailable: '用户专属价格暂时无法确认，当前显示分组实付价',
     priceView: '价格口径',
     clearFilters: '清除筛选',

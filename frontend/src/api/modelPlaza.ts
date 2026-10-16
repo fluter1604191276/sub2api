@@ -101,7 +101,8 @@ export interface ModelPlazaResponse {
   groups: ModelPlazaGroup[]
   /** Additive contract; older backends do not provide metadata. */
   catalog_metadata?: {
-    source: 'configured_channels'
+    /** `configured_channels` remains accepted for responses from older servers. */
+    source: 'configured_channels' | 'configured_accounts'
     availability: 'configured_not_live'
     pricing_basis: 'before_group_multiplier'
     policy: 'presentation_only'

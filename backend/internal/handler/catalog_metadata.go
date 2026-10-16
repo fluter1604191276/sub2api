@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	catalogSourceConfiguredChannels      = "configured_channels"
+	catalogSourceConfiguredAccounts      = "configured_accounts"
 	catalogAvailabilityConfiguredNotLive = "configured_not_live"
 	catalogPricingBasisBeforeGroup       = "before_group_multiplier"
 	catalogPolicyPresentationOnly        = "presentation_only"
@@ -37,7 +37,7 @@ type catalogMetadata struct {
 
 func newCatalogMetadata(now time.Time, userRateResolution string) *catalogMetadata {
 	return &catalogMetadata{
-		Source:             catalogSourceConfiguredChannels,
+		Source:             catalogSourceConfiguredAccounts,
 		Availability:       catalogAvailabilityConfiguredNotLive,
 		PricingBasis:       catalogPricingBasisBeforeGroup,
 		Policy:             catalogPolicyPresentationOnly,

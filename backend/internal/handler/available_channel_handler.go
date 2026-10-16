@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -190,6 +192,9 @@ func buildPublicPlatformSections(
 	visibleGroups []userAvailableGroup,
 	visibility service.PublicCatalogVisibilityConfig,
 ) []userChannelPlatformSection {
+	if ch.GroupModels != nil {
+		return buildAccountCatalogSections(ch, visibleGroups, visibility)
+	}
 	originalModels := ch.SupportedModels
 	visibleModels := make([]service.SupportedModel, 0, len(originalModels))
 	originalPlatforms := make(map[string]struct{}, len(originalModels))
@@ -228,6 +233,42 @@ func buildPublicPlatformSections(
 		out = append(out, section)
 	}
 	return out
+}
+
+// Build each visible group separately before merging identical projections.
+// A channel can link public and exclusive groups with different account pools;
+// its admin-only union must never become a user's model or price source.
+func buildAccountCatalogSections(
+	ch service.AvailableChannel,
+	groups []userAvailableGroup,
+	visibility service.PublicCatalogVisibilityConfig,
+) []userChannelPlatformSection {
+	sections := make([]userChannelPlatformSection, 0)
+	byProjection := make(map[string]int)
+	for _, group := range groups {
+		projection := ch
+		projection.GroupModels = nil
+		projection.SupportedModels = ch.GroupModels[group.ID]
+		for _, section := range buildPublicPlatformSections(projection, []userAvailableGroup{group}, visibility) {
+			if len(section.SupportedModels) == 0 {
+				continue
+			}
+			encoded, err := json.Marshal(section.SupportedModels)
+			key := section.Platform + ":" + string(encoded)
+			if err != nil {
+				// Invalid numeric data must not cause different pools to merge.
+				key = section.Platform + ":group:" + strconv.FormatInt(group.ID, 10)
+			}
+			if at, exists := byProjection[key]; exists {
+				sections[at].Groups = append(sections[at].Groups, section.Groups...)
+			} else {
+				byProjection[key] = len(sections)
+				sections = append(sections, section)
+			}
+		}
+	}
+	sort.SliceStable(sections, func(i, j int) bool { return sections[i].Platform < sections[j].Platform })
+	return sections
 }
 
 // buildPlatformSections 把一个渠道按 visibleGroups 的平台集合拆成有序的 section 列表：
