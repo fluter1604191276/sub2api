@@ -23,6 +23,7 @@ Every release manifest must record the status and evidence for each capability b
 | public-catalog-contract | Public catalog metadata contract across available channels and model plaza | catalog_metadata.go, available_channel_handler.go, model_plaza_handler.go and their contract tests | Public response consistency; no changes to billing or routing | Required |
 | model-sync-filter | Sync upstream-supported models, model filtering, page-size behavior | account model sync service, account routes/UI/tests | Availability and mapping | Required |
 | error-passthrough | Configurable error rewriting without leaking upstream URLs | error passthrough handler/service/routes/tests | Security and client retry behavior | Required |
+| responses-completion-diagnostics | Admin-only native Responses terminal status, output budgets and usage metadata with correlation/filtering | response diagnostics service/handler/repository/UI tests, migration 244; extensions/20261018-responses-diagnostics.md | Diagnostic visibility and retention; no billing, SLA or routing effect | Development candidate; not deployed |
 | model-capability-failover | Deterministic upstream model-capability rejection isolation and account failover | model_not_found_error.go, ratelimit_service.go, OpenAI failover handlers, classifier/rate-limit tests | Routing, model availability, sticky-session escape | Required |
 | generic-400-failover | Account-scoped failover for the narrow `HTTP 400 Upstream request failed` gateway response | openai_gateway_upstream_errors.go, openai_account_runtime_block_fastpath.go, OpenAI gateway handlers/forwarders, failover and sticky tests | Routing, retry budget, sticky-session escape | Required |
 | v1-streaming-probe | V1 probes use streaming protocol and narrowly retry explicit stream-only 400 responses | channel_monitor_checker.go, channel monitor checker tests | Monitoring accuracy, internal probe cost | Required |
@@ -36,6 +37,11 @@ Every release manifest must record the status and evidence for each capability b
 | official-0215-compatibility | Official Sub2API through v0.2.15 behavior retained alongside site-specific extensions | official compatibility records (including extensions/20261008-official-0214-candidate.md), backend/frontend regression suites, image smoke | Upgrade compatibility, model availability, protocol behavior | Required |
 
 ## Status Semantics
+
+Development candidate: `responses-completion-diagnostics` adds administrator-only
+Responses terminal metadata and filters without changing billing or SLA metrics.
+See `extensions/20261018-responses-diagnostics.md`. It is not evidence of a
+deployed capability; a future release must include its migration and verification.
 
 - Required: must be present and tested for a production image.
 - Partial: the feature has a known protocol or upstream limitation. The release must state the supported route and reject or report unsupported requests; it cannot silently claim end-to-end support.

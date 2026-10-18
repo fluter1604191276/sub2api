@@ -19,6 +19,8 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, err error) {
+	// Scalar-only request observation; it never retains prompt or tool data.
+	beginOpenAIResponseDiagnostics(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	defer func() {
@@ -1051,6 +1053,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	iqRequest := IsOpenAIIQRequest(ctx)
 	for {
 		// Build upstream request
+		// Each retry has its own selected payload and terminal outcome.
+		observeOpenAIResponseDiagnosticForwarded(c, body)
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
@@ -1102,6 +1106,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			// unschedule the account on durable faults (e.g. rejected proxy credentials).
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
+		observeOpenAIResponseDiagnosticHeaders(c, resp.Header.Get("x-request-id"))
 		if headerGuard != nil {
 			resp.Body = &openAIRequestContextReadCloser{ReadCloser: resp.Body, cleanup: headerGuard.close}
 		}

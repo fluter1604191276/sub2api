@@ -1092,6 +1092,67 @@ export async function getOpenAITokenStats(
 
 export type OpsErrorListView = 'errors' | 'excluded' | 'all'
 
+export type OpsResponseDiagnosticStatus = 'completed' | 'incomplete' | 'failed' | 'client_disconnected' | 'missing_terminal'
+
+/**
+ * A terminal Responses event. Nullable values are deliberately preserved: an
+ * absent upstream value is different from a reported zero token/limit.
+ */
+export interface OpsResponseDiagnostic {
+  id: number
+  created_at: string
+  request_id?: string | null
+  client_request_id?: string | null
+  upstream_request_id?: string | null
+  response_id?: string | null
+  user_id?: number | null
+  account_id?: number | null
+  group_id?: number | null
+  model?: string | null
+  stream?: boolean | null
+  http_status?: number | null
+  status: OpsResponseDiagnosticStatus
+  client_disconnected?: boolean | null
+  reason?: string | null
+  requested_max_output_tokens?: number | null
+  forwarded_max_output_tokens?: number | null
+  upstream_max_output_tokens?: number | null
+  input_tokens?: number | null
+  cache_read_tokens?: number | null
+  cache_creation_tokens?: number | null
+  output_tokens?: number | null
+  reasoning_tokens?: number | null
+}
+
+export interface OpsResponseDiagnosticsQuery {
+  start_time?: string
+  end_time?: string
+  status?: OpsResponseDiagnosticStatus
+  reason?: string
+  account_id?: number
+  user_id?: number
+  request_id?: string
+  page?: number
+  page_size?: number
+}
+
+export interface OpsResponseDiagnosticsResponse {
+  items: OpsResponseDiagnostic[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export async function listResponseDiagnostics(
+  params: OpsResponseDiagnosticsQuery
+): Promise<OpsResponseDiagnosticsResponse> {
+  const { data } = await apiClient.get<OpsResponseDiagnosticsResponse>(
+    '/admin/ops/response-diagnostics',
+    { params }
+  )
+  return data
+}
+
 export type OpsErrorListQueryParams = {
   page?: number
   page_size?: number
@@ -1345,6 +1406,7 @@ export const opsAPI = {
   listRequestErrorUpstreamErrors,
 
   listRequestDetails,
+  listResponseDiagnostics,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

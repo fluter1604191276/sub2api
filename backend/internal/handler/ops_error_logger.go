@@ -1101,6 +1101,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		if !ops.IsMonitoringEnabled(c.Request.Context()) {
 			return
 		}
+		// Responses terminal diagnostics are independent from HTTP error logging:
+		// response.incomplete is often a 200 and would otherwise be invisible.
+		recordOpsResponseDiagnostic(c, ops)
 		if c.GetBool(opsDedicatedErrorRecordedKey) {
 			return
 		}

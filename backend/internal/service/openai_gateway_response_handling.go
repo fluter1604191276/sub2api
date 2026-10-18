@@ -244,6 +244,11 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// 否则下游 SDK（例如 OpenCode）会因为类型校验失败而报错。
 	errorEventSent := false
 	clientDisconnected := false // 客户端断开后继续 drain 上游以收集 usage
+	defer func() {
+		if clientDisconnected {
+			observeOpenAIResponseDiagnosticClientDisconnected(c)
+		}
+	}()
 	sawTerminalEvent := false
 	sawFailedEvent := false
 	sawBareError := false
@@ -555,6 +560,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				suppressCurrentEvent = true
 			}
 			observer.ObserveOpenAI(dataBytes, eventType)
+			observeOpenAIResponseDiagnosticUsage(c, dataBytes)
+			// Capture terminal metadata before any failed-event branch can return.
+			// A subsequent native retry resets this attempt at send time.
+			if openAIStreamEventIsTerminalWithType(data, eventType) {
+				observeOpenAIResponseDiagnosticTerminal(c, dataBytes, eventType, usage)
+			}
 			// 初始上游 data 的 type 只解析一次：原始值保持终止事件的精确匹配，规范化值供后续分支复用。
 			if openAIStreamEventIsTerminalWithType(data, eventType) {
 				sawTerminalEvent = true
@@ -1710,9 +1721,15 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		if bodyLooksLikeSSE {
 			return s.handleSSEToJSON(resp, c, account, body, originalModel, mappedModel)
 		}
+		// Preserve terminal metadata even when the existing usage parser rejects
+		// a valid JSON response with no usage. Do not change that response path.
+		if gjson.ValidBytes(body) {
+			observeOpenAIResponseDiagnosticTerminal(c, body, "", nil)
+		}
 		return nil, fmt.Errorf("parse response: invalid json response")
 	}
 	usage := &usageValue
+	observeOpenAIResponseDiagnosticTerminal(c, body, "", usage)
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, "json", false)
 
 	// Replace model in response if needed
@@ -1782,6 +1799,9 @@ func bodyHasSSEFraming(body []byte) bool {
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
 	terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
+	if terminalOK {
+		observeOpenAIResponseDiagnosticTerminal(c, terminalPayload, terminalType, nil)
+	}
 	if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 		msg := extractOpenAISSEErrorMessage(terminalPayload)
 		if msg == "" {

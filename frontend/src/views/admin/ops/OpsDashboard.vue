@@ -103,6 +103,8 @@
         :refresh-token="dashboardRefreshToken"
       />
 
+      <OpsResponseDiagnosticsTable v-if="opsEnabled && !(loading && !hasLoadedOnce)" />
+
       <!-- Settings Dialog (hidden in fullscreen mode) -->
       <template v-if="!isFullscreen">
         <OpsSettingsDialog :show="showSettingsDialog" @close="showSettingsDialog = false" @saved="onSettingsSaved" />
@@ -173,6 +175,7 @@ import OpsSystemLogTable from './components/OpsSystemLogTable.vue'
 import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './components/OpsRequestDetailsModal.vue'
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'
 import OpsAlertRulesCard from './components/OpsAlertRulesCard.vue'
+import OpsResponseDiagnosticsTable from './components/OpsResponseDiagnosticsTable.vue'
 
 const route = useRoute()
 const router = useRouter()

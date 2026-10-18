@@ -190,6 +190,9 @@ func runMainServer() {
 	if err := app.Server.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
+	// The HTTP server has stopped accepting requests; drain the independent
+	// bounded Response diagnostics queue before process exit.
+	handler.StopOpsResponseDiagnosticWorkers()
 
 	log.Println("Server exited")
 }
