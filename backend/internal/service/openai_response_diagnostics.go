@@ -21,7 +21,9 @@ const openAIResponseDiagnosticsContextKey = "openai_response_diagnostics"
 // an explicit zero supplied by an upstream.
 type OpenAIResponseDiagnosticSnapshot struct {
 	// Active is false until a native Responses HTTP attempt is constructed.
-	Active                   bool
+	Active bool
+	// AccountID belongs to the observed outbound attempt, never the next candidate.
+	AccountID                int64
 	ResponseID               string
 	UpstreamRequestID        string
 	Status                   string
@@ -88,7 +90,7 @@ func OpenAIResponseDiagnosticSnapshotFromContext(c *gin.Context) (OpenAIResponse
 	return d.snapshot, true
 }
 
-func observeOpenAIResponseDiagnosticForwarded(c *gin.Context, body []byte) {
+func observeOpenAIResponseDiagnosticForwarded(c *gin.Context, body []byte, accountIDs ...int64) {
 	d := openAIResponseDiagnosticsFromContext(c)
 	if d == nil {
 		return
@@ -102,8 +104,25 @@ func observeOpenAIResponseDiagnosticForwarded(c *gin.Context, body []byte) {
 		RequestedMaxOutputTokens: requested,
 		ForwardedMaxOutputTokens: jsonInt64(body, "max_output_tokens"),
 	}
+	if len(accountIDs) > 0 {
+		d.snapshot.AccountID = accountIDs[0]
+	}
 	d.terminalEventType = ""
 	d.mu.Unlock()
+}
+
+// Observe all frames for diagnostics, independently of the existing converter
+// selecting its final client payload and usage.
+func observeOpenAIResponseDiagnosticSSEBody(c *gin.Context, body []byte) {
+	if openAIResponseDiagnosticsFromContext(c) == nil {
+		return
+	}
+	forEachOpenAISSEFrame(string(body), func(eventType string, data []byte) {
+		observeOpenAIResponseDiagnosticUsage(c, data)
+		if openAIStreamEventIsTerminalWithType(string(data), eventType) {
+			observeOpenAIResponseDiagnosticTerminal(c, data, eventType, nil)
+		}
+	})
 }
 
 func observeOpenAIResponseDiagnosticHeaders(c *gin.Context, upstreamRequestID string) {

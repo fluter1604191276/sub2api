@@ -15,6 +15,11 @@ Status: development candidate; not deployed.
 
 - Record native Responses completion status and incomplete reason, correlated
   with server/client/upstream request IDs, response ID, user, group and account.
+- Account identity is captured with the outbound attempt; selecting another
+  candidate before slot acquisition cannot relabel the previous attempt.
+- SSE-to-JSON observation scans frames in order independently of the existing
+  client conversion/usage selection. The first authoritative terminal is retained;
+  a provisional bare error may be superseded by a formal terminal.
 - Preserve three distinct optional output budgets: requested, forwarded and
   upstream-reported. Missing values mean unknown, not zero or a presumed default.
 - Preserve upstream input/cache/output/reasoning usage as separate optional
@@ -27,7 +32,7 @@ Status: development candidate; not deployed.
 - No prompt, tool payload, authorization header or raw upstream error text is
   retained. Protocol strings and numeric fields are bounded/validated.
 - Collection covers the native HTTP Responses stream and JSON handlers, including
-  SSE-to-JSON responses. Uninstrumented protocol bridges and WebSocket paths must
+  SSE-to-JSON responses, including native HTTP passthrough. Uninstrumented protocol bridges and WebSocket paths must
   not be falsely classified as missing-terminal native responses.
 - Ingestion is best effort on an independent bounded queue. Queue saturation or
   persistence failures may lose diagnostic metadata; this is not a billing
@@ -66,3 +71,15 @@ operation requiring the existing baseline, backup and release gates.
 Rollback: restore the previous application image. The additive diagnostic table
 can remain inert; do not drop recorded data as part of application rollback.
 Existing usage/error tables and billing data are not migrated by this feature.
+
+## 2026-10-20 returned-review revision
+
+Task 74 review identified native passthrough coverage, failover slot-acquisition
+account attribution, and SSE-to-JSON terminal-order gaps. The revision adds
+passthrough observers, binds account ID to the actual outbound attempt, and
+observes buffered SSE in order without changing client response or usage logic.
+Targeted regressions exercise real HTTP passthrough streaming/JSON/SSE-to-JSON,
+a later selected candidate that is never sent, and conflicting terminal frames.
+Development evidence lives on MacBook Pro under
+/Users/Admin/Documents/study_project/sub2api/.release-evidence/20261020-responses-diagnostics-revision/.
+Still a development candidate; production deployment is not part of this revision.

@@ -99,3 +99,64 @@ func TestOpenAIResponseDiagnosticsBareErrorThenDone(t *testing.T) {
 	got, _ = OpenAIResponseDiagnosticSnapshotFromContext(c)
 	require.Equal(t, "completed", got.Status)
 }
+
+func TestOpenAIResponseDiagnosticsSSEToJSONPreservesFirstTerminal(t *testing.T) {
+	cases := []struct {
+		name, body, status, reason string
+		output                     int64
+	}{
+		{"incomplete_then_completed", "data: {\"type\":\"response.incomplete\",\"response\":{\"id\":\"first\",\"status\":\"incomplete\",\"incomplete_details\":{\"reason\":\"max_output_tokens\"},\"output\":[],\"usage\":{\"input_tokens\":7,\"output_tokens\":5}}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"last\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":99}}}\n\n", "incomplete", "max_output_tokens", 5},
+		{"bare_error_then_completed", "event: error\ndata: {\"error\":{\"code\":\"upstream_error\"}}\n\nevent: response.completed\ndata: {\"response\":{\"id\":\"last\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":20,\"output_tokens\":99}}}\n\n", "completed", "", 99},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var bodies []string
+			var outputs []int
+			for _, enabled := range []bool{false, true} {
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				if enabled {
+					beginOpenAIResponseDiagnostics(c, []byte(`{}`))
+					observeOpenAIResponseDiagnosticForwarded(c, []byte(`{}`), 71)
+				}
+				resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(tc.body))}
+				svc := &OpenAIGatewayService{cfg: &config.Config{}, toolCorrector: NewCodexToolCorrector()}
+				result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 71, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, "gpt-test", "gpt-test")
+				require.NoError(t, err)
+				bodies = append(bodies, recorder.Body.String())
+				outputs = append(outputs, result.usage.OutputTokens)
+				if enabled {
+					got, _ := OpenAIResponseDiagnosticSnapshotFromContext(c)
+					require.Equal(t, tc.status, got.Status)
+					require.Equal(t, tc.reason, got.Reason)
+					require.NotNil(t, got.OutputTokens)
+					require.Equal(t, tc.output, *got.OutputTokens)
+					require.EqualValues(t, 71, got.AccountID)
+				}
+			}
+			require.Equal(t, bodies[0], bodies[1], "diagnostic observer must not change converted response")
+			require.Equal(t, outputs[0], outputs[1], "diagnostic observer must not change billed usage")
+		})
+	}
+}
+
+func TestOpenAIResponseDiagnosticsAttemptIdentityResetsTogether(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	beginOpenAIResponseDiagnostics(c, []byte(`{"max_output_tokens":100}`))
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":50}`), 11)
+	observeOpenAIResponseDiagnosticHeaders(c, "upstream-A")
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"status":"failed","id":"response-A"}`), "response.failed", nil)
+	got, _ := OpenAIResponseDiagnosticSnapshotFromContext(c)
+	require.EqualValues(t, 11, got.AccountID)
+	// Once B reaches an actual outbound attempt, all attempt-local fields move together.
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":30}`), 22)
+	got, _ = OpenAIResponseDiagnosticSnapshotFromContext(c)
+	require.EqualValues(t, 22, got.AccountID)
+	require.Empty(t, got.UpstreamRequestID)
+	require.Empty(t, got.ResponseID)
+	require.False(t, got.Terminal)
+	require.EqualValues(t, 100, *got.RequestedMaxOutputTokens)
+	require.EqualValues(t, 30, *got.ForwardedMaxOutputTokens)
+}

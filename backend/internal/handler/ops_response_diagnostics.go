@@ -222,10 +222,9 @@ func buildOpsResponseDiagnostic(c *gin.Context, snapshot service.OpenAIResponseD
 	if entry.Status == "" {
 		entry.Status = "missing_terminal"
 	}
-	if accountID, ok := c.Get(opsAccountIDKey); ok {
-		if id, ok := accountID.(int64); ok && id > 0 {
-			entry.AccountID = &id
-		}
+	if snapshot.AccountID > 0 {
+		id := snapshot.AccountID
+		entry.AccountID = &id
 	}
 	if apiKey := getOpsAPIKey(c); apiKey != nil {
 		if apiKey.User != nil && apiKey.User.ID > 0 {

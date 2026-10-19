@@ -1053,8 +1053,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	iqRequest := IsOpenAIIQRequest(ctx)
 	for {
 		// Build upstream request
-		// Each retry has its own selected payload and terminal outcome.
-		observeOpenAIResponseDiagnosticForwarded(c, body)
 		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 		var headerGuard *openAIFirstOutputHeaderGuard
 		if firstOutputTimeout > 0 {
@@ -1079,6 +1077,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			proxyURL = account.Proxy.URL()
 		}
 
+		// Bind metadata to the actual outbound attempt, not the selected candidate.
+		observeOpenAIResponseDiagnosticForwarded(c, body, account.ID)
 		// Send request
 		upstreamStart := time.Now()
 		resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)

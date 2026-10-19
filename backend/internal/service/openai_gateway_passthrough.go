@@ -376,6 +376,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		// This is a native /responses HTTP attempt. The outer Forward call
+		// created the request-scoped diagnostics state; activate it only after
+		// request construction succeeds, so a local build failure cannot look
+		// like an upstream exchange.
+		observeOpenAIResponseDiagnosticForwarded(c, body, account.ID)
 
 		upstreamStart := time.Now()
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
@@ -385,6 +390,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			// a failover so the handler switches to a healthy account.
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 		}
+		observeOpenAIResponseDiagnosticHeaders(c, resp.Header.Get("x-request-id"))
 		if resp.StatusCode >= 400 {
 			// Peek only to identify an invalid task. Restore the body so the existing
 			// passthrough error handling sees the same response after recovery fails.
@@ -2188,6 +2194,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	responseID := ""
 	ttftMode := s.openAITTFTMode(ctx)
 	clientDisconnected := false
+	// Several write paths can discover a downstream disconnect.  Record that
+	// scalar state once on exit so terminal draining remains unchanged.
+	defer func() {
+		if clientDisconnected {
+			observeOpenAIResponseDiagnosticClientDisconnected(c)
+		}
+	}()
 	sawDone := false
 	sawTerminalEvent := false
 	sawFailedEvent := false
@@ -2323,6 +2336,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
+			observeOpenAIResponseDiagnosticUsage(c, dataBytes)
+			if openAIStreamEventIsTerminalWithType(data, rawEventType) {
+				// Record the upstream frame before normalisation or client-side
+				// rewriting can alter it.
+				observeOpenAIResponseDiagnosticTerminal(c, dataBytes, rawEventType, usage)
+			}
 			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
@@ -2649,8 +2668,15 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	}
 	if bodyHasSSEFraming(body) {
 		observeOpenAISSEBody(observer, string(body))
+		// Header-declared event streams are observed by the converter below.
+		// Retain this path for malformed/compat upstreams that use SSE framing
+		// but omit the SSE content type and therefore are not converted.
+		if !isEventStreamResponse(resp.Header) {
+			observeOpenAIResponseDiagnosticSSEBody(c, body)
+		}
 	} else {
 		observer.ObserveOpenAI(body, strings.TrimSpace(gjson.GetBytes(body, "type").String()))
+		observeOpenAIResponseDiagnosticTerminal(c, body, "", nil)
 	}
 
 	// Detect SSE responses from upstream and convert to JSON.
@@ -2711,6 +2737,10 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 // rewrite model fields back to the original requested model.
 func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel string, mappedModel string) (*openaiNonStreamingResultPassthrough, error) {
 	bodyText := string(body)
+	// A non-streaming client can receive an SSE upstream. Observe every frame
+	// in arrival order before collapsing it to JSON, so the first authoritative
+	// terminal and its usage are retained without changing the selected frame.
+	observeOpenAIResponseDiagnosticSSEBody(c, body)
 	terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 	if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
 		msg := extractOpenAISSEErrorMessage(terminalPayload)
