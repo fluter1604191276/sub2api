@@ -12,6 +12,16 @@ import (
 
 const smartStickyPolicyKeyPrefix = "smart_scheduler_sticky_policy:"
 
+const (
+	// defaultChatCompletionsWarmLatencyEscapeMs is the conservative first-token
+	// p90 above which a chat_completions session may leave a warm, worst-scoring
+	// account. Zero in stored policy means this default. It does not change the
+	// existing quality-lead, cooldown, or previous_response_id behavior.
+	defaultChatCompletionsWarmLatencyEscapeMs = 30000
+	minChatCompletionsWarmLatencyEscapeMs     = 5000
+	maxChatCompletionsWarmLatencyEscapeMs     = 180000
+)
+
 // SmartStickyPolicy controls per-group sticky-session quality escape behavior.
 // Zero values are filled from RecommendedSmartStickyPolicy.
 type SmartStickyPolicy struct {
@@ -24,7 +34,11 @@ type SmartStickyPolicy struct {
 	EscapeWindowSeconds   int     `json:"escape_window_seconds"`
 	EliteConfirmations    int     `json:"elite_confirmations"`
 	PrimaryMinScore       float64 `json:"primary_min_score"`
-	configured            bool
+	// ChatCompletionsWarmLatencyEscapeMs is the chat_completions-only first-token
+	// p90 threshold for leaving a warm account that is also the group's unique
+	// lowest score. Zero uses defaultChatCompletionsWarmLatencyEscapeMs.
+	ChatCompletionsWarmLatencyEscapeMs int `json:"chat_completions_warm_latency_escape_ms"`
+	configured                         bool
 }
 
 func (p SmartStickyPolicy) usesLegacyDynamics() bool {
@@ -42,15 +56,23 @@ func (p SmartStickyPolicy) usesLegacyDynamics() bool {
 }
 
 func (p SmartStickyPolicy) hasExplicitValues() bool {
-	return p.TargetScore != 0 || p.ReviewIntervalSeconds != 0 || p.SwitchCooldownSeconds != 0 || p.QualityLead != 0 || p.MaxEscapes != 0 || p.EscapeWindowSeconds != 0 || p.EliteConfirmations != 0 || p.PrimaryMinScore != 0
+	return p.TargetScore != 0 || p.ReviewIntervalSeconds != 0 || p.SwitchCooldownSeconds != 0 || p.QualityLead != 0 || p.MaxEscapes != 0 || p.EscapeWindowSeconds != 0 || p.EliteConfirmations != 0 || p.PrimaryMinScore != 0 || p.ChatCompletionsWarmLatencyEscapeMs != 0
+}
+
+func chatCompletionsWarmLatencyEscapeThresholdMs(policy SmartStickyPolicy) float64 {
+	ms := policy.ChatCompletionsWarmLatencyEscapeMs
+	if ms <= 0 {
+		ms = defaultChatCompletionsWarmLatencyEscapeMs
+	}
+	return float64(ms)
 }
 
 func RecommendedSmartStickyPolicy() SmartStickyPolicy {
-	return SmartStickyPolicy{Preset: "recommended", TargetScore: 70, ReviewIntervalSeconds: int(smartStickyWeakReviewInterval / time.Second), SwitchCooldownSeconds: int(smartStickyWeakSwitchCooldown / time.Second), QualityLead: smartStickyWeakQualityLead, MaxEscapes: 3, EscapeWindowSeconds: 3600, EliteConfirmations: smartStickyEliteConfirmations, PrimaryMinScore: 0}
+	return SmartStickyPolicy{Preset: "recommended", TargetScore: 70, ReviewIntervalSeconds: int(smartStickyWeakReviewInterval / time.Second), SwitchCooldownSeconds: int(smartStickyWeakSwitchCooldown / time.Second), QualityLead: smartStickyWeakQualityLead, MaxEscapes: 3, EscapeWindowSeconds: 3600, EliteConfirmations: smartStickyEliteConfirmations, PrimaryMinScore: 0, ChatCompletionsWarmLatencyEscapeMs: defaultChatCompletionsWarmLatencyEscapeMs}
 }
 
 func StableSmartStickyPolicy() SmartStickyPolicy {
-	return SmartStickyPolicy{Preset: "stability", TargetScore: 80, ReviewIntervalSeconds: 15, SwitchCooldownSeconds: 15, QualityLead: 2, MaxEscapes: 12, EscapeWindowSeconds: 3600, EliteConfirmations: 1, PrimaryMinScore: 0, configured: true}
+	return SmartStickyPolicy{Preset: "stability", TargetScore: 80, ReviewIntervalSeconds: 15, SwitchCooldownSeconds: 15, QualityLead: 2, MaxEscapes: 12, EscapeWindowSeconds: 3600, EliteConfirmations: 1, PrimaryMinScore: 0, ChatCompletionsWarmLatencyEscapeMs: defaultChatCompletionsWarmLatencyEscapeMs, configured: true}
 }
 
 func (p SmartStickyPolicy) Normalize() (SmartStickyPolicy, error) {
@@ -76,7 +98,10 @@ func (p SmartStickyPolicy) Normalize() (SmartStickyPolicy, error) {
 	if p.EliteConfirmations == 0 {
 		p.EliteConfirmations = RecommendedSmartStickyPolicy().EliteConfirmations
 	}
-	if math.IsNaN(p.TargetScore) || math.IsInf(p.TargetScore, 0) || math.IsNaN(p.QualityLead) || math.IsInf(p.QualityLead, 0) || math.IsNaN(p.PrimaryMinScore) || math.IsInf(p.PrimaryMinScore, 0) || p.TargetScore < 0 || p.TargetScore > 100 || p.PrimaryMinScore < 0 || p.PrimaryMinScore > 100 || p.ReviewIntervalSeconds < 15 || p.ReviewIntervalSeconds > 3600 || p.SwitchCooldownSeconds < 0 || p.SwitchCooldownSeconds > 3600 || p.QualityLead < 0 || p.QualityLead > 50 || p.MaxEscapes < 1 || p.MaxEscapes > 100 || p.EscapeWindowSeconds < 60 || p.EscapeWindowSeconds > 86400 || p.EliteConfirmations < 1 || p.EliteConfirmations > 5 {
+	if p.ChatCompletionsWarmLatencyEscapeMs == 0 {
+		p.ChatCompletionsWarmLatencyEscapeMs = defaultChatCompletionsWarmLatencyEscapeMs
+	}
+	if math.IsNaN(p.TargetScore) || math.IsInf(p.TargetScore, 0) || math.IsNaN(p.QualityLead) || math.IsInf(p.QualityLead, 0) || math.IsNaN(p.PrimaryMinScore) || math.IsInf(p.PrimaryMinScore, 0) || p.TargetScore < 0 || p.TargetScore > 100 || p.PrimaryMinScore < 0 || p.PrimaryMinScore > 100 || p.ReviewIntervalSeconds < 15 || p.ReviewIntervalSeconds > 3600 || p.SwitchCooldownSeconds < 0 || p.SwitchCooldownSeconds > 3600 || p.QualityLead < 0 || p.QualityLead > 50 || p.MaxEscapes < 1 || p.MaxEscapes > 100 || p.EscapeWindowSeconds < 60 || p.EscapeWindowSeconds > 86400 || p.EliteConfirmations < 1 || p.EliteConfirmations > 5 || p.ChatCompletionsWarmLatencyEscapeMs < minChatCompletionsWarmLatencyEscapeMs || p.ChatCompletionsWarmLatencyEscapeMs > maxChatCompletionsWarmLatencyEscapeMs {
 		return SmartStickyPolicy{}, fmt.Errorf("invalid smart sticky policy")
 	}
 	return p, nil

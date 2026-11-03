@@ -36,6 +36,7 @@ export interface SmartStickyPolicy {
   escape_window_seconds: number
   elite_confirmations: number
   primary_min_score: number
+  chat_completions_warm_latency_escape_ms?: number
 }
 
 export async function getSmartStickyPolicy(id: number): Promise<SmartStickyPolicy> {

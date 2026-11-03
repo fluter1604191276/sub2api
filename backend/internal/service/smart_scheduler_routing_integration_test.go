@@ -21,6 +21,7 @@ type staticSmartSchedulerOrderer struct {
 	scores       map[int64]float64
 	costs        map[int64]float64
 	pools        map[int64]string
+	qualities    map[int64]AccountQualityStats
 	err          error
 	calls        int
 	endpoint     string
@@ -49,12 +50,20 @@ func (s *staticSmartSchedulerOrderer) OrderCandidates(_ context.Context, _ *Grou
 			pool = configured
 		}
 		ordering.RankByAccountID[accountID] = rank
-		ordering.ItemByAccountID[accountID] = SmartSchedulerPreviewItem{
+		item := SmartSchedulerPreviewItem{
 			AccountID:      accountID,
 			Pool:           pool,
 			Score:          previewFloat64Ptr(score),
 			CostMultiplier: s.costs[accountID],
 		}
+		if quality, ok := s.qualities[accountID]; ok {
+			item.Quality1h = quality.Recent1h
+			item.Quality24h = AccountQualityPeriod{Last10: quality.Last10, Last100: quality.Last100, WindowHours: quality.WindowHours}
+			if window, ok := comparableAccountQualityLatencyWindow(quality); ok {
+				item.ExactEndpointLatency = &window
+			}
+		}
+		ordering.ItemByAccountID[accountID] = item
 	}
 	for accountID := range s.isolated {
 		ordering.ItemByAccountID[accountID] = SmartSchedulerPreviewItem{AccountID: accountID, Pool: "isolated"}
