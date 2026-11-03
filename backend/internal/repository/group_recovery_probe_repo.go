@@ -168,9 +168,19 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 	`, now.UTC()); err != nil {
 		return nil, fmt.Errorf("schedule adaptive protocol bootstrap: %w", err)
 	}
+	// Keep the confirmation that the first warm/pending round already scheduled.
+	// ReconcileRealUsage runs before this claim and, after newer successful
+	// usage of the same probe model, projects next_probe_at onto the long
+	// healthy interval. Rewriting that to this tick's now + 5 minutes slides
+	// the second round forward for as long as real traffic keeps arriving.
+	// Anchor to the probe that produced the warm/pending map instead.
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE group_recovery_probe_states s
-		SET next_probe_at = $1::timestamptz + INTERVAL '5 minutes', updated_at = $1::timestamptz
+		SET next_probe_at = LEAST(
+				s.next_probe_at,
+				COALESCE(s.last_probe_at, s.created_at) + INTERVAL '5 minutes'
+			),
+			updated_at = $1::timestamptz
 		FROM accounts a
 		WHERE a.id = s.account_id
 			AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
@@ -181,7 +191,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 				FROM jsonb_each(COALESCE(s.protocol_eligibility, '{}'::jsonb)) entry
 				WHERE entry.value->>'status' IN ('warm', 'pending')
 			)
-			AND s.next_probe_at > $1::timestamptz + INTERVAL '5 minutes'
+			AND s.next_probe_at > COALESCE(s.last_probe_at, s.created_at) + INTERVAL '5 minutes'
 	`, now.UTC()); err != nil {
 		return nil, fmt.Errorf("schedule adaptive protocol confirmation: %w", err)
 	}
@@ -673,17 +683,27 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 				last_probe_at = t.last_probe_at,
 				last_success_at = t.real_usage_at,
 				last_failure_at = t.last_failure_at,
-				next_probe_at = t.real_usage_at + make_interval(secs => CASE
-					WHEN g.recovery_probe_mode = 'smart' THEN GREATEST(
-						g.recovery_probe_interval_seconds,
-					CASE
-						WHEN t.consecutive_successes >= 4 THEN 14400
-						WHEN t.consecutive_successes >= 3 THEN 7200
-						ELSE $2
-					END
-				)
-				ELSE g.recovery_probe_interval_seconds
-				END),
+				next_probe_at = CASE
+					WHEN EXISTS (
+						SELECT 1
+						FROM jsonb_each(COALESCE(t.protocol_eligibility, '{}'::jsonb)) entry
+						WHERE entry.value->>'status' IN ('warm', 'pending')
+					) THEN LEAST(
+						s.next_probe_at,
+						COALESCE(t.last_probe_at, s.created_at) + INTERVAL '5 minutes'
+					)
+					ELSE t.real_usage_at + make_interval(secs => CASE
+						WHEN g.recovery_probe_mode = 'smart' THEN GREATEST(
+							g.recovery_probe_interval_seconds,
+							CASE
+								WHEN t.consecutive_successes >= 4 THEN 14400
+								WHEN t.consecutive_successes >= 3 THEN 7200
+								ELSE $2
+							END
+						)
+						ELSE g.recovery_probe_interval_seconds
+					END)
+				END,
 				last_error_class = '',
 				last_error = '',
 				latency_ms = t.latency_ms,
