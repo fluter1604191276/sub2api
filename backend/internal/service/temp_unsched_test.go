@@ -376,3 +376,25 @@ func TestAccount_TempUnschedulableUntil(t *testing.T) {
 		})
 	}
 }
+
+// DeepSeek 502 short cooldowns reuse the existing temp-unschedulable rules.
+// This test only documents the match. It does not write a production account.
+func TestDeepSeek502UsesExistingTempUnschedulableRule(t *testing.T) {
+	account := &Account{
+		Platform: PlatformDeepseek,
+		Credentials: map[string]any{
+			"temp_unschedulable_enabled": true,
+			"temp_unschedulable_rules": []any{
+				map[string]any{
+					"error_code":       float64(502),
+					"keywords":         []any{"bad gateway"},
+					"duration_minutes": float64(3),
+				},
+			},
+		},
+	}
+	matches := matchTempUnschedulableRules(account, 502, []byte(`{"error":{"message":"bad gateway"}}`))
+	require.Len(t, matches, 1)
+	require.Equal(t, 3, matches[0].rule.DurationMinutes)
+	require.Empty(t, matchTempUnschedulableRules(account, 400, []byte(`{"error":{"message":"maximum context length exceeded"}}`)))
+}

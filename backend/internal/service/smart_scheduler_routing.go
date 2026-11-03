@@ -134,6 +134,26 @@ func IsChannelMonitorProbe(ctx context.Context) bool {
 	return probe
 }
 
+type openAIFailoverSelectionContextKey struct{}
+
+// WithOpenAIFailoverSelection marks an account selection that is replacing an
+// account which already failed this request. Pending and warm accounts without
+// target-protocol probe eligibility stay out of that selection.
+func WithOpenAIFailoverSelection(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAIFailoverSelectionContextKey{}, true)
+}
+
+func openAIFailoverSelectionFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	selected, _ := ctx.Value(openAIFailoverSelectionContextKey{}).(bool)
+	return selected
+}
+
 func smartSchedulerEndpointFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return "any"
@@ -369,6 +389,9 @@ func runSmartSchedulerOrdering(
 		return accounts, nil
 	}
 	ordered := applySmartSchedulerOrderingToAccounts(accounts, ordering)
+	if openAIFailoverSelectionFromContext(ctx) {
+		ordered = filterFailoverByProtocolEligibility(group, endpoint, ordered, ordering)
+	}
 	softFallback := false
 	if len(ordered) == 1 {
 		_, ranked := ordering.RankByAccountID[ordered[0].ID]

@@ -32,6 +32,23 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, ac
 		return s.sendErrorAndEnd(c, "No API key available")
 	}
 
+	// Business recovery probes pass one protocol. The admin adaptive check
+	// below still runs Chat, then Anthropic, then Responses, and stops on the
+	// first failure. That serial result must not become the only health bit.
+	if protocol := businessProbeProtocolFromContext(c.Request.Context()); protocol != "" {
+		switch protocol {
+		case APIProtocolAnthropic:
+			return s.testCNProviderAdaptiveAnthropicConnection(c, account, testModelID, authToken)
+		case APIProtocolResponses:
+			if !account.SupportsNativeCNResponses() {
+				return s.sendErrorAndEnd(c, "Responses endpoint is not available for this account")
+			}
+			return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
+		default:
+			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+		}
+	}
+
 	// The existing Chat probe owns the SSE lifecycle. Suppress intermediate
 	// completion events until every native adaptive endpoint has passed.
 	c.Set(accountTestSuppressCompletionContextKey, true)

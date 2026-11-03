@@ -141,8 +141,33 @@ func TestOpenAIResponsesCompletedEventIsEmpty(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "completed with output item",
+			name: "completed with empty message shell",
 			data: `{"type":"response.completed","response":{"id":"r1","status":"completed","output":[{"type":"message","id":"msg_1"}]}}`,
+			want: true,
+		},
+		{
+			name: "all-zero usage is empty",
+			data: `{"type":"response.completed","response":{"id":"r1","status":"completed","output":[],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}`,
+			want: true,
+		},
+		{
+			name: "message text is not empty",
+			data: `{"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}]}}`,
+			want: false,
+		},
+		{
+			name: "function call is not empty",
+			data: `{"type":"response.completed","response":{"output":[{"type":"function_call","name":"lookup","arguments":"{}"}]}}`,
+			want: false,
+		},
+		{
+			name: "content filter is not an empty stream",
+			data: `{"type":"response.completed","response":{"output":[],"incomplete_details":{"reason":"content_filter"}}}`,
+			want: false,
+		},
+		{
+			name: "max output tokens is not an empty stream",
+			data: `{"type":"response.completed","response":{"status":"incomplete","output":[],"incomplete_details":{"reason":"max_output_tokens"}}}`,
 			want: false,
 		},
 		{

@@ -388,6 +388,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			s.clearOpenAIProxyStreamDisconnect(account)
 		}
 		if !sawTerminalEvent && !openAIStreamClientOutputStarted(c, clientOutputStarted) && !eventShouldFlush {
+			if !responsesSemanticOutputSeen && openAIResponsesEmptyCompletionApplies(account) && !clientDisconnected {
+				s.noteOpenAIEmptyStreamFailure(c, account, firstNonEmpty(mappedModel, originalModel), upstreamRequestID)
+				s.clearOpenAIStreamSticky(c)
+			}
 			return resultWithUsage(), s.newOpenAIStreamFailoverError(
 				c,
 				account,
@@ -401,6 +405,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		if !sawTerminalEvent {
 			if openAIStreamClientOutputStarted(c, clientOutputStarted) && !clientDisconnected {
 				s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
+				if openAIResponsesEmptyCompletionApplies(account) {
+					// Output already reached the client. Record the abnormal end
+					// for ops and drop sticky affinity, but do not replay.
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_incomplete", nil, openAIResponsesPartialStreamEndedMessage)
+					s.clearOpenAIStreamSticky(c)
+				}
 			}
 			return resultWithUsage(), fmt.Errorf("stream usage incomplete: missing terminal event")
 		}
@@ -683,16 +693,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if startsClientOutput && !openAIStreamEventTypeIsTerminal(eventType) {
 				responsesSemanticOutputSeen = true
 			}
-			// OpenAI Responses streams that terminate with an empty
-			// response.completed (no output, no usage, no error, nothing sent
-			// to the client) are silent upstream refusals: fail over instead of
-			// recording a successful 0/0 usage turn (issue #5009).
-			if account != nil && account.Platform == PlatformOpenAI &&
+			// Responses streams that terminate with an empty response.completed
+			// (no semantic output, no positive usage, no error, nothing sent to
+			// the client) are upstream failures. OpenAI, Grok, and native CN
+			// Responses accounts — including DeepSeek adaptive — share this
+			// handler. Fail over only before any text or tool has been flushed.
+			if openAIResponsesEmptyCompletionApplies(account) &&
 				(eventType == "response.completed" || eventType == "response.done") &&
 				!sawFailedEvent && !responsesSemanticOutputSeen && !clientOutputStarted &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				sawTerminalEvent = true
-				streamEarlyErr = newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+				streamEarlyErr = s.failOpenAIResponsesEmptyStream(c, account, upstreamRequestID, firstNonEmpty(mappedModel, originalModel))
 				return
 			}
 
@@ -1353,26 +1364,26 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 }
 
 // openAIResponsesCompletedEventIsEmpty reports whether a response.completed /
-// response.done SSE payload carries no usage, no error and no output items.
-// The accumulated usage is consulted too, because OpenAI may deliver usage on
-// an earlier event. An empty terminal event after a stream with no semantic
-// output is treated as a silent upstream refusal (issue #5009).
+// response.done SSE payload has no positive usage, no error and no semantic
+// output. A usage object that exists but is all zeros, and an output array
+// that contains only empty message shells, are still empty. Tool calls,
+// reasoning, media and any positive token count are not. Content-filter,
+// output-budget and context-length terminals are excluded so they are not
+// counted as empty-stream supplier failures.
 func openAIResponsesCompletedEventIsEmpty(data []byte, usage *OpenAIUsage) bool {
 	if len(data) == 0 || !gjson.ValidBytes(data) {
 		return false
 	}
-	if usage != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0 ||
-		usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 ||
-		usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0) {
+	if openAIResponsesEventExcludedFromEmptyStream(data) {
 		return false
 	}
-	if gjson.GetBytes(data, "usage").Exists() || gjson.GetBytes(data, "response.usage").Exists() {
+	if openAIUsageHasTokens(usage) || openAIResponsesPayloadUsageHasTokens(data) {
 		return false
 	}
 	if gjson.GetBytes(data, "error").Exists() || gjson.GetBytes(data, "response.error").Exists() {
 		return false
 	}
-	if output := gjson.GetBytes(data, "response.output"); output.Exists() && output.IsArray() && len(output.Array()) > 0 {
+	if openAIResponsesPayloadHasSemanticOutput(data) {
 		return false
 	}
 	return true

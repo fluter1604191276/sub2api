@@ -119,22 +119,23 @@ func NormalizeGroupRecoveryProbeConfig(cfg GroupRecoveryProbeConfig) (GroupRecov
 }
 
 type GroupRecoveryProbeState struct {
-	ID                   int64      `json:"-"`
-	GroupID              int64      `json:"group_id"`
-	AccountID            int64      `json:"account_id"`
-	Model                string     `json:"model"`
-	Status               string     `json:"status"`
-	ConsecutiveSuccesses int        `json:"consecutive_successes"`
-	ConsecutiveFailures  int        `json:"consecutive_failures"`
-	LastProbeAt          *time.Time `json:"last_probe_at,omitempty"`
-	NextProbeAt          *time.Time `json:"next_probe_at,omitempty"`
-	LastSuccessAt        *time.Time `json:"last_success_at,omitempty"`
-	LastFailureAt        *time.Time `json:"last_failure_at,omitempty"`
-	LastErrorClass       string     `json:"last_error_class,omitempty"`
-	LastError            string     `json:"last_error,omitempty"`
-	LatencyMs            int64      `json:"latency_ms"`
-	ProbeCount           int64      `json:"probe_count"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                   int64                                       `json:"-"`
+	GroupID              int64                                       `json:"group_id"`
+	AccountID            int64                                       `json:"account_id"`
+	Model                string                                      `json:"model"`
+	Status               string                                      `json:"status"`
+	ConsecutiveSuccesses int                                         `json:"consecutive_successes"`
+	ConsecutiveFailures  int                                         `json:"consecutive_failures"`
+	LastProbeAt          *time.Time                                  `json:"last_probe_at,omitempty"`
+	NextProbeAt          *time.Time                                  `json:"next_probe_at,omitempty"`
+	LastSuccessAt        *time.Time                                  `json:"last_success_at,omitempty"`
+	LastFailureAt        *time.Time                                  `json:"last_failure_at,omitempty"`
+	LastErrorClass       string                                      `json:"last_error_class,omitempty"`
+	LastError            string                                      `json:"last_error,omitempty"`
+	LatencyMs            int64                                       `json:"latency_ms"`
+	ProbeCount           int64                                       `json:"probe_count"`
+	UpdatedAt            time.Time                                   `json:"updated_at"`
+	ProtocolEligibility  map[string]GroupRecoveryProbeProtocolStatus `json:"protocol_eligibility,omitempty"`
 }
 
 type GroupRecoveryProbeJob struct {
@@ -567,6 +568,9 @@ func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecovery
 		defer reservation.Release()
 	}
 	startedAt := time.Now()
+	if r.runAdaptiveBusinessProtocolProbe(ctx, job, startedAt) {
+		return
+	}
 	result := GroupRecoveryProbeRoundResult{}
 	attempts := job.AttemptsPerRound
 	if attempts < 1 {
