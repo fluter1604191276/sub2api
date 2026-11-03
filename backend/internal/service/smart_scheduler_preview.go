@@ -455,7 +455,7 @@ func (s *SmartSchedulerPreviewService) OrderCandidates(
 		applySmartSchedulerEvidencePolicy(&item)
 		applySmartSchedulerAccountCircuitBreaker(&item, accountErrorStats[account.ID])
 		if state, ok := recoveryProbeStates[account.ID]; ok {
-			applyGroupRecoveryProbeStateToSchedulerItem(&item, &state)
+			applyGroupRecoveryProbeStateForRequest(&item, account, endpoint, &state)
 		}
 		items = append(items, item)
 	}
@@ -800,7 +800,7 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		applySmartSchedulerEvidencePolicy(&item)
 		applySmartSchedulerAccountCircuitBreaker(&item, accountErrors[accounts[i].ID])
 		if state, ok := recoveryProbeStates[accounts[i].ID]; ok {
-			applyGroupRecoveryProbeStateToSchedulerItem(&item, &state)
+			applyGroupRecoveryProbeStateForRequest(&item, &accounts[i], endpoint, &state)
 		}
 		items = append(items, item)
 	}

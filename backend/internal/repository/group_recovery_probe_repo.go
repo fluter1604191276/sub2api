@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -107,6 +108,47 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 	`, now.UTC()); err != nil {
 		return nil, fmt.Errorf("seed group recovery probe states: %w", err)
 	}
+	// Adaptive accounts need a first per-protocol probe even when recent real
+	// traffic would keep the shared idle probe asleep. An empty eligibility map
+	// is not a grant of every protocol.
+	if _, err := r.db.ExecContext(ctx, `
+		INSERT INTO group_recovery_probe_states (
+			group_id, account_id, model, status, next_probe_at, created_at, updated_at
+		)
+		SELECT
+			g.id, a.id, g.recovery_probe_model, 'pending', $1::timestamptz, $1::timestamptz, $1::timestamptz
+		FROM groups g
+		JOIN account_groups ag ON ag.group_id = g.id
+		JOIN accounts a ON a.id = ag.account_id
+		WHERE g.recovery_probe_enabled = TRUE
+			AND g.status = 'active'
+			AND BTRIM(g.recovery_probe_model) <> ''
+			AND a.status = 'active'
+			AND a.schedulable = TRUE
+			AND a.deleted_at IS NULL
+			AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
+			AND NOT EXISTS (
+				SELECT 1 FROM group_recovery_probe_states s
+				WHERE s.group_id = g.id AND s.account_id = a.id
+					AND LOWER(BTRIM(s.model)) = LOWER(BTRIM(g.recovery_probe_model))
+					AND COALESCE(s.protocol_eligibility, '{}'::jsonb) <> '{}'::jsonb
+			)
+		ON CONFLICT DO NOTHING
+	`, now.UTC()); err != nil {
+		return nil, fmt.Errorf("seed adaptive protocol bootstrap states: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE group_recovery_probe_states s
+		SET next_probe_at = $1::timestamptz, updated_at = $1::timestamptz
+		FROM accounts a
+		WHERE a.id = s.account_id
+			AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
+			AND COALESCE(s.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
+			AND s.status <> 'probing'
+			AND s.next_probe_at > $1::timestamptz
+	`, now.UTC()); err != nil {
+		return nil, fmt.Errorf("schedule adaptive protocol bootstrap: %w", err)
+	}
 	if _, err := r.db.ExecContext(ctx, `
 		INSERT INTO group_recovery_probe_physical_states (account_id, model_key, model)
 		SELECT DISTINCT ON (s.account_id, LOWER(BTRIM(s.model)))
@@ -181,6 +223,11 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 							AND ul.request_type <> 6
 						AND LOWER(COALESCE(ul.user_agent, '')) NOT LIKE '%sub2api-channel-monitor/%'
 						AND ul.created_at >= $1::timestamptz - make_interval(secs => membership.idle_threshold_seconds)
+				) OR EXISTS (
+					SELECT 1 FROM accounts bootstrap
+					WHERE bootstrap.id = p.account_id
+						AND COALESCE(bootstrap.credentials->>'api_protocol', '') = 'adaptive'
+						AND COALESCE(p.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
 				))
 			ORDER BY membership.due_at ASC, p.id ASC
 			FOR UPDATE OF p SKIP LOCKED
@@ -298,6 +345,7 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			last_error = $10,
 			latency_ms = $11,
 			probe_count = t.probe_count + $12,
+			protocol_eligibility = CASE WHEN $14::jsonb IS NULL THEN s.protocol_eligibility ELSE $14::jsonb END,
 			updated_at = NOW()
 			FROM target t, groups g
 			WHERE s.physical_state_id = t.id
@@ -319,6 +367,7 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 				last_error = $10,
 				latency_ms = $11,
 				probe_count = p.probe_count + $12,
+				protocol_eligibility = CASE WHEN $14::jsonb IS NULL THEN p.protocol_eligibility ELSE $14::jsonb END,
 				updated_at = NOW()
 			FROM target t
 			LEFT JOIN projection_due due ON due.physical_state_id = t.id
@@ -330,7 +379,7 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 		completion.ConsecutiveSuccesses, completion.ConsecutiveFailures,
 		completion.LastSuccessAt, completion.LastFailureAt, completion.NextProbeAt.UTC(),
 		completion.LastErrorClass, completion.LastError, completion.LatencyMs, completion.AttemptCount,
-		service.GroupRecoveryProbeSmartEligibleMinIntervalSeconds).Scan(&rescheduled)
+		service.GroupRecoveryProbeSmartEligibleMinIntervalSeconds, protocolEligibilityJSON(completion.ProtocolEligibility)).Scan(&rescheduled)
 	if err != nil {
 		return false, fmt.Errorf("complete group recovery probe: %w", err)
 	}
@@ -452,7 +501,8 @@ func (r *groupRecoveryProbeRepository) ListStates(ctx context.Context, groupID i
 		SELECT id, group_id, account_id, model, status,
 			consecutive_successes, consecutive_failures, last_probe_at,
 			next_probe_at, last_success_at, last_failure_at,
-			last_error_class, last_error, latency_ms, probe_count, updated_at
+			last_error_class, last_error, latency_ms, probe_count, updated_at,
+			COALESCE(protocol_eligibility, '{}'::jsonb)
 		FROM group_recovery_probe_states
 		WHERE group_id = $1 AND account_id = ANY($2)
 			AND LOWER(BTRIM(model)) = LOWER(BTRIM($3))
@@ -547,6 +597,7 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 				last_error = p.last_error,
 				latency_ms = p.latency_ms,
 				probe_count = p.probe_count,
+				protocol_eligibility = p.protocol_eligibility,
 				updated_at = $1::timestamptz
 			FROM synchronization_target p, groups g
 			WHERE s.physical_state_id = p.id AND g.id = s.group_id
@@ -631,11 +682,13 @@ type groupRecoveryProbeScanner interface {
 func scanGroupRecoveryProbeState(scanner groupRecoveryProbeScanner) (service.GroupRecoveryProbeState, error) {
 	var state service.GroupRecoveryProbeState
 	var lastProbeAt, nextProbeAt, lastSuccessAt, lastFailureAt sql.NullTime
+	var eligibilityJSON []byte
 	err := scanner.Scan(
 		&state.ID, &state.GroupID, &state.AccountID, &state.Model, &state.Status,
 		&state.ConsecutiveSuccesses, &state.ConsecutiveFailures, &lastProbeAt,
 		&nextProbeAt, &lastSuccessAt, &lastFailureAt,
 		&state.LastErrorClass, &state.LastError, &state.LatencyMs, &state.ProbeCount, &state.UpdatedAt,
+		&eligibilityJSON,
 	)
 	if err != nil {
 		return state, err
@@ -644,6 +697,7 @@ func scanGroupRecoveryProbeState(scanner groupRecoveryProbeScanner) (service.Gro
 	state.NextProbeAt = nullableTimePointer(nextProbeAt)
 	state.LastSuccessAt = nullableTimePointer(lastSuccessAt)
 	state.LastFailureAt = nullableTimePointer(lastFailureAt)
+	state.ProtocolEligibility = service.DecodeGroupRecoveryProbeProtocolEligibility(eligibilityJSON)
 	return state, nil
 }
 
@@ -668,6 +722,64 @@ func scanGroupRecoveryProbeJob(scanner groupRecoveryProbeScanner) (service.Group
 	state.LastSuccessAt = nullableTimePointer(lastSuccessAt)
 	state.LastFailureAt = nullableTimePointer(lastFailureAt)
 	return state, job, nil
+}
+
+func protocolEligibilityJSON(eligibility map[string]service.GroupRecoveryProbeProtocolStatus) any {
+	if eligibility == nil {
+		return nil
+	}
+	raw, err := json.Marshal(eligibility)
+	if err != nil {
+		return nil
+	}
+	return raw
+}
+
+func (r *groupRecoveryProbeRepository) GetProtocolEligibility(ctx context.Context, physicalStateID int64) (map[string]service.GroupRecoveryProbeProtocolStatus, error) {
+	if r == nil || r.db == nil || physicalStateID <= 0 {
+		return nil, nil
+	}
+	var raw []byte
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COALESCE(protocol_eligibility, '{}'::jsonb)
+		FROM group_recovery_probe_physical_states
+		WHERE id = $1
+	`, physicalStateID).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get group recovery probe protocol eligibility: %w", err)
+	}
+	return service.DecodeGroupRecoveryProbeProtocolEligibility(raw), nil
+}
+
+func (r *groupRecoveryProbeRepository) SaveProtocolEligibility(ctx context.Context, physicalStateID int64, eligibility map[string]service.GroupRecoveryProbeProtocolStatus) error {
+	if r == nil || r.db == nil || physicalStateID <= 0 {
+		return nil
+	}
+	if eligibility == nil {
+		eligibility = map[string]service.GroupRecoveryProbeProtocolStatus{}
+	}
+	raw, err := json.Marshal(eligibility)
+	if err != nil {
+		return fmt.Errorf("marshal group recovery probe protocol eligibility: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE group_recovery_probe_physical_states
+		SET protocol_eligibility = $2::jsonb, updated_at = NOW()
+		WHERE id = $1
+	`, physicalStateID, raw); err != nil {
+		return fmt.Errorf("save physical group recovery probe protocol eligibility: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE group_recovery_probe_states
+		SET protocol_eligibility = $2::jsonb, updated_at = NOW()
+		WHERE physical_state_id = $1
+	`, physicalStateID, raw); err != nil {
+		return fmt.Errorf("save projected group recovery probe protocol eligibility: %w", err)
+	}
+	return nil
 }
 
 func maxInt(left, right int) int {

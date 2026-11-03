@@ -134,6 +134,26 @@ func IsChannelMonitorProbe(ctx context.Context) bool {
 	return probe
 }
 
+type openAIFailoverSelectionContextKey struct{}
+
+// WithOpenAIFailoverSelection marks an account selection that is replacing an
+// account which already failed this request. Pending and warm accounts without
+// target-protocol probe eligibility stay out of that selection.
+func WithOpenAIFailoverSelection(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAIFailoverSelectionContextKey{}, true)
+}
+
+func openAIFailoverSelectionFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	selected, _ := ctx.Value(openAIFailoverSelectionContextKey{}).(bool)
+	return selected
+}
+
 func smartSchedulerEndpointFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return "any"
@@ -352,8 +372,11 @@ func runSmartSchedulerOrdering(
 	endpoint string,
 	accounts []*Account,
 ) ([]*Account, *SmartSchedulerOrdering) {
+	// Protocol admission is independent of ordering. A disabled scheduler, a
+	// statistics error, or an inactive ordering must not let an unqualified
+	// account into failover.
 	if orderer == nil || group == nil || !group.SmartSchedulerEnabled || len(accounts) == 0 {
-		return accounts, nil
+		return filterFailoverAdmission(ctx, group, endpoint, accounts, nil), nil
 	}
 	ordering, err := orderer.OrderCandidates(ctx, group, requestedModel, endpoint, accounts, time.Now())
 	if err != nil {
@@ -363,12 +386,13 @@ func runSmartSchedulerOrdering(
 			"endpoint", endpoint,
 			"reason", "statistics_unavailable",
 		)
-		return accounts, nil
+		return filterFailoverAdmission(ctx, group, endpoint, accounts, nil), nil
 	}
 	if ordering == nil || !ordering.Active {
-		return accounts, nil
+		return filterFailoverAdmission(ctx, group, endpoint, accounts, ordering), nil
 	}
 	ordered := applySmartSchedulerOrderingToAccounts(accounts, ordering)
+	ordered = filterFailoverAdmission(ctx, group, endpoint, ordered, ordering)
 	softFallback := false
 	if len(ordered) == 1 {
 		_, ranked := ordering.RankByAccountID[ordered[0].ID]

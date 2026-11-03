@@ -42,6 +42,13 @@ func gatewayStreamHasOnlyHeartbeats(c *gin.Context) bool {
 // claudeCodeValidator is a singleton validator for Claude Code client detection
 var claudeCodeValidator = service.NewClaudeCodeValidator()
 
+func openAIAccountSelectContext(ctx context.Context, failedAccountIDs map[int64]struct{}) context.Context {
+	if len(failedAccountIDs) == 0 {
+		return ctx
+	}
+	return service.WithOpenAIFailoverSelection(ctx)
+}
+
 func withSmartSchedulerRequestContext(c *gin.Context, ctx context.Context, endpoint string) context.Context {
 	ctx = service.WithSmartSchedulerEndpoint(ctx, endpoint)
 	if c != nil && c.GetHeader(service.ChannelMonitorProbeHeader) == service.ChannelMonitorProbeHeaderValue {

@@ -404,6 +404,10 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				false,
 				"missing_terminal",
 			)
+			if !responsesSemanticOutputSeen && openAIResponsesEmptyCompletionApplies(account) && !clientDisconnected {
+				s.noteOpenAIEmptyStreamFailure(c, account, firstNonEmpty(mappedModel, originalModel), upstreamRequestID)
+				s.clearOpenAIStreamSticky(c)
+			}
 			return resultWithUsage(), s.newOpenAIStreamDisconnectFailoverError(
 				c,
 				account,
@@ -429,6 +433,20 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			)
 			if openAIStreamClientOutputStarted(c, clientOutputStarted) && !clientDisconnected {
 				s.recordOpenAIProxyStreamDisconnect(account, missingTerminalErr, upstreamRequestID)
+				if openAIResponsesEmptyCompletionApplies(account) {
+					// Output already reached the client. Record the abnormal end,
+					// drop sticky affinity, and close the SSE stream with one
+					// response.failed event. Do not replay the request.
+					s.recordOpenAIStreamUpstreamError(c, account, false, upstreamRequestID, "stream_incomplete", nil, openAIResponsesPartialStreamEndedMessage)
+					s.clearOpenAIStreamSticky(c)
+					if !failureDelivered {
+						if _, err := writePendingString(buildOpenAIResponseFailedSSE(responseID, firstNonEmpty(originalModel, mappedModel), nil, openAIResponsesPartialStreamEndedMessage)); err == nil {
+							if err := flushBuffered(); err == nil {
+								failureDelivered = true
+							}
+						}
+					}
+				}
 			}
 			return resultWithUsage(), missingTerminalErr
 		}
@@ -722,20 +740,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if startsClientOutput && !openAIStreamEventTypeIsTerminal(eventType) {
 				responsesSemanticOutputSeen = true
 			}
-			// OpenAI Responses streams that terminate with an empty
-			// response.completed (no output, no usage, no error, nothing sent
-			// to the client) are silent upstream refusals: fail over instead of
-			// recording a successful 0/0 usage turn (issue #5009). Grok
-			// subscriptions behind vendor gateways show the same silent-refusal
-			// shape on /v1/responses (forwardGrokResponses reaches this same
-			// handler), so cover PlatformGrok too — the passthrough-path guard
-			// is already unconditional.
-			if account != nil && (account.Platform == PlatformOpenAI || account.Platform == PlatformGrok) &&
+			// Responses streams that terminate with an empty response.completed
+			// (no semantic output, no positive usage, no error, nothing sent to
+			// the client) are upstream failures. OpenAI, Grok, and native CN
+			// Responses accounts — including DeepSeek adaptive — share this
+			// handler. Fail over only before any text or tool has been flushed.
+			if openAIResponsesEmptyCompletionApplies(account) &&
 				(eventType == "response.completed" || eventType == "response.done") &&
 				!sawFailedEvent && !responsesSemanticOutputSeen && !clientOutputStarted &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				sawTerminalEvent = true
-				streamEarlyErr = newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+				streamEarlyErr = s.failOpenAIResponsesEmptyStream(c, account, upstreamRequestID, firstNonEmpty(mappedModel, originalModel))
 				return
 			}
 
@@ -1418,26 +1433,26 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 }
 
 // openAIResponsesCompletedEventIsEmpty reports whether a response.completed /
-// response.done SSE payload carries no usage, no error and no output items.
-// The accumulated usage is consulted too, because OpenAI may deliver usage on
-// an earlier event. An empty terminal event after a stream with no semantic
-// output is treated as a silent upstream refusal (issue #5009).
+// response.done SSE payload has no positive usage, no error and no semantic
+// output. A usage object that exists but is all zeros, and an output array
+// that contains only empty message shells, are still empty. Tool calls,
+// reasoning, media and any positive token count are not. Content-filter,
+// output-budget and context-length terminals are excluded so they are not
+// counted as empty-stream supplier failures.
 func openAIResponsesCompletedEventIsEmpty(data []byte, usage *OpenAIUsage) bool {
 	if len(data) == 0 || !gjson.ValidBytes(data) {
 		return false
 	}
-	if usage != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0 ||
-		usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 ||
-		usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0) {
+	if openAIResponsesEventExcludedFromEmptyStream(data) {
 		return false
 	}
-	if gjson.GetBytes(data, "usage").Exists() || gjson.GetBytes(data, "response.usage").Exists() {
+	if openAIUsageHasTokens(usage) || openAIResponsesPayloadUsageHasTokens(data) {
 		return false
 	}
 	if gjson.GetBytes(data, "error").Exists() || gjson.GetBytes(data, "response.error").Exists() {
 		return false
 	}
-	if output := gjson.GetBytes(data, "response.output"); output.Exists() && output.IsArray() && len(output.Array()) > 0 {
+	if openAIResponsesPayloadHasSemanticOutput(data) {
 		return false
 	}
 	return true

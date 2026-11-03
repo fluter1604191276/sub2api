@@ -24,6 +24,14 @@ const (
 	openAIModelTransientLongCooldown  = 45 * time.Second
 	openAIModelTransientDefaultMax    = 4096
 	openAIModelTransientMaxModelBytes = 512
+	// Empty Responses completions use the same account+normalized-model key as
+	// the generic transient breaker, with their own window. Two real empty
+	// results inside five minutes isolate that pair for thirty minutes. A later
+	// short success does not erase the isolation.
+	openAIEmptyStreamWindow    = 5 * time.Minute
+	openAIEmptyStreamThreshold = 2
+	openAIEmptyStreamIsolation = 30 * time.Minute
+	openAIEmptyStreamDedupeCap = 32
 )
 
 type openAIAccountModelKey struct {
@@ -36,6 +44,11 @@ type openAIAccountModelTransientEntry struct {
 	lastFailure   time.Time
 	blockUntil    time.Time
 	lastTouched   time.Time
+
+	emptyCount         int
+	emptyWindowStart   time.Time
+	emptyRequestIDs    map[string]struct{}
+	emptyIsolatedUntil time.Time
 }
 
 type openAIAccountModelTransientDecision struct {
@@ -170,8 +183,108 @@ func (s *openAIAccountModelTransientState) recordSuccess(accountID int64, model 
 		return
 	}
 	s.mu.Lock()
-	delete(s.entries, key)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[key]
+	if !exists {
+		return
+	}
+	// A short success, including a hi probe, must not erase empty-stream
+	// evidence. Only the generic transient streak is cleared here.
+	entry.failureStreak = 0
+	entry.blockUntil = time.Time{}
+	entry.lastFailure = time.Time{}
+	if !entry.hasEmptyStreamState() {
+		delete(s.entries, key)
+		return
+	}
+	entry.lastTouched = time.Now()
+	s.entries[key] = entry
+}
+
+func (entry openAIAccountModelTransientEntry) hasEmptyStreamState() bool {
+	return entry.emptyCount > 0 || !entry.emptyIsolatedUntil.IsZero()
+}
+
+// recordEmptyStream counts one real empty or abnormally terminated Responses
+// result. The same request ID is counted once. The second distinct result
+// inside the window isolates the account+model pair.
+func (s *openAIAccountModelTransientState) recordEmptyStream(accountID int64, model, requestID string, now time.Time) openAIAccountModelTransientDecision {
+	key, ok := openAIAccountModelTransientKey(accountID, model)
+	if s == nil || !ok {
+		return openAIAccountModelTransientDecision{}
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	requestID = strings.TrimSpace(requestID)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.entries == nil {
+		s.entries = make(map[openAIAccountModelKey]openAIAccountModelTransientEntry)
+	}
+	if s.maxEntries <= 0 {
+		s.maxEntries = openAIModelTransientDefaultMax
+	}
+	entry, exists := s.entries[key]
+	if !exists {
+		s.evictOldestLocked()
+	}
+	if entry.emptyWindowStart.IsZero() || now.Before(entry.emptyWindowStart) || now.Sub(entry.emptyWindowStart) > openAIEmptyStreamWindow {
+		entry.emptyCount = 0
+		entry.emptyWindowStart = now
+		entry.emptyRequestIDs = nil
+	}
+	if requestID != "" {
+		if entry.emptyRequestIDs == nil {
+			entry.emptyRequestIDs = make(map[string]struct{}, 2)
+		}
+		if _, seen := entry.emptyRequestIDs[requestID]; seen {
+			entry.lastTouched = now
+			s.entries[key] = entry
+			return emptyStreamDecision(entry, now)
+		}
+		if len(entry.emptyRequestIDs) >= openAIEmptyStreamDedupeCap {
+			entry.emptyRequestIDs = map[string]struct{}{requestID: {}}
+		}
+		entry.emptyRequestIDs[requestID] = struct{}{}
+	}
+	entry.emptyCount++
+	entry.lastTouched = now
+	if entry.emptyCount >= openAIEmptyStreamThreshold {
+		isolatedUntil := now.Add(openAIEmptyStreamIsolation)
+		if entry.emptyIsolatedUntil.Before(isolatedUntil) {
+			entry.emptyIsolatedUntil = isolatedUntil
+		}
+	}
+	s.entries[key] = entry
+	return emptyStreamDecision(entry, now)
+}
+
+func (s *openAIAccountModelTransientState) isEmptyStreamIsolated(accountID int64, model string, now time.Time) bool {
+	key, ok := openAIAccountModelTransientKey(accountID, model)
+	if s == nil || !ok {
+		return false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, exists := s.entries[key]
+	if !exists || entry.emptyIsolatedUntil.IsZero() {
+		return false
+	}
+	return now.Before(entry.emptyIsolatedUntil)
+}
+
+func emptyStreamDecision(entry openAIAccountModelTransientEntry, now time.Time) openAIAccountModelTransientDecision {
+	decision := openAIAccountModelTransientDecision{FailureStreak: entry.emptyCount}
+	if !entry.emptyIsolatedUntil.IsZero() && now.Before(entry.emptyIsolatedUntil) {
+		decision.BlockUntil = entry.emptyIsolatedUntil
+		decision.Cooldown = entry.emptyIsolatedUntil.Sub(now)
+	}
+	return decision
 }
 
 func (s *openAIAccountModelTransientState) isBlocked(accountID int64, model string, now time.Time) bool {
@@ -187,6 +300,21 @@ func (s *openAIAccountModelTransientState) isBlocked(accountID int64, model stri
 	defer s.mu.Unlock()
 	entry, exists := s.entries[key]
 	if !exists {
+		return false
+	}
+	if !entry.emptyIsolatedUntil.IsZero() && now.Before(entry.emptyIsolatedUntil) {
+		entry.lastTouched = now
+		s.entries[key] = entry
+		return true
+	}
+	if !entry.emptyIsolatedUntil.IsZero() && !now.Before(entry.emptyIsolatedUntil) {
+		entry.emptyIsolatedUntil = time.Time{}
+		entry.emptyCount = 0
+		entry.emptyWindowStart = time.Time{}
+		entry.emptyRequestIDs = nil
+	}
+	if !entry.hasEmptyStreamState() && entry.failureStreak == 0 && entry.blockUntil.IsZero() && entry.lastFailure.IsZero() {
+		delete(s.entries, key)
 		return false
 	}
 	if !entry.blockUntil.IsZero() && now.Before(entry.blockUntil) {
@@ -214,7 +342,17 @@ func (s *openAIAccountModelTransientState) blockInfo(accountID int64, model stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, exists := s.entries[key]
-	if !exists || entry.blockUntil.IsZero() || !now.Before(entry.blockUntil) {
+	if !exists {
+		return 0, 0, false
+	}
+	if !entry.emptyIsolatedUntil.IsZero() && now.Before(entry.emptyIsolatedUntil) {
+		streak := entry.emptyCount
+		if entry.failureStreak > streak {
+			streak = entry.failureStreak
+		}
+		return entry.emptyIsolatedUntil.Sub(now), streak, true
+	}
+	if entry.blockUntil.IsZero() || !now.Before(entry.blockUntil) {
 		return 0, 0, false
 	}
 	return entry.blockUntil.Sub(now), entry.failureStreak, true

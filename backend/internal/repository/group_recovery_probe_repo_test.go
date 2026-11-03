@@ -48,6 +48,12 @@ func TestGroupRecoveryProbeRepositoryClaimDue(t *testing.T) {
 	mock.ExpectExec(`(?s)INSERT INTO group_recovery_probe_states.*ul\.actual_cost > 0.*ul\.request_type <> 6.*\$1::timestamptz.*ON CONFLICT DO NOTHING`).
 		WithArgs(now).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)INSERT INTO group_recovery_probe_states.*credentials->>'api_protocol'.*adaptive.*protocol_eligibility.*ON CONFLICT DO NOTHING`).
+		WithArgs(now).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*next_probe_at = \$1::timestamptz.*api_protocol.*adaptive.*protocol_eligibility`).
+		WithArgs(now).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)INSERT INTO group_recovery_probe_physical_states.*LOWER\(BTRIM\(s\.model\)\).*ON CONFLICT \(account_id, model_key\) DO NOTHING`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*SET physical_state_id = p\.id.*p\.model_key = LOWER\(BTRIM\(s\.model\)\)`).
@@ -108,7 +114,7 @@ func TestGroupRecoveryProbeRepositoryCompleteUsesClaimOwnershipGuard(t *testing.
 			completion.ConsecutiveSuccesses, completion.ConsecutiveFailures,
 			completion.LastSuccessAt, completion.LastFailureAt, nextProbeAt,
 			completion.LastErrorClass, completion.LastError, completion.LatencyMs, completion.AttemptCount,
-			service.GroupRecoveryProbeSmartEligibleMinIntervalSeconds,
+			service.GroupRecoveryProbeSmartEligibleMinIntervalSeconds, nil,
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
 
@@ -166,14 +172,16 @@ func TestGroupRecoveryProbeRepositoryListStates(t *testing.T) {
 		"consecutive_successes", "consecutive_failures", "last_probe_at",
 		"next_probe_at", "last_success_at", "last_failure_at",
 		"last_error_class", "last_error", "latency_ms", "probe_count", "updated_at",
+		"protocol_eligibility",
 	}).AddRow(
 		int64(51), int64(7), int64(19), "gpt-5.6-sol", service.GroupRecoveryProbeStatusWarm,
 		1, 0, now.Add(-time.Minute), now.Add(14*time.Minute), now.Add(-time.Minute), nil,
-		"", "", int64(640), int64(2), now,
+		"", "", int64(640), int64(2), now, []byte(`{}`),
 	).AddRow(
 		int64(52), int64(7), int64(23), "gpt-5.6-sol", service.GroupRecoveryProbeStatusFailed,
 		0, 3, now.Add(-2*time.Minute), now.Add(3*time.Minute), nil, now.Add(-2*time.Minute),
 		service.GroupRecoveryProbeErrorTransient, "timeout", int64(0), int64(5), now,
+		[]byte(`{"responses":{"status":"eligible","consecutive_successes":2}}`),
 	)
 
 	mock.ExpectQuery(`(?s)SELECT id, group_id, account_id, model, status.*WHERE group_id = \$1 AND account_id = ANY\(\$2\).*LOWER\(BTRIM\(model\)\) = LOWER\(BTRIM\(\$3\)\)`).
@@ -188,6 +196,8 @@ func TestGroupRecoveryProbeRepositoryListStates(t *testing.T) {
 	require.Equal(t, service.GroupRecoveryProbeStatusWarm, states[19].Status)
 	require.Equal(t, service.GroupRecoveryProbeStatusFailed, states[23].Status)
 	require.Equal(t, 3, states[23].ConsecutiveFailures)
+	require.Equal(t, service.GroupRecoveryProbeStatusEligible, states[23].ProtocolEligibility[service.APIProtocolResponses].Status)
+	require.Empty(t, states[19].ProtocolEligibility)
 }
 
 func TestGroupRecoveryProbeRepositoryReconcileRealUsage(t *testing.T) {
