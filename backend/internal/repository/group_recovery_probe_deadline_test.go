@@ -199,8 +199,11 @@ func startReviewPostgres(t *testing.T) *sql.DB {
 	require.NoError(t, err, "initdb: %s", out)
 
 	port := freeLocalPort(t)
+	// The test connects over TCP. A Unix socket in t.TempDir() exceeds the
+	// 103-byte sockaddr limit once the default Mac temp prefix and the full
+	// test name are included, and postgres then refuses to start.
 	start := exec.Command(pgCtl, "-D", dataDir, "-w", "-t", "60", "-l", logPath, "start",
-		"-o", fmt.Sprintf("-p %d -k %s -c listen_addresses=127.0.0.1 -c fsync=off", port, dataDir))
+		"-o", fmt.Sprintf("-p %d -c unix_socket_directories= -c listen_addresses=127.0.0.1 -c fsync=off", port))
 	start.Env = append(os.Environ(), "LC_ALL=C.UTF-8")
 	out, err = start.CombinedOutput()
 	if err != nil {
