@@ -1546,6 +1546,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			filterStats.exclude("transport_incompatible")
 			continue
 		}
+		if s.service.isOpenAIEmptyStreamIsolated(account, req.RequestedModel) {
+			filterStats.exclude("empty_stream_isolated")
+			continue
+		}
 		if modelRuntimeBlocked {
 			filterStats.exclude("model_runtime_blocked")
 			modelBlocked = append(modelBlocked, account)
@@ -1881,6 +1885,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}
 	if s != nil && s.service != nil && s.service.isOpenAIAccountRuntimeBlocked(account) {
 		return false, "runtime_blocked"
+	}
+	if s != nil && s.service != nil && s.service.isOpenAIEmptyStreamIsolated(account, req.RequestedModel) {
+		return false, "empty_stream_isolated"
 	}
 	if s != nil && s.service != nil && !req.allowModelTransientFailOpen && !openAIModelTransientFailOpenFromContext(ctx) && s.service.isOpenAIAccountModelRuntimeBlocked(account, req.RequestedModel) {
 		return false, "model_runtime_blocked"

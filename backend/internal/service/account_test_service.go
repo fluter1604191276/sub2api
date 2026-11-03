@@ -3310,6 +3310,77 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
+type businessProbeProtocolContextKey struct{}
+
+func withBusinessProbeProtocol(ctx context.Context, protocol string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	protocol = strings.TrimSpace(protocol)
+	if protocol == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, businessProbeProtocolContextKey{}, protocol)
+}
+
+func businessProbeProtocolFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	protocol, _ := ctx.Value(businessProbeProtocolContextKey{}).(string)
+	return strings.TrimSpace(protocol)
+}
+
+// PlannedBusinessProtocolAttempts reports how many upstream requests one
+// adaptive business-probe round will make. Non-adaptive accounts return false
+// so the caller keeps the single-attempt budget.
+func (s *AccountTestService) PlannedBusinessProtocolAttempts(ctx context.Context, accountID int64, _ string) (int, bool) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 {
+		return 0, false
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil {
+		return 0, false
+	}
+	protocols := adaptiveBusinessProbeProtocols(account)
+	if len(protocols) == 0 {
+		return 0, false
+	}
+	return len(protocols), true
+}
+
+// ProbeBusinessProtocols runs each native endpoint of an adaptive CN account
+// on its own. Non-adaptive accounts return split=false so the caller keeps the
+// single connection test. The admin UI still uses the serial adaptive test.
+func (s *AccountTestService) ProbeBusinessProtocols(ctx context.Context, accountID int64, modelID string) (map[string]*ScheduledTestResult, bool, error) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 {
+		return nil, false, nil
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, false, nil
+	}
+	protocols := adaptiveBusinessProbeProtocols(account)
+	if len(protocols) == 0 {
+		return nil, false, nil
+	}
+	results := make(map[string]*ScheduledTestResult, len(protocols))
+	for _, protocol := range protocols {
+		result, runErr := s.RunTestBackground(withBusinessProbeProtocol(ctx, protocol), accountID, modelID)
+		if result == nil {
+			result = &ScheduledTestResult{Status: "failed"}
+		}
+		if runErr != nil {
+			result.Status = "failed"
+			if strings.TrimSpace(result.ErrorMessage) == "" {
+				result.ErrorMessage = runErr.Error()
+			}
+		}
+		results[protocol] = result
+	}
+	return results, true, nil
+}
+
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 	var account *Account

@@ -1089,7 +1089,8 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 // Lifecycle metadata and transport heartbeats are not model output.
 func openAIStreamEventIsMetadata(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress", "keepalive":
+	case "response.created", "response.in_progress", "keepalive",
+		"heartbeat", "ping", "response.heartbeat", "response.ping", "response.queued":
 		return true
 	default:
 		return false
@@ -2474,14 +2475,14 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
 				semanticOutputSeen = true
 			}
-			// OpenAI Responses streams that terminate with an empty
-			// response.completed (no output, no usage, no error, nothing sent
-			// to the client) are silent upstream refusals: fail over instead of
-			// recording a successful 0/0 usage turn (issue #5009).
-			if (eventType == "response.completed" || eventType == "response.done") &&
+			// Empty response.completed / response.done with no semantic output and
+			// no positive usage is an upstream failure. Replay only when nothing
+			// has been flushed to the client.
+			if openAIResponsesEmptyCompletionApplies(account) &&
+				(eventType == "response.completed" || eventType == "response.done") &&
 				!sawFailedEvent && !semanticOutputSeen && !clientOutputStarted &&
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
-				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
+				return resultWithUsage(), s.failOpenAIResponsesEmptyStream(c, account, upstreamRequestID, firstNonEmpty(mappedModel, originalModel))
 			}
 			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
 				ms := int(time.Since(startTime).Milliseconds())
@@ -2606,10 +2607,19 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			zap.String("upstream_request_id", upstreamRequestID),
 		).Info("OpenAI passthrough 上游流在未收到 [DONE] 时结束，疑似断流")
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
+			if !semanticOutputSeen && openAIResponsesEmptyCompletionApplies(account) {
+				s.noteOpenAIEmptyStreamFailure(c, account, firstNonEmpty(mappedModel, originalModel), upstreamRequestID)
+				s.clearOpenAIStreamSticky(c)
+			}
 			return resultWithUsage(),
 				s.newOpenAIStreamDisconnectFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
 		}
 		s.recordOpenAIProxyStreamDisconnect(account, missingTerminalErr, upstreamRequestID)
+		if openAIResponsesEmptyCompletionApplies(account) {
+			s.recordOpenAIStreamUpstreamError(c, account, true, upstreamRequestID, "stream_incomplete", nil, openAIResponsesPartialStreamEndedMessage)
+			s.clearOpenAIStreamSticky(c)
+			s.writeOpenAIPartialStreamFailure(c, w, flusher, responseID, firstNonEmpty(originalModel, mappedModel))
+		}
 		return resultWithUsage(), missingTerminalErr
 	}
 	if (sawDone || sawTerminalEvent) && !sawFailedEvent {

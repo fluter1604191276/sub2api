@@ -134,6 +134,26 @@ func IsChannelMonitorProbe(ctx context.Context) bool {
 	return probe
 }
 
+type openAIFailoverSelectionContextKey struct{}
+
+// WithOpenAIFailoverSelection marks an account selection that is replacing an
+// account which already failed this request. Pending and warm accounts without
+// target-protocol probe eligibility stay out of that selection.
+func WithOpenAIFailoverSelection(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAIFailoverSelectionContextKey{}, true)
+}
+
+func openAIFailoverSelectionFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	selected, _ := ctx.Value(openAIFailoverSelectionContextKey{}).(bool)
+	return selected
+}
+
 func smartSchedulerEndpointFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return "any"
@@ -352,8 +372,14 @@ func runSmartSchedulerOrdering(
 	endpoint string,
 	accounts []*Account,
 ) ([]*Account, *SmartSchedulerOrdering) {
+	// Read protocol eligibility before ordering. A disabled scheduler or a
+	// statistics error must not discard accounts the repository already qualified.
+	states, statesLoaded, loadErr := loadFailoverProbeStates(ctx, orderer, group, accounts)
+	admit := func(candidates []*Account, ordering *SmartSchedulerOrdering) []*Account {
+		return filterFailoverAdmission(ctx, group, endpoint, candidates, states, statesLoaded, loadErr, ordering)
+	}
 	if orderer == nil || group == nil || !group.SmartSchedulerEnabled || len(accounts) == 0 {
-		return accounts, nil
+		return admit(accounts, nil), nil
 	}
 	ordering, err := orderer.OrderCandidates(ctx, group, requestedModel, endpoint, accounts, time.Now())
 	if err != nil {
@@ -363,12 +389,13 @@ func runSmartSchedulerOrdering(
 			"endpoint", endpoint,
 			"reason", "statistics_unavailable",
 		)
-		return accounts, nil
+		return admit(accounts, nil), nil
 	}
 	if ordering == nil || !ordering.Active {
-		return accounts, nil
+		return admit(accounts, ordering), nil
 	}
 	ordered := applySmartSchedulerOrderingToAccounts(accounts, ordering)
+	ordered = admit(ordered, ordering)
 	softFallback := false
 	if len(ordered) == 1 {
 		_, ranked := ordering.RankByAccountID[ordered[0].ID]

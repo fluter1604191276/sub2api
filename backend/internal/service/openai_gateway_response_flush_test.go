@@ -270,8 +270,10 @@ func TestOpenAIResponseFlush_OutputWithoutTerminalFlushesResidualWithoutFailover
 	require.False(t, errors.As(err, &failoverErr))
 	require.NotNil(t, result)
 	gotBody, flushes := recorder.snapshot()
-	require.Equal(t, body, gotBody)
-	require.Equal(t, []string{body}, flushes)
+	require.Contains(t, gotBody, body)
+	require.Contains(t, gotBody, "response.failed")
+	require.NotEmpty(t, flushes)
+	require.Contains(t, flushes[0], `"delta":"partial"`)
 }
 
 func TestOpenAIResponseFlush_PreambleWithoutTerminalRemainsBufferedForFailover(t *testing.T) {

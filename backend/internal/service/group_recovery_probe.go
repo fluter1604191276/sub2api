@@ -119,22 +119,23 @@ func NormalizeGroupRecoveryProbeConfig(cfg GroupRecoveryProbeConfig) (GroupRecov
 }
 
 type GroupRecoveryProbeState struct {
-	ID                   int64      `json:"-"`
-	GroupID              int64      `json:"group_id"`
-	AccountID            int64      `json:"account_id"`
-	Model                string     `json:"model"`
-	Status               string     `json:"status"`
-	ConsecutiveSuccesses int        `json:"consecutive_successes"`
-	ConsecutiveFailures  int        `json:"consecutive_failures"`
-	LastProbeAt          *time.Time `json:"last_probe_at,omitempty"`
-	NextProbeAt          *time.Time `json:"next_probe_at,omitempty"`
-	LastSuccessAt        *time.Time `json:"last_success_at,omitempty"`
-	LastFailureAt        *time.Time `json:"last_failure_at,omitempty"`
-	LastErrorClass       string     `json:"last_error_class,omitempty"`
-	LastError            string     `json:"last_error,omitempty"`
-	LatencyMs            int64      `json:"latency_ms"`
-	ProbeCount           int64      `json:"probe_count"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                   int64                                       `json:"-"`
+	GroupID              int64                                       `json:"group_id"`
+	AccountID            int64                                       `json:"account_id"`
+	Model                string                                      `json:"model"`
+	Status               string                                      `json:"status"`
+	ConsecutiveSuccesses int                                         `json:"consecutive_successes"`
+	ConsecutiveFailures  int                                         `json:"consecutive_failures"`
+	LastProbeAt          *time.Time                                  `json:"last_probe_at,omitempty"`
+	NextProbeAt          *time.Time                                  `json:"next_probe_at,omitempty"`
+	LastSuccessAt        *time.Time                                  `json:"last_success_at,omitempty"`
+	LastFailureAt        *time.Time                                  `json:"last_failure_at,omitempty"`
+	LastErrorClass       string                                      `json:"last_error_class,omitempty"`
+	LastError            string                                      `json:"last_error,omitempty"`
+	LatencyMs            int64                                       `json:"latency_ms"`
+	ProbeCount           int64                                       `json:"probe_count"`
+	UpdatedAt            time.Time                                   `json:"updated_at"`
+	ProtocolEligibility  map[string]GroupRecoveryProbeProtocolStatus `json:"protocol_eligibility,omitempty"`
 }
 
 type GroupRecoveryProbeJob struct {
@@ -196,6 +197,9 @@ type GroupRecoveryProbeCompletion struct {
 	LastError            string
 	LatencyMs            int64
 	AttemptCount         int
+	// ProtocolEligibility is written only when Complete accepts the claim.
+	// A nil map leaves the stored eligibility unchanged.
+	ProtocolEligibility map[string]GroupRecoveryProbeProtocolStatus
 }
 
 // GroupRecoveryProbeAudit records one completed probe round independently from
@@ -558,7 +562,7 @@ func normalizedGroupRecoveryProbeWorkerCount(configured int) int {
 }
 
 func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecoveryProbeJob) {
-	reservation, reserveErr := r.reserveProbeBudget(ctx, job)
+	reservation, reserveErr := r.reserveProbeBudget(ctx, job, r.plannedProbeAttempts(ctx, job))
 	if reserveErr != nil {
 		r.finishReservationFailedJob(ctx, job, reserveErr)
 		return
@@ -568,36 +572,49 @@ func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecovery
 	}
 	startedAt := time.Now()
 	result := GroupRecoveryProbeRoundResult{}
-	attempts := job.AttemptsPerRound
-	if attempts < 1 {
-		attempts = 1
-	}
-	for i := 0; i < attempts; i++ {
-		attemptCtx, cancel := context.WithTimeout(ctx, groupRecoveryProbeAttemptTimeout)
-		testResult, err := r.accountTestSvc.RunTestBackground(attemptCtx, job.State.AccountID, job.State.Model)
-		cancel()
-		result.Attempts++
-		if err == nil && testResult != nil && testResult.Status == "success" {
-			result.SuccessCount++
-			result.LastLatencyMs = testResult.LatencyMs
+	var protocolEligibility map[string]GroupRecoveryProbeProtocolStatus
+	if round, eligibility, handled := r.collectAdaptiveProtocolProbe(ctx, job); handled {
+		result = round
+		protocolEligibility = eligibility
+	} else {
+		attempts := job.AttemptsPerRound
+		if attempts < 1 {
+			attempts = 1
+		}
+		for i := 0; i < attempts; i++ {
+			attemptCtx, cancel := context.WithTimeout(ctx, groupRecoveryProbeAttemptTimeout)
+			testResult, err := r.accountTestSvc.RunTestBackground(attemptCtx, job.State.AccountID, job.State.Model)
+			cancel()
+			result.Attempts++
+			if err == nil && testResult != nil && testResult.Status == "success" {
+				result.SuccessCount++
+				result.LastLatencyMs = testResult.LatencyMs
+				accumulateGroupRecoveryProbeUsage(&result, testResult)
+				continue
+			}
 			accumulateGroupRecoveryProbeUsage(&result, testResult)
-			continue
-		}
-		accumulateGroupRecoveryProbeUsage(&result, testResult)
-		result.FailureCount++
-		if testResult != nil {
-			result.LastLatencyMs = testResult.LatencyMs
-			result.LastError = testResult.ErrorMessage
-		}
-		if result.LastError == "" && err != nil {
-			result.LastError = err.Error()
-		}
-		if classifyGroupRecoveryProbeError(result.LastError) == GroupRecoveryProbeErrorPermanent {
-			break
+			result.FailureCount++
+			if testResult != nil {
+				result.LastLatencyMs = testResult.LatencyMs
+				result.LastError = testResult.ErrorMessage
+			}
+			if result.LastError == "" && err != nil {
+				result.LastError = err.Error()
+			}
+			if classifyGroupRecoveryProbeError(result.LastError) == GroupRecoveryProbeErrorPermanent {
+				break
+			}
 		}
 	}
 	completedAt := time.Now()
 	completion := buildGroupRecoveryProbeCompletion(job, result, completedAt)
+	if protocolEligibility != nil {
+		job.State.ProtocolEligibility = protocolEligibility
+		completion.Status = aggregateBusinessProtocolStatus(protocolEligibility)
+		completion.ProtocolEligibility = protocolEligibility
+		completion.ConsecutiveSuccesses = protocolConfirmationSuccesses(protocolEligibility)
+		applyProtocolConfirmationSchedule(&completion, job, completedAt)
+	}
 	if job.Mode == GroupRecoveryProbeModeSmart && completion.Status != GroupRecoveryProbeStatusPaused {
 		completion.NextProbeAt = addGroupRecoveryProbeJitter(completedAt, completion.NextProbeAt, r.randomFloat)
 	}
@@ -656,11 +673,14 @@ func (r *GroupRecoveryProbeRunner) createAudit(ctx context.Context, audit GroupR
 	return 0, r.repo.CreateAudit(ctx, audit)
 }
 
-func (r *GroupRecoveryProbeRunner) reserveProbeBudget(ctx context.Context, job GroupRecoveryProbeJob) (*GroupRecoveryProbeBillingReservation, error) {
+func (r *GroupRecoveryProbeRunner) reserveProbeBudget(ctx context.Context, job GroupRecoveryProbeJob, attempts int) (*GroupRecoveryProbeBillingReservation, error) {
 	if r == nil || r.billing == nil {
 		return nil, nil
 	}
-	return r.billing.Reserve(ctx, job.State.GroupID, job.AttemptsPerRound)
+	if attempts < 1 {
+		attempts = 1
+	}
+	return r.billing.Reserve(ctx, job.State.GroupID, attempts)
 }
 
 func buildGroupRecoveryProbeReservationFailure(job GroupRecoveryProbeJob, reserveErr error, now time.Time) (GroupRecoveryProbeCompletion, string) {

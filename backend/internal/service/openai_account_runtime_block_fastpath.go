@@ -623,11 +623,29 @@ func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlocked(account *Acc
 	return s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel)
 }
 
+func (s *OpenAIGatewayService) isOpenAIEmptyStreamIsolated(account *Account, requestedModel string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	state := s.getOpenAIAccountModelTransientState()
+	if state == nil {
+		return false
+	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	return state.isEmptyStreamIsolated(account.ID, openAIAccountModelTransientModel(canonicalModel), time.Now())
+}
+
 func (s *OpenAIGatewayService) isOpenAIAccountRequestRuntimeBlockedForContext(ctx context.Context, account *Account, requestedModel string) bool {
 	if s == nil {
 		return false
 	}
 	if s.isOpenAIAccountRuntimeBlocked(account) {
+		return true
+	}
+	// Empty-stream isolation is not a short cooldown. Fail-open may reuse a
+	// briefly cooled model, but it must not return an account isolated for an
+	// empty completion.
+	if s.isOpenAIEmptyStreamIsolated(account, requestedModel) {
 		return true
 	}
 	return !openAIModelTransientFailOpenFromContext(ctx) && s.isOpenAIAccountModelRuntimeBlocked(account, requestedModel)

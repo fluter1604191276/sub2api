@@ -1369,6 +1369,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			filterStats.exclude("channel_upstream_restricted")
 			continue
 		}
+		if s.isOpenAIEmptyStreamIsolated(acc, requestedModel) {
+			filterStats.exclude("empty_stream_isolated")
+			continue
+		}
 		if s.isOpenAIAccountModelRuntimeBlocked(acc, requestedModel) {
 			modelTransientBlocked = append(modelTransientBlocked, acc)
 			continue
