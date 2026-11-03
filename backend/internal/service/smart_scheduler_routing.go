@@ -84,6 +84,10 @@ type openAISmartStickyReviewRequest struct {
 	RequiredTransport       OpenAIUpstreamTransport
 	RequiredCapability      OpenAIEndpointCapability
 	RequiredImageCapability OpenAIImagesCapability
+	// PreviousResponseID is set only when this request is pinned by a
+	// previous_response_id. Chat-completions warm-latency escape must not run
+	// while that pin is present; other sticky decisions are unchanged.
+	PreviousResponseID string
 }
 
 type openAISmartStickyReviewDecision struct {
@@ -106,6 +110,7 @@ type openAISmartStickyReviewDecision struct {
 	ConfirmationCount    int
 	Cooldown             bool
 	CooldownRemaining    time.Duration
+	EscapeLatencyMs      *float64
 }
 
 func WithSmartSchedulerEndpoint(ctx context.Context, endpoint string) context.Context {
@@ -948,6 +953,139 @@ func decideOpenAISmartStickyReviewWithPolicy(ordering *SmartSchedulerOrdering, c
 	return decision
 }
 
+const chatCompletionsWarmLatencyEscapeReason = "chat_completions_warm_latency"
+
+// applyChatCompletionsWarmLatencyEscape lets a chat_completions session leave a
+// sticky account that is already in the warm pool, is the group's unique lowest
+// score, and has a comparable first-token p90 (or an equivalent first-token
+// latency when p90 is absent) above the configured threshold. It does not run
+// for other endpoints, for a previous_response_id pin, or when the exact
+// endpoint window does not have enough samples. Existing quality-lead and
+// primary-over-warm decisions are left as-is when they already switch.
+func applyChatCompletionsWarmLatencyEscape(endpoint string, ordering *SmartSchedulerOrdering, currentAccountID int64, policy SmartStickyPolicy, previousResponseID string, decision openAISmartStickyReviewDecision) openAISmartStickyReviewDecision {
+	if decision.Switch || !decision.Reviewed || ordering == nil || !ordering.Active || ordering.Exploration || decision.Reason == "exploration_deferred" {
+		return decision
+	}
+	if normalizeSmartSchedulerEndpoint(endpoint) != "chat_completions" || strings.TrimSpace(previousResponseID) != "" || currentAccountID <= 0 {
+		return decision
+	}
+	current, ok := ordering.ItemByAccountID[currentAccountID]
+	if !ok || current.Pool != "warm" || current.Score == nil || !stickyAccountIsUniqueLowestScore(ordering, currentAccountID, *current.Score) {
+		return decision
+	}
+	latencyMs, ok := stickyEscapeFirstTokenLatencyMs(current)
+	if !ok || latencyMs <= chatCompletionsWarmLatencyEscapeThresholdMs(policy) {
+		return decision
+	}
+	decision, ok = stickyEscapeChallenger(ordering, currentAccountID, decision)
+	if !ok {
+		return decision
+	}
+	decision.Switch = true
+	decision.Reason = chatCompletionsWarmLatencyEscapeReason
+	decision.RequiresConfirmation = false
+	decision.EscapeLatencyMs = &latencyMs
+	if decision.CurrentScore != nil && decision.ChallengerScore != nil {
+		decision.QualityLead = *decision.ChallengerScore - *decision.CurrentScore
+	}
+	return decision
+}
+
+func stickyAccountIsUniqueLowestScore(ordering *SmartSchedulerOrdering, currentAccountID int64, currentScore float64) bool {
+	if ordering == nil {
+		return false
+	}
+	hasBetter := false
+	for accountID, item := range ordering.ItemByAccountID {
+		if accountID == currentAccountID || item.Pool == "isolated" || item.Score == nil {
+			continue
+		}
+		if *item.Score <= currentScore {
+			return false
+		}
+		hasBetter = true
+	}
+	return hasBetter
+}
+
+func stickyEscapeChallenger(ordering *SmartSchedulerOrdering, currentAccountID int64, decision openAISmartStickyReviewDecision) (openAISmartStickyReviewDecision, bool) {
+	if decision.ChallengerID > 0 && decision.ChallengerID != currentAccountID {
+		if item, ok := ordering.ItemByAccountID[decision.ChallengerID]; ok && item.Pool != "isolated" {
+			return decision, true
+		}
+	}
+	for _, accountID := range ordering.OrderedAccountIDs {
+		if accountID == currentAccountID {
+			continue
+		}
+		item, ok := ordering.ItemByAccountID[accountID]
+		if !ok || item.Pool == "isolated" {
+			continue
+		}
+		decision.ChallengerID = accountID
+		decision.ChallengerPool = item.Pool
+		decision.ChallengerScore = item.Score
+		decision.ChallengerCost = item.CostMultiplier
+		return decision, true
+	}
+	return decision, false
+}
+
+func stickyEscapeFirstTokenLatencyMs(item SmartSchedulerPreviewItem) (float64, bool) {
+	if item.ExactEndpointLatency != nil {
+		if latencyMs, ok := comparableWindowFirstTokenLatencyMs(*item.ExactEndpointLatency); ok {
+			return latencyMs, true
+		}
+	}
+	// Fallback evidence belongs to another model or endpoint. Do not treat that
+	// window as chat_completions latency; missing exact samples stay sticky.
+	if item.EvidenceFallback {
+		return 0, false
+	}
+	window, ok := comparablePreviewLatencyWindow(item)
+	if !ok {
+		return 0, false
+	}
+	return comparableWindowFirstTokenLatencyMs(window)
+}
+
+func comparableAccountQualityLatencyWindow(stats AccountQualityStats) (AccountQualityWindow, bool) {
+	return comparablePreviewLatencyWindow(SmartSchedulerPreviewItem{
+		Quality1h:  stats.Recent1h,
+		Quality24h: AccountQualityPeriod{Last10: stats.Last10, Last100: stats.Last100},
+	})
+}
+
+func comparablePreviewLatencyWindow(item SmartSchedulerPreviewItem) (AccountQualityWindow, bool) {
+	for _, window := range []AccountQualityWindow{
+		item.Quality1h.Last10,
+		item.Quality1h.Last100,
+		item.Quality24h.Last10,
+		item.Quality24h.Last100,
+	} {
+		if _, ok := comparableWindowFirstTokenLatencyMs(window); ok {
+			return window, true
+		}
+	}
+	return AccountQualityWindow{}, false
+}
+
+func comparableWindowFirstTokenLatencyMs(window AccountQualityWindow) (float64, bool) {
+	if window.SampleCount < accountQualityMinSamples || window.FirstTokenSampleCount < accountQualityMinTTFTSamples {
+		return 0, false
+	}
+	if validQualityMetric(window.P90FirstTokenMs) {
+		return *window.P90FirstTokenMs, true
+	}
+	if validQualityMetric(window.RoutingFirstTokenMs) {
+		return *window.RoutingFirstTokenMs, true
+	}
+	if validQualityMetric(window.AverageFirstTokenMs) {
+		return *window.AverageFirstTokenMs, true
+	}
+	return 0, false
+}
+
 func (s *OpenAIGatewayService) openAISmartStickyReviewCandidates(ctx context.Context, req openAISmartStickyReviewRequest) ([]*Account, error) {
 	accounts, err := s.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
 	if err != nil {
@@ -1008,6 +1146,7 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 		return openAISmartStickyReviewDecision{}
 	}
 	decision := decideOpenAISmartStickyReviewWithPolicy(ordering, currentAccountID, policy)
+	decision = applyChatCompletionsWarmLatencyEscape(smartSchedulerEndpointFromContext(ctx), ordering, currentAccountID, policy, req.PreviousResponseID, decision)
 	decision = s.applySmartStickyReviewStateWithPolicy(key, now, decision, policy)
 	if policy.usesLegacyDynamics() {
 		if decision.ConfirmationPending || decision.Cooldown {
@@ -1040,6 +1179,7 @@ func (s *OpenAIGatewayService) reviewOpenAISmartStickySession(ctx context.Contex
 		"proposed_reason", decision.ProposedReason,
 		"confirmation_count", decision.ConfirmationCount,
 		"cooldown_remaining_ms", decision.CooldownRemaining.Milliseconds(),
+		"escape_latency_ms", smartStickyScoreLogValue(decision.EscapeLatencyMs),
 		"session_fingerprint", smartStickySessionFingerprint(key),
 	}
 	if decision.Switch {

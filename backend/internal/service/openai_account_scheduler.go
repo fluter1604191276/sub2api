@@ -2562,6 +2562,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 					RequiredTransport:       requiredTransport,
 					RequiredCapability:      requiredCapability,
 					RequiredImageCapability: requiredImageCapability,
+					PreviousResponseID:      previousResponseID,
 				}, stickyAccountID)
 				if review.Switch {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
