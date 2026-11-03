@@ -139,6 +139,27 @@ func openAIResponsesEventExcludedFromEmptyStream(data []byte) bool {
 	return false
 }
 
+func openAIResponsesEventHasActionableError(data []byte) bool {
+	for _, path := range []string{"error", "response.error"} {
+		value := gjson.GetBytes(data, path)
+		if !value.Exists() || value.Type == gjson.Null {
+			continue
+		}
+		if value.IsObject() {
+			if strings.TrimSpace(value.Get("message").String()) != "" ||
+				strings.TrimSpace(value.Get("code").String()) != "" ||
+				strings.TrimSpace(value.Get("type").String()) != "" {
+				return true
+			}
+			continue
+		}
+		if strings.TrimSpace(value.String()) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func openAIResponsesPayloadUsageHasTokens(data []byte) bool {
 	for _, path := range []string{"usage", "response.usage"} {
 		usage := gjson.GetBytes(data, path)

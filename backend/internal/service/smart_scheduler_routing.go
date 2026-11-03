@@ -372,11 +372,14 @@ func runSmartSchedulerOrdering(
 	endpoint string,
 	accounts []*Account,
 ) ([]*Account, *SmartSchedulerOrdering) {
-	// Protocol admission is independent of ordering. A disabled scheduler, a
-	// statistics error, or an inactive ordering must not let an unqualified
-	// account into failover.
+	// Read protocol eligibility before ordering. A disabled scheduler or a
+	// statistics error must not discard accounts the repository already qualified.
+	states, statesLoaded, loadErr := loadFailoverProbeStates(ctx, orderer, group, accounts)
+	admit := func(candidates []*Account, ordering *SmartSchedulerOrdering) []*Account {
+		return filterFailoverAdmission(ctx, group, endpoint, candidates, states, statesLoaded, loadErr, ordering)
+	}
 	if orderer == nil || group == nil || !group.SmartSchedulerEnabled || len(accounts) == 0 {
-		return filterFailoverAdmission(ctx, group, endpoint, accounts, nil), nil
+		return admit(accounts, nil), nil
 	}
 	ordering, err := orderer.OrderCandidates(ctx, group, requestedModel, endpoint, accounts, time.Now())
 	if err != nil {
@@ -386,13 +389,13 @@ func runSmartSchedulerOrdering(
 			"endpoint", endpoint,
 			"reason", "statistics_unavailable",
 		)
-		return filterFailoverAdmission(ctx, group, endpoint, accounts, nil), nil
+		return admit(accounts, nil), nil
 	}
 	if ordering == nil || !ordering.Active {
-		return filterFailoverAdmission(ctx, group, endpoint, accounts, ordering), nil
+		return admit(accounts, ordering), nil
 	}
 	ordered := applySmartSchedulerOrderingToAccounts(accounts, ordering)
-	ordered = filterFailoverAdmission(ctx, group, endpoint, ordered, ordering)
+	ordered = admit(ordered, ordering)
 	softFallback := false
 	if len(ordered) == 1 {
 		_, ranked := ordering.RankByAccountID[ordered[0].ID]

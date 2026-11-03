@@ -51,15 +51,18 @@ func TestGroupRecoveryProbeRepositoryClaimDue(t *testing.T) {
 	mock.ExpectExec(`(?s)INSERT INTO group_recovery_probe_states.*credentials->>'api_protocol'.*adaptive.*protocol_eligibility.*ON CONFLICT DO NOTHING`).
 		WithArgs(now).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*next_probe_at = \$1::timestamptz.*api_protocol.*adaptive.*protocol_eligibility`).
+	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*next_probe_at = \$1::timestamptz.*api_protocol.*adaptive.*protocol_eligibility.*\{\}`).
+		WithArgs(now).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*INTERVAL '5 minutes'.*'warm', 'pending'`).
 		WithArgs(now).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`(?s)INSERT INTO group_recovery_probe_physical_states.*LOWER\(BTRIM\(s\.model\)\).*ON CONFLICT \(account_id, model_key\) DO NOTHING`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*SET physical_state_id = p\.id.*p\.model_key = LOWER\(BTRIM\(s\.model\)\)`).
+	mock.ExpectExec(`(?s)UPDATE group_recovery_probe_states s.*SET physical_state_id = p\.id.*protocol_eligibility.*p\.model_key = LOWER\(BTRIM\(s\.model\)\)`).
 		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)WITH memberships AS.*MIN\(s\.next_probe_at\) AS due_at.*COUNT\(DISTINCT g\.id\) AS beneficiary_group_count.*JOIN LATERAL.*ORDER BY s\.next_probe_at ASC, s\.group_id ASC.*membership\.due_at <= \$1::timestamptz.*ul\.actual_cost > 0.*FOR UPDATE OF p SKIP LOCKED.*UPDATE group_recovery_probe_physical_states p.*UPDATE group_recovery_probe_states s`).
+	mock.ExpectQuery(`(?s)WITH memberships AS.*MIN\(s\.next_probe_at\) AS due_at.*COUNT\(DISTINCT g\.id\) AS beneficiary_group_count.*JOIN LATERAL.*ORDER BY s\.next_probe_at ASC, s\.group_id ASC.*membership\.due_at <= \$1::timestamptz.*ul\.actual_cost > 0.*'warm', 'pending'.*FOR UPDATE OF p SKIP LOCKED.*UPDATE group_recovery_probe_physical_states p.*UPDATE group_recovery_probe_states s`).
 		WithArgs(now, 4).
 		WillReturnRows(rows)
 	mock.ExpectCommit()
@@ -206,7 +209,7 @@ func TestGroupRecoveryProbeRepositoryReconcileRealUsage(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`(?s)WITH target AS.*group_recovery_probe_physical_states p.*JOIN LATERAL.*MAX\(ul\.created_at\).*ul\.actual_cost > 0.*ul\.request_type <> 6.*ul\.created_at > GREATEST.*real_usage\.real_usage_at > GREATEST.*p\.last_probe_at.*p\.last_success_at.*FOR UPDATE OF p.*synchronization_target AS.*NOT EXISTS \(SELECT 1 FROM target.*recovery_probe_mode = 'smart'.*FOR UPDATE OF p.*synchronized AS.*UPDATE group_recovery_probe_states s.*p\.status = 'probing' THEN s\.status.*probe_count = p\.probe_count.*FROM synchronization_target p.*projected AS.*UPDATE group_recovery_probe_states s.*last_success_at = t\.real_usage_at.*probe_count = t\.probe_count.*projection_due AS.*MIN\(next_probe_at\).*healed AS.*UPDATE group_recovery_probe_physical_states p.*last_success_at = t\.real_usage_at.*SELECT COUNT\(\*\) FROM projected`).
+	mock.ExpectQuery(`(?s)WITH target AS.*group_recovery_probe_physical_states p.*JOIN LATERAL.*MAX\(ul\.created_at\).*ul\.actual_cost > 0.*ul\.request_type <> 6.*ul\.created_at > GREATEST.*real_usage\.real_usage_at > GREATEST.*p\.last_probe_at.*p\.last_success_at.*FOR UPDATE OF p.*synchronization_target AS.*NOT EXISTS \(SELECT 1 FROM target.*recovery_probe_mode = 'smart'.*protocol_eligibility.*IS DISTINCT FROM.*FOR UPDATE OF p.*synchronized AS.*UPDATE group_recovery_probe_states s.*p\.status = 'probing' THEN s\.status.*protocol_eligibility = p\.protocol_eligibility.*FROM synchronization_target p.*projected AS.*UPDATE group_recovery_probe_states s.*last_success_at = t\.real_usage_at.*protocol_eligibility = COALESCE\(t\.protocol_eligibility.*projection_due AS.*MIN\(next_probe_at\).*healed AS.*UPDATE group_recovery_probe_physical_states p.*last_success_at = t\.real_usage_at.*SELECT COUNT\(\*\) FROM projected`).
 		WithArgs(now, service.GroupRecoveryProbeSmartEligibleMinIntervalSeconds).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(2)))
 

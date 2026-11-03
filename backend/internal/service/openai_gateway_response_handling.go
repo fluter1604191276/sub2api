@@ -1449,7 +1449,7 @@ func openAIResponsesCompletedEventIsEmpty(data []byte, usage *OpenAIUsage) bool 
 	if openAIUsageHasTokens(usage) || openAIResponsesPayloadUsageHasTokens(data) {
 		return false
 	}
-	if gjson.GetBytes(data, "error").Exists() || gjson.GetBytes(data, "response.error").Exists() {
+	if openAIResponsesEventHasActionableError(data) {
 		return false
 	}
 	if openAIResponsesPayloadHasSemanticOutput(data) {

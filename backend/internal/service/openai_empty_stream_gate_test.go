@@ -281,9 +281,9 @@ func TestAdaptiveProtocolProbeIgnoresPollutedLegacyStatus(t *testing.T) {
 		},
 		RankByAccountID: map[int64]int{account.ID: 1},
 	}
-	require.Empty(t, filterFailoverByProtocolEligibility(group, "messages", []*Account{account}, ordering))
-	require.Equal(t, []*Account{account}, filterFailoverByProtocolEligibility(group, "responses", []*Account{account}, ordering))
-	require.Equal(t, []*Account{account}, filterFailoverByProtocolEligibility(&Group{RecoveryProbeEnabled: false}, "messages", []*Account{account}, ordering))
+	require.Empty(t, filterFailoverByProtocolEligibility(group, "messages", []*Account{account}, nil, false, ordering))
+	require.Equal(t, []*Account{account}, filterFailoverByProtocolEligibility(group, "responses", []*Account{account}, nil, false, ordering))
+	require.Equal(t, []*Account{account}, filterFailoverByProtocolEligibility(&Group{RecoveryProbeEnabled: false}, "messages", []*Account{account}, nil, false, ordering))
 }
 
 func TestOpenAIResponsesCompletedEventTreatsZeroUsageAndEmptyShellAsEmpty(t *testing.T) {

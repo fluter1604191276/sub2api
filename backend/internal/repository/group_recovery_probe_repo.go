@@ -14,6 +14,23 @@ import (
 
 const groupRecoveryProbeStaleClaimInterval = "25 minutes"
 
+// adaptiveProtocolBootstrapPredicate keeps a CN adaptive account due until
+// every recorded protocol is confirmed. An empty map still needs the first
+// probe. warm and pending still need the confirming round, even when the
+// account has recent real traffic. OpenCode Go and Command Code are not in
+// this set: they keep the shared probe status.
+const adaptiveProtocolBootstrapPredicate = `
+COALESCE(bootstrap.credentials->>'api_protocol', '') = 'adaptive'
+AND bootstrap.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
+AND (
+	COALESCE(p.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
+	OR EXISTS (
+		SELECT 1
+		FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
+		WHERE entry.value->>'status' IN ('warm', 'pending')
+	)
+)`
+
 type groupRecoveryProbeRepository struct {
 	db *sql.DB
 }
@@ -126,6 +143,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 			AND a.status = 'active'
 			AND a.schedulable = TRUE
 			AND a.deleted_at IS NULL
+			AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
 			AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
 			AND NOT EXISTS (
 				SELECT 1 FROM group_recovery_probe_states s
@@ -142,12 +160,30 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 		SET next_probe_at = $1::timestamptz, updated_at = $1::timestamptz
 		FROM accounts a
 		WHERE a.id = s.account_id
+			AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
 			AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
 			AND COALESCE(s.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
 			AND s.status <> 'probing'
 			AND s.next_probe_at > $1::timestamptz
 	`, now.UTC()); err != nil {
 		return nil, fmt.Errorf("schedule adaptive protocol bootstrap: %w", err)
+	}
+	if _, err := r.db.ExecContext(ctx, `
+		UPDATE group_recovery_probe_states s
+		SET next_probe_at = $1::timestamptz + INTERVAL '5 minutes', updated_at = $1::timestamptz
+		FROM accounts a
+		WHERE a.id = s.account_id
+			AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
+			AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
+			AND s.status <> 'probing'
+			AND EXISTS (
+				SELECT 1
+				FROM jsonb_each(COALESCE(s.protocol_eligibility, '{}'::jsonb)) entry
+				WHERE entry.value->>'status' IN ('warm', 'pending')
+			)
+			AND s.next_probe_at > $1::timestamptz + INTERVAL '5 minutes'
+	`, now.UTC()); err != nil {
+		return nil, fmt.Errorf("schedule adaptive protocol confirmation: %w", err)
 	}
 	if _, err := r.db.ExecContext(ctx, `
 		INSERT INTO group_recovery_probe_physical_states (account_id, model_key, model)
@@ -162,7 +198,12 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 	}
 	if _, err := r.db.ExecContext(ctx, `
 		UPDATE group_recovery_probe_states s
-		SET physical_state_id = p.id
+		SET physical_state_id = p.id,
+			protocol_eligibility = CASE
+				WHEN COALESCE(s.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
+					THEN COALESCE(p.protocol_eligibility, '{}'::jsonb)
+				ELSE s.protocol_eligibility
+			END
 		FROM group_recovery_probe_physical_states p
 		WHERE s.physical_state_id IS NULL
 			AND p.account_id = s.account_id
@@ -226,8 +267,7 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 				) OR EXISTS (
 					SELECT 1 FROM accounts bootstrap
 					WHERE bootstrap.id = p.account_id
-						AND COALESCE(bootstrap.credentials->>'api_protocol', '') = 'adaptive'
-						AND COALESCE(p.protocol_eligibility, '{}'::jsonb) = '{}'::jsonb
+						AND `+adaptiveProtocolBootstrapPredicate+`
 				))
 			ORDER BY membership.due_at ASC, p.id ASC
 			FOR UPDATE OF p SKIP LOCKED
@@ -577,6 +617,8 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 							p.last_probe_at, p.last_success_at, p.last_failure_at,
 							p.last_error_class, p.last_error, p.latency_ms, p.probe_count
 							)
+							OR COALESCE(s.protocol_eligibility, '{}'::jsonb)
+								IS DISTINCT FROM COALESCE(p.protocol_eligibility, '{}'::jsonb)
 						)
 				)
 			FOR UPDATE OF p
@@ -619,6 +661,8 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 						p.last_probe_at, p.last_success_at, p.last_failure_at,
 						p.last_error_class, p.last_error, p.latency_ms, p.probe_count
 						)
+						OR COALESCE(s.protocol_eligibility, '{}'::jsonb)
+							IS DISTINCT FROM COALESCE(p.protocol_eligibility, '{}'::jsonb)
 					)
 				RETURNING s.id
 		), projected AS (
@@ -644,6 +688,7 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 				last_error = '',
 				latency_ms = t.latency_ms,
 				probe_count = t.probe_count,
+				protocol_eligibility = COALESCE(t.protocol_eligibility, '{}'::jsonb),
 				updated_at = $1::timestamptz
 			FROM target t, groups g
 			WHERE s.physical_state_id = t.id AND g.id = s.group_id

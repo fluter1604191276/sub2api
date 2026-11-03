@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
@@ -157,7 +159,7 @@ func recoveryProbeAllowsFailover(account *Account, endpoint string, state *Group
 		if status, ok := state.ProtocolEligibility[protocol]; ok {
 			return status.Status == GroupRecoveryProbeStatusEligible
 		}
-		if account != nil && account.IsAdaptiveAPIProtocol() {
+		if accountRequiresPerProtocolEligibility(account) {
 			return false
 		}
 	}
@@ -179,11 +181,61 @@ func protocolProbeView(account *Account, endpoint string, state *GroupRecoveryPr
 			cloned.LastError = status.LastError
 			return &cloned, false
 		}
-		if account != nil && account.IsAdaptiveAPIProtocol() {
+		if accountRequiresPerProtocolEligibility(account) {
 			return nil, false
 		}
 	}
 	return nil, true
+}
+
+// accountRequiresPerProtocolEligibility is the producer set: only CN adaptive
+// accounts receive a per-protocol probe. OpenCode Go and Command Code are
+// adaptive by model, but their probe still records one shared status.
+func accountRequiresPerProtocolEligibility(account *Account) bool {
+	return len(adaptiveBusinessProbeProtocols(account)) > 0
+}
+
+func protocolConfirmationSuccesses(eligibility map[string]GroupRecoveryProbeProtocolStatus) int {
+	minSuccesses := 0
+	seen := false
+	for _, status := range eligibility {
+		switch status.Status {
+		case GroupRecoveryProbeStatusFailed, GroupRecoveryProbeStatusPaused:
+			continue
+		}
+		if !seen || status.ConsecutiveSuccesses < minSuccesses {
+			minSuccesses = status.ConsecutiveSuccesses
+			seen = true
+		}
+	}
+	return minSuccesses
+}
+
+// applyProtocolConfirmationSchedule sets the next probe from the final
+// aggregate status. A first round that succeeds on every protocol is still
+// warm until each protocol has two successes, so it must not inherit the
+// multi-hour eligible interval computed from the shared success count.
+func applyProtocolConfirmationSchedule(completion *GroupRecoveryProbeCompletion, job GroupRecoveryProbeJob, now time.Time) {
+	if completion == nil {
+		return
+	}
+	interval := groupRecoveryProbeInterval(job)
+	switch completion.Status {
+	case GroupRecoveryProbeStatusEligible:
+		if job.Mode == GroupRecoveryProbeModeSmart {
+			intervalJob := job
+			intervalJob.State.ConsecutiveSuccesses = completion.ConsecutiveSuccesses
+			completion.NextProbeAt = now.Add(groupRecoveryProbeSmartEligibleInterval(intervalJob))
+			return
+		}
+		completion.NextProbeAt = now.Add(interval)
+	case GroupRecoveryProbeStatusWarm, GroupRecoveryProbeStatusPending:
+		if job.Mode == GroupRecoveryProbeModeSmart {
+			completion.NextProbeAt = now.Add(5 * time.Minute)
+			return
+		}
+		completion.NextProbeAt = now.Add(interval)
+	}
 }
 
 func applyGroupRecoveryProbeStateForRequest(item *SmartSchedulerPreviewItem, account *Account, endpoint string, state *GroupRecoveryProbeState) {
@@ -203,14 +255,56 @@ func applyGroupRecoveryProbeStateForRequest(item *SmartSchedulerPreviewItem, acc
 	}
 }
 
-func filterFailoverAdmission(ctx context.Context, group *Group, endpoint string, accounts []*Account, ordering *SmartSchedulerOrdering) []*Account {
+type recoveryProbeStateSource interface {
+	ListRecoveryProbeStates(ctx context.Context, groupID int64, accountIDs []int64, model string) (map[int64]GroupRecoveryProbeState, error)
+}
+
+func (s *SmartSchedulerPreviewService) ListRecoveryProbeStates(ctx context.Context, groupID int64, accountIDs []int64, model string) (map[int64]GroupRecoveryProbeState, error) {
+	if s == nil || s.recoveryProbe == nil {
+		return nil, fmt.Errorf("recovery probe repository is unavailable")
+	}
+	return s.recoveryProbe.ListStates(ctx, groupID, accountIDs, model)
+}
+
+func loadFailoverProbeStates(ctx context.Context, orderer smartSchedulerCandidateOrderer, group *Group, accounts []*Account) (map[int64]GroupRecoveryProbeState, bool, error) {
+	source, ok := orderer.(recoveryProbeStateSource)
+	if !ok || group == nil || !group.RecoveryProbeEnabled {
+		return nil, false, nil
+	}
+	model, ok := smartSchedulerRecoveryProbeModel(group)
+	if !ok {
+		return nil, false, nil
+	}
+	ids := make([]int64, 0, len(accounts))
+	for _, account := range accounts {
+		if account != nil && account.ID > 0 {
+			ids = append(ids, account.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return map[int64]GroupRecoveryProbeState{}, true, nil
+	}
+	states, err := source.ListRecoveryProbeStates(ctx, group.ID, ids, model)
+	if err != nil {
+		return nil, true, err
+	}
+	if states == nil {
+		states = map[int64]GroupRecoveryProbeState{}
+	}
+	return states, true, nil
+}
+
+func filterFailoverAdmission(ctx context.Context, group *Group, endpoint string, accounts []*Account, states map[int64]GroupRecoveryProbeState, statesLoaded bool, loadErr error, ordering *SmartSchedulerOrdering) []*Account {
 	if !openAIFailoverSelectionFromContext(ctx) {
 		return accounts
 	}
-	return filterFailoverByProtocolEligibility(group, endpoint, accounts, ordering)
+	if loadErr != nil {
+		return nil
+	}
+	return filterFailoverByProtocolEligibility(group, endpoint, accounts, states, statesLoaded, ordering)
 }
 
-func filterFailoverByProtocolEligibility(group *Group, endpoint string, ordered []*Account, ordering *SmartSchedulerOrdering) []*Account {
+func filterFailoverByProtocolEligibility(group *Group, endpoint string, ordered []*Account, states map[int64]GroupRecoveryProbeState, statesLoaded bool, ordering *SmartSchedulerOrdering) []*Account {
 	if group == nil || !group.RecoveryProbeEnabled || len(ordered) == 0 {
 		return ordered
 	}
@@ -220,7 +314,12 @@ func filterFailoverByProtocolEligibility(group *Group, endpoint string, ordered 
 			continue
 		}
 		var state *GroupRecoveryProbeState
-		if ordering != nil {
+		if statesLoaded {
+			if loaded, ok := states[account.ID]; ok {
+				copied := loaded
+				state = &copied
+			}
+		} else if ordering != nil {
 			if item, ok := ordering.ItemByAccountID[account.ID]; ok {
 				state = item.RecoveryProbe
 			}
@@ -241,9 +340,9 @@ func (r *GroupRecoveryProbeRunner) collectAdaptiveProtocolProbe(ctx context.Cont
 	if !ok || r == nil || r.repo == nil {
 		return GroupRecoveryProbeRoundResult{}, nil, false
 	}
-	results, split, err := tester.ProbeBusinessProtocols(ctx, job.State.AccountID, job.State.Model)
-	if err != nil || !split {
-		return GroupRecoveryProbeRoundResult{}, nil, false
+	rounds := job.AttemptsPerRound
+	if rounds < 1 {
+		rounds = 1
 	}
 	previous := map[string]GroupRecoveryProbeProtocolStatus{}
 	if store, ok := r.repo.(groupRecoveryProbeProtocolStore); ok && job.PhysicalStateID > 0 {
@@ -254,34 +353,52 @@ func (r *GroupRecoveryProbeRunner) collectAdaptiveProtocolProbe(ctx context.Cont
 			previous = loaded
 		}
 	}
-	eligibility := make(map[string]GroupRecoveryProbeProtocolStatus, len(previous)+len(results))
+	eligibility := make(map[string]GroupRecoveryProbeProtocolStatus, len(previous))
 	for protocol, status := range previous {
 		eligibility[protocol] = status
 	}
 	round := GroupRecoveryProbeRoundResult{CostStatus: GroupRecoveryProbeCostStatusUnavailable}
 	var failureText string
-	for protocol, result := range results {
-		round.Attempts++
-		success := result != nil && result.Status == "success"
-		errText := ""
-		if result != nil {
-			round.LastLatencyMs = result.LatencyMs
-			errText = result.ErrorMessage
-			accumulateGroupRecoveryProbeUsage(&round, result)
-		}
-		if !success {
-			round.FailureCount++
-			if errText == "" {
-				errText = "business protocol probe failed"
+	handled := false
+	for attempt := 0; attempt < rounds; attempt++ {
+		results, split, err := tester.ProbeBusinessProtocols(ctx, job.State.AccountID, job.State.Model)
+		if err != nil || !split {
+			if !handled {
+				return GroupRecoveryProbeRoundResult{}, nil, false
 			}
-			if failureText == "" {
-				failureText = protocol + ": " + errText
-			}
-		} else {
-			round.SuccessCount++
+			break
 		}
-		eligibility[protocol] = mergeBusinessProtocolProbe(previous[protocol], success, errText)
+		handled = true
+		permanent := false
+		for protocol, result := range results {
+			round.Attempts++
+			success := result != nil && result.Status == "success"
+			errText := ""
+			if result != nil {
+				round.LastLatencyMs = result.LatencyMs
+				errText = result.ErrorMessage
+				accumulateGroupRecoveryProbeUsage(&round, result)
+			}
+			if !success {
+				round.FailureCount++
+				if errText == "" {
+					errText = "business protocol probe failed"
+				}
+				if failureText == "" {
+					failureText = protocol + ": " + errText
+				}
+				if classifyGroupRecoveryProbeError(errText) == GroupRecoveryProbeErrorPermanent {
+					permanent = true
+				}
+			} else {
+				round.SuccessCount++
+			}
+			eligibility[protocol] = mergeBusinessProtocolProbe(eligibility[protocol], success, errText)
+		}
+		if permanent {
+			break
+		}
 	}
 	round.LastError = failureText
-	return round, eligibility, true
+	return round, eligibility, handled
 }

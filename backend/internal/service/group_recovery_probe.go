@@ -612,11 +612,8 @@ func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecovery
 		job.State.ProtocolEligibility = protocolEligibility
 		completion.Status = aggregateBusinessProtocolStatus(protocolEligibility)
 		completion.ProtocolEligibility = protocolEligibility
-		if job.Mode == GroupRecoveryProbeModeSmart && completion.Status == GroupRecoveryProbeStatusEligible {
-			intervalJob := job
-			intervalJob.State.ConsecutiveSuccesses = completion.ConsecutiveSuccesses
-			completion.NextProbeAt = completedAt.Add(groupRecoveryProbeSmartEligibleInterval(intervalJob))
-		}
+		completion.ConsecutiveSuccesses = protocolConfirmationSuccesses(protocolEligibility)
+		applyProtocolConfirmationSchedule(&completion, job, completedAt)
 	}
 	if job.Mode == GroupRecoveryProbeModeSmart && completion.Status != GroupRecoveryProbeStatusPaused {
 		completion.NextProbeAt = addGroupRecoveryProbeJitter(completedAt, completion.NextProbeAt, r.randomFloat)
