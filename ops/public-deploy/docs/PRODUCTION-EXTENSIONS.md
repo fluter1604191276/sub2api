@@ -10,6 +10,7 @@ Every release manifest must record the status and evidence for each capability b
 
 | ID | Capability | Required evidence | Risk surface | Current status |
 | --- | --- | --- | --- | --- |
+| openai-group-iq | Configurable group-scoped reasoning benchmark with isolated test identity, authenticated result cards and administrator settings | extensions/20261104-openai-iq.md, IQ service/repository/handler/frontend tests and candidate image evidence | Internal inference spend, group visibility, background scheduling and persistent benchmark results | Required |
 | account-priority-conversion | Administrator-only manual per-account decimal multiplier to priority preview/confirmation | extensions/20261012-account-priority-conversion.md, service/repository/handler/UI tests, new image evidence | Existing account priority only; no pricing/default/algorithm change | Required |
 | scheduler | Smart account scheduling, sticky-session escape, exploration, score-aware selection | gateway_scheduling.go, openai_gateway_passthrough.go, openai gateway stream handlers, scheduler and sticky-escape tests, admin settings/routes | Routing, availability, session affinity | Required |
 | scheduled-probe | Scheduled probe plans, budget/attribution, result handling, scheduler linkage | scheduled_test_runner_service.go, scheduled_test_service.go, scheduled_test_handler.go, probe tests | Upstream cost, account availability | Required |

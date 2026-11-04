@@ -37,11 +37,13 @@ import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 import pluginsAPI from './plugins'
 import { getVisibility, updateVisibility } from './publicCatalog'
+import { getOpenAIIQSettings, updateOpenAIIQSettings } from '../openaiIQ'
 
 const publicCatalogAPI = {
   getVisibility,
   updateVisibility,
 }
+const openaiIQAPI = { getOpenAIIQSettings, updateOpenAIIQSettings }
 
 /**
  * Unified admin API object for convenient access
@@ -80,7 +82,8 @@ export const adminAPI = {
   compliance: adminComplianceAPI,
   audit: auditAPI,
   plugins: pluginsAPI,
-  publicCatalog: publicCatalogAPI
+  publicCatalog: publicCatalogAPI,
+  openaiIQ: openaiIQAPI
 }
 
 export {
@@ -117,7 +120,8 @@ export {
   adminComplianceAPI,
   auditAPI,
   pluginsAPI,
-  publicCatalogAPI
+  publicCatalogAPI,
+  openaiIQAPI
 }
 
 export default adminAPI

@@ -111,6 +111,7 @@ func RegisterAdminRoutes(
 
 		// 定时测试计划
 		registerScheduledTestRoutes(admin, h)
+		registerOpenAIIQRoutes(admin, h)
 
 		// 渠道管理
 		registerChannelRoutes(admin, h)
@@ -134,6 +135,12 @@ func RegisterAdminRoutes(
 		// 操作审计日志
 		registerAuditLogRoutes(admin, h, stepUpAuth)
 	}
+}
+
+func registerOpenAIIQRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	endpoint := admin.Group("/openai-iq")
+	endpoint.GET("/settings", h.OpenAIIQ.GetSettings)
+	endpoint.PUT("/settings", h.OpenAIIQ.UpdateSettings)
 }
 
 func registerPublicCatalogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

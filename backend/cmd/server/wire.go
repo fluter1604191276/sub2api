@@ -119,6 +119,7 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
 	groupRecoveryProbe *service.GroupRecoveryProbeRunner,
+	openAIIQ *service.OpenAIIQService,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
@@ -348,6 +349,12 @@ func provideCleanup(
 			{"GroupRecoveryProbeRunner", func() error {
 				if groupRecoveryProbe != nil {
 					groupRecoveryProbe.Stop()
+				}
+				return nil
+			}},
+			{"OpenAIIQService", func() error {
+				if openAIIQ != nil {
+					openAIIQ.Stop()
 				}
 				return nil
 			}},

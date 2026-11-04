@@ -9,6 +9,12 @@ import (
 	"github.com/google/wire"
 )
 
+// ProvideGroupHandler retains scheduler and probe billing dependencies when
+// Wire regenerates the application alongside a new background service.
+func ProvideGroupHandler(adminService service.AdminService, dashboard *service.DashboardService, capacity *service.GroupCapacityService, scheduler *service.SmartSchedulerPreviewService, probeBilling *service.GroupRecoveryProbeBillingService, cfg *config.Config) *admin.GroupHandler {
+	return admin.NewGroupHandler(adminService, dashboard, capacity, scheduler, probeBilling, cfg)
+}
+
 // ProvideAdminHandlers creates the AdminHandlers struct
 func ProvideAdminHandlers(
 	dashboardHandler *admin.DashboardHandler,
@@ -202,6 +208,7 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	openAIIQHandler *OpenAIIQHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -228,6 +235,7 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		OpenAIIQ:         openAIIQHandler,
 	}
 }
 
@@ -254,11 +262,12 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
+	NewOpenAIIQHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
 	admin.NewUserHandler,
-	admin.NewGroupHandlerWithConfig,
+	ProvideGroupHandler,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
 	admin.NewDataManagementHandler,

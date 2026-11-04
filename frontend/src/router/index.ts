@@ -277,6 +277,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/model-iq',
+    name: 'ModelIQ',
+    component: () => import('@/views/user/ModelIQView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Model IQ',
+      titleKey: 'modelIQ.title',
+      descriptionKey: 'modelIQ.description'
+    }
+  },
+  {
     path: '/model-directory',
     redirect: (to) => ({
       path: '/available-channels',
@@ -508,6 +520,18 @@ const routes: RouteRecordRaw[] = [
       title: 'Public Catalog',
       titleKey: 'admin.publicCatalog.title',
       descriptionKey: 'admin.publicCatalog.description'
+    }
+  },
+  {
+    path: '/admin/openai-iq',
+    name: 'AdminOpenAIIQ',
+    component: () => import('@/views/admin/OpenAIIQSettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'OpenAI Model IQ',
+      titleKey: 'admin.openaiIQ.title',
+      descriptionKey: 'admin.openaiIQ.description'
     }
   },
   {

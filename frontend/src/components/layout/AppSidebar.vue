@@ -787,6 +787,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/infinite-canvas', label: t('nav.infiniteCanvas'), icon: CanvasIcon, externalUrl: INFINITE_CANVAS_URL },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
+    { path: '/model-iq', label: t('nav.modelIQ'), icon: SignalIcon, hideInSimpleMode: true },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/purchase', label: purchaseNavLabel.value, icon: RechargeSubscriptionIcon, externalUrl: TOP_UP_SHOP_URL, hideInSimpleMode: true, featureFlag: flagPayment },
@@ -851,6 +852,7 @@ const adminNavItems = computed((): NavItem[] => {
         { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: PriceTagIcon },
         { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: SignalIcon, featureFlag: flagChannelMonitor },
         { path: '/admin/channels/catalog', label: t('nav.publicCatalog'), icon: PublicCatalogIcon },
+        { path: '/admin/openai-iq', label: t('nav.modelIQSettings'), icon: SignalIcon },
       ],
     },
     // 「仅充值」站点连管理端的「订阅管理」入口也一并收起（路由本身不拦截）。
