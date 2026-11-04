@@ -357,6 +357,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	agentTaskRecoveryTried := false
 	compactModelFallbackRetried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
+	iqRequest := IsOpenAIIQRequest(ctx)
 	var resp *http.Response
 	var usage *OpenAIUsage
 	var firstTokenMs *int
@@ -392,12 +393,12 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			resp.Body = io.NopCloser(bytes.NewReader(probeBody))
 			if retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, body, probeBody); retryErr != nil {
 				return nil, fmt.Errorf("normalize passthrough rejected Responses field retry body: %w", retryErr)
-			} else if changed && rejectedFieldRetryState.Allow(retryBody) {
+			} else if !iqRequest && changed && rejectedFieldRetryState.Allow(retryBody) {
 				body = retryBody
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying passthrough request after %s (account: %s)", reason, account.Name)
 				continue
 			}
-			if !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, probeBody) {
+			if !iqRequest && !agentTaskRecoveryTried && s.isAgentIdentityAccount(ctx, account) && isAgentIdentityTaskInvalidHTTPResponse(resp.StatusCode, probeBody) {
 				agentTaskRecoveryTried = true
 				expectedTaskID := account.GetCredential("task_id")
 				if recoveryErr := s.recoverAgentIdentityTask(ctx, account, expectedTaskID); recoveryErr != nil {
@@ -408,7 +409,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(probeBody)))
 			if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 				c, account, requestedModel, body, resp.StatusCode, upstreamMsg, probeBody, compactModelFallbackRetried,
-			); retry {
+			); retry && !iqRequest {
 				s.appendOpenAICompactFallbackRetryOps(c, account, resp, probeBody, upstreamMsg, true)
 				fromModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 				body = retryBody
@@ -452,7 +453,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
 					c, account, requestedModel, body, handleErr, compactModelFallbackRetried, resp,
-				); retry {
+				); retry && !iqRequest {
 					body = retryBody
 					upstreamPassthroughModel = fallbackModel
 					compactModelFallbackRetried = true
@@ -479,7 +480,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			if handleErr != nil {
 				if retryBody, fallbackModel, retry := s.applyOpenAIPassthroughCompactFallbackFromSignal(
 					c, account, requestedModel, body, handleErr, compactModelFallbackRetried, resp,
-				); retry {
+				); retry && !iqRequest {
 					body = retryBody
 					upstreamPassthroughModel = fallbackModel
 					compactModelFallbackRetried = true

@@ -1045,6 +1045,7 @@ var ProviderSet = wire.NewSet(
 	ProvideScheduledTestService,
 	ProvideScheduledTestRunnerService,
 	NewGroupRecoveryProbeBillingService,
+	ProvideOpenAIIQService,
 	ProvideGroupRecoveryProbeRunner,
 	NewGroupCapacityService,
 	ProvideSmartSchedulerPreviewService,

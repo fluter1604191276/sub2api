@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,4 +39,16 @@ func TestOpenAISubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 
 	require.Equal(t, "openai-client-request-123", gotClientRequestID)
 	require.Equal(t, "openai-request-456", gotRequestID)
+}
+
+func TestOpenAISubmitUsageRecordTaskCopiesTrustedIQRequestMarker(t *testing.T) {
+	parent := service.WithOpenAIIQRequest(context.Background())
+
+	var marked bool
+	h := &OpenAIGatewayHandler{}
+	h.submitUsageRecordTask(parent, func(ctx context.Context) {
+		marked = service.IsOpenAIIQRequest(ctx)
+	})
+
+	require.True(t, marked)
 }

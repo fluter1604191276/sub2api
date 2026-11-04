@@ -8,6 +8,7 @@ import audit from './audit'
 import promptAudit from './promptAudit'
 import plugins from './plugins'
 import publicCatalog from './publicCatalog'
+import openaiIQ from './openaiIQ'
 
 export default {
   ...overview,
@@ -20,4 +21,5 @@ export default {
   ...promptAudit,
   ...plugins,
   ...publicCatalog,
+  ...openaiIQ,
 }

@@ -120,6 +120,9 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		if err != nil {
 			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		}
+		if IsOpenAIIQRequest(ctx) {
+			break
+		}
 
 		// xAI can reject encrypted reasoning or a compaction blob copied from a
 		// different decoder/cache context. Retry once on the same account after

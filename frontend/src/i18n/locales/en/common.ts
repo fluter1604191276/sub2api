@@ -211,6 +211,8 @@ export default {
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
     publicCatalog: 'Catalog Display',
+    modelIQ: 'Model IQ',
+    modelIQSettings: 'Model IQ Settings',
     channelStatus: 'Channel Status',
     riskControl: 'Risk Control',
     securityAudit: 'Security Audit',

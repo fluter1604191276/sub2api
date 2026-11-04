@@ -211,6 +211,8 @@ export default {
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',
     publicCatalog: '目录展示',
+    modelIQ: '模型智商检测',
+    modelIQSettings: '智商检测设置',
     channelStatus: '渠道状态',
     riskControl: '风控中心',
     securityAudit: '安全审计',
