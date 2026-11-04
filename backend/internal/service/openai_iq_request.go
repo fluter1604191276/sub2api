@@ -16,7 +16,19 @@ const iqDispatchHeader = "X-Sub2API-IQ-Dispatch"
 
 type openAIIQRequestContextKey struct{}
 
+// WithOpenAIIQRequest carries a trusted IQ classification on internal work.
+// MarkIQRequest validates HTTP callers before marking their request context.
+func WithOpenAIIQRequest(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, openAIIQRequestContextKey{}, true)
+}
+
 func IsOpenAIIQRequest(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
 	marked, _ := ctx.Value(openAIIQRequestContextKey{}).(bool)
 	return marked
 }
@@ -38,7 +50,7 @@ func (s *OpenAIIQService) MarkIQRequest(req *http.Request) *http.Request {
 	if err != nil || !net.ParseIP(host).IsLoopback() {
 		return req
 	}
-	ctx := context.WithValue(req.Context(), openAIIQRequestContextKey{}, true)
+	ctx := WithOpenAIIQRequest(req.Context())
 	if dispatchID, ok := canonicalIQDispatchID(dispatch); ok {
 		ctx = context.WithValue(ctx, ctxkey.ClientRequestID, "iq-"+dispatchID)
 	}

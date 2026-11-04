@@ -3163,6 +3163,51 @@ func TestRecordUsageMarksCyberRequestType(t *testing.T) {
 	require.Equal(t, 100, logStub.lastLog.InputTokens, "计费 token 不变(正常计费)")
 }
 
+func TestOpenAIGatewayServiceRecordUsageMarksTrustedIQRequestAsProbe(t *testing.T) {
+	logStub := &openAIRecordUsageLogRepoStub{inserted: true}
+	userStub := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(logStub, userStub, &openAIRecordUsageSubRepoStub{}, nil)
+
+	require.NoError(t, svc.RecordUsage(WithOpenAIIQRequest(context.Background()), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			Model:    "gpt-5",
+			Duration: time.Second,
+			Usage:    OpenAIUsage{InputTokens: 100, OutputTokens: 10},
+		},
+		APIKey:  &APIKey{ID: 2, Group: &Group{RateMultiplier: 1}},
+		User:    &User{ID: 1},
+		Account: &Account{ID: 3},
+	}))
+
+	require.NotNil(t, logStub.lastLog)
+	require.Equal(t, RequestTypeProbe, logStub.lastLog.RequestType)
+	require.Greater(t, logStub.lastLog.TotalCost, 0.0, "probe usage retains its pre-multiplier cost snapshot")
+	require.NotNil(t, logStub.lastLog.AccountRateMultiplier)
+	require.Greater(t, logStub.lastLog.ActualCost, 0.0, "probe usage retains the dedicated user's billing record")
+	require.Equal(t, 1, userStub.deductCalls, "probe usage still settles customer-side usage accounting")
+}
+
+func TestOpenAIGatewayServiceRecordUsageDoesNotClassifyLookalikeUserAgentAsProbe(t *testing.T) {
+	logStub := &openAIRecordUsageLogRepoStub{inserted: true}
+	svc := newOpenAIRecordUsageServiceForTest(logStub, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+
+	require.NoError(t, svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			Model:    "gpt-5",
+			Duration: time.Second,
+			Usage:    OpenAIUsage{InputTokens: 100, OutputTokens: 10},
+		},
+		APIKey:    &APIKey{ID: 2, Group: &Group{RateMultiplier: 1}},
+		User:      &User{ID: 1},
+		Account:   &Account{ID: 3},
+		UserAgent: "sub2api-openai-iq",
+	}))
+
+	require.NotNil(t, logStub.lastLog)
+	require.NotEqual(t, RequestTypeProbe, logStub.lastLog.RequestType)
+	require.Equal(t, RequestTypeSync, logStub.lastLog.EffectiveRequestType())
+}
+
 func TestGatewayServiceCalculateRecordUsageCost_ChannelImageBillingNormalizesMissingSizeTier(t *testing.T) {
 	groupID := int64(128)
 	defaultPrice := 0.10

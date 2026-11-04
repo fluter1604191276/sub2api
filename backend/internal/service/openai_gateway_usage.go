@@ -435,7 +435,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
-	if input.CyberBlocked {
+	if IsOpenAIIQRequest(ctx) {
+		// The marker originates only from the loopback, token-verified IQ
+		// dispatcher. Keep these internal checks out of user-traffic views
+		// while retaining their normal cost and account ledger records.
+		usageLog.RequestType = RequestTypeProbe
+	} else if input.CyberBlocked {
 		usageLog.RequestType = RequestTypeCyberBlocked
 	}
 	usageLog.OpenAIWSMode = result.OpenAIWSMode

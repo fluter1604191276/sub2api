@@ -89,8 +89,8 @@ func ensureOpenAIIQIdentity(ctx context.Context, tx *sql.Tx, groupIDs []int64) (
 		identity = &service.IQIdentity{}
 		err = tx.QueryRowContext(ctx, `
 			INSERT INTO users (email, username, password_hash, role, balance, concurrency, status, notes, restrict_public_groups)
-			VALUES ($1, 'openai-iq', $2, 'user', 0, 1, 'active', $3, true)
-			RETURNING id, balance`, email, passwordHash, marker).Scan(&identity.UserID, &identity.Balance)
+			VALUES ($1, 'openai-iq', $2, 'user', 0, $4, 'active', $3, true)
+			RETURNING id, balance`, email, passwordHash, marker, service.OpenAIIQConcurrency).Scan(&identity.UserID, &identity.Balance)
 		if err != nil {
 			return nil, err
 		}
@@ -100,6 +100,9 @@ func ensureOpenAIIQIdentity(ctx context.Context, tx *sql.Tx, groupIDs []int64) (
 	} else if err != nil {
 		return nil, err
 	} else if err := validateOpenAIIQIdentity(ctx, tx, identity.UserID, marker); err != nil {
+		return nil, err
+	}
+	if err := syncOpenAIIQConcurrency(ctx, tx, identity.UserID, marker); err != nil {
 		return nil, err
 	}
 
@@ -126,7 +129,22 @@ func (r *openAIIQRepository) Identity(ctx context.Context) (*service.IQIdentity,
 	if err := validateOpenAIIQIdentity(ctx, r.db, identity.UserID, marker); err != nil {
 		return nil, err
 	}
+	if err := syncOpenAIIQConcurrency(ctx, r.db, identity.UserID, marker); err != nil {
+		return nil, err
+	}
 	return identity, nil
+}
+
+// Older dedicated identities used one gateway slot. Align the operational
+// concurrency of the validated, purpose-bound identity.
+func syncOpenAIIQConcurrency(ctx context.Context, db openAIIQQueryer, userID int64, marker string) error {
+	_, err := db.ExecContext(ctx, `UPDATE users SET concurrency=$3
+		WHERE id=$1 AND password_hash=$2 AND concurrency<>$3
+		  AND email=$4 AND notes=$5 AND role='user' AND status='active'
+		  AND restrict_public_groups=true AND deleted_at IS NULL
+		  AND EXISTS (SELECT 1 FROM openai_iq_identity WHERE user_id=$1 AND identity_marker=$5)`,
+		userID, "!openai-iq:"+marker, service.OpenAIIQConcurrency, "openai-iq-"+marker+"@internal.invalid", marker)
+	return err
 }
 
 // GroupKey returns the active, loopback-restricted key for a dedicated user

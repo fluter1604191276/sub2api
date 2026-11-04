@@ -175,8 +175,8 @@ func TestOpenAIIQRunnerConfigRemovalSkipsBeforeKeyOrHTTP(t *testing.T) {
 	settings := &iqRunnerSettingsStub{settings: disabled}
 	repo := &iqRunnerRepoStub{}
 	svc := NewOpenAIIQService(settings, nil, nil, nil, repo, nil, nil, nil, nil)
-	result := svc.runIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
-	require.Equal(t, "skipped", result.Status)
+	job := svc.prepareIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
+	require.Equal(t, "skipped", job.result.Status)
 	require.Zero(t, repo.keyCalls)
 	require.Zero(t, repo.reserveCalls)
 }
@@ -185,14 +185,14 @@ func TestOpenAIIQRunnerReservedFailureDoesNotDispatch(t *testing.T) {
 	settings := &iqRunnerSettingsStub{settings: iqRunnerSettings()}
 	group := &Group{ID: 7, Platform: PlatformOpenAI, Status: StatusActive, RateMultiplier: 1}
 	repo := &iqRunnerRepoStub{reserve: false}
-	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1}}}, nil)
+	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1, Status: StatusActive, Schedulable: true}}}, nil)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("HTTP must not run when reservation is rejected")
 	}))
 	defer server.Close()
 	svc.endpoint, svc.client = server.URL, server.Client()
-	result := svc.runIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
-	require.Equal(t, "skipped", result.Status)
+	job := svc.prepareIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
+	require.Equal(t, "skipped", job.result.Status)
 	require.Equal(t, 1, repo.reserveCalls)
 }
 
@@ -205,8 +205,8 @@ func TestOpenAIIQRunnerUnknownPricingDoesNotReserveOrDispatch(t *testing.T) {
 	defer server.Close()
 	svc.endpoint, svc.client = server.URL, server.Client()
 
-	result := svc.runIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
-	require.Equal(t, "skipped", result.Status)
+	job := svc.prepareIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
+	require.Equal(t, "skipped", job.result.Status)
 	require.Zero(t, repo.reserveCalls)
 }
 
@@ -214,14 +214,14 @@ func TestOpenAIIQRunnerBindingFailureDoesNotDispatch(t *testing.T) {
 	settings := &iqRunnerSettingsStub{settings: iqRunnerSettings()}
 	group := &Group{ID: 7, Platform: PlatformOpenAI, Status: StatusActive, RateMultiplier: 1}
 	repo := &iqRunnerRepoStub{reserve: true, bindErr: errors.New("binding unavailable")}
-	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1}}}, nil)
+	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1, Status: StatusActive, Schedulable: true}}}, nil)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("HTTP must not run before durable expense correlation is saved")
 	}))
 	defer server.Close()
 	svc.endpoint, svc.client = server.URL, server.Client()
-	result := svc.runIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
-	require.Equal(t, "skipped", result.Status)
+	job := svc.prepareIQGroup(context.Background(), &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
+	require.Equal(t, "skipped", job.result.Status)
 	require.Equal(t, 1, repo.reserveCalls)
 	require.Len(t, repo.boundRequests, 1)
 }
@@ -229,7 +229,7 @@ func TestOpenAIIQRunnerBindingFailureDoesNotDispatch(t *testing.T) {
 func TestOpenAIIQEstimateUsesUpstreamAccountMultiplier(t *testing.T) {
 	accountRate := 0.01
 	group := &Group{ID: 7, Platform: PlatformOpenAI, RateMultiplier: 100, PeakRateEnabled: true, PeakRateMultiplier: 10}
-	accounts := &iqRunnerAccountsStub{accounts: []Account{{ID: 1, RateMultiplier: &accountRate}}}
+	accounts := &iqRunnerAccountsStub{accounts: []Account{{ID: 1, Status: StatusActive, Schedulable: true, RateMultiplier: &accountRate}}}
 	svc := NewOpenAIIQService(nil, nil, nil, nil, nil, NewBillingService(nil, nil), nil, accounts, nil)
 	estimated, err := svc.estimateIQCost(context.Background(), group, "gpt-6-astra", []byte(`{}`), 32)
 	require.NoError(t, err)
@@ -241,6 +241,35 @@ func TestOpenAIIQEstimateUsesUpstreamAccountMultiplier(t *testing.T) {
 	fullAccountEstimate, err := svc.estimateIQCost(context.Background(), group, "gpt-6-astra", []byte(`{}`), 32)
 	require.NoError(t, err)
 	require.Greater(t, fullAccountEstimate, estimated)
+}
+
+func TestOpenAIIQEstimateExcludesUnschedulableAccounts(t *testing.T) {
+	invalidRate := math.NaN()
+	accounts := &iqRunnerAccountsStub{accounts: []Account{
+		{ID: 1, Status: StatusActive, Schedulable: true},
+		{ID: 2, Status: StatusActive, Schedulable: false, RateMultiplier: &invalidRate},
+	}}
+	svc := NewOpenAIIQService(nil, nil, nil, nil, nil, NewBillingService(nil, nil), nil, accounts, nil)
+	group := &Group{ID: 7, Platform: PlatformOpenAI, Status: StatusActive}
+	_, err := svc.estimateIQCost(context.Background(), group, "gpt-6-astra", []byte(`{}`), 32)
+	require.NoError(t, err)
+	accounts.accounts = accounts.accounts[1:]
+	_, err = svc.estimateIQCost(context.Background(), group, "gpt-6-astra", []byte(`{}`), 32)
+	require.Error(t, err, "absence of schedulable accounts must fail closed")
+}
+
+func TestOpenAIIQRunnerDeadlineStopsBeforeBudgetReservation(t *testing.T) {
+	settings := &iqRunnerSettingsStub{settings: iqRunnerSettings()}
+	group := &Group{ID: 7, Platform: PlatformOpenAI, Status: StatusActive, RateMultiplier: 1}
+	repo := &iqRunnerRepoStub{reserve: true}
+	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1, Status: StatusActive, Schedulable: true}}}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	job := svc.prepareIQGroup(ctx, &IQRun{ID: 1, Question: "immutable", Answer: "15", Model: "gpt-6-astra"}, iqRunnerSettings(), 1, IQResult{GroupID: 7, Status: "pending"})
+	require.Equal(t, "skipped", job.result.Status)
+	require.Empty(t, job.dispatchID)
+	require.Zero(t, repo.reserveCalls)
+	require.Empty(t, repo.boundRequests)
 }
 
 func TestOpenAIIQRunnerCompletesEachSelectedGroupUsingClaimedSnapshot(t *testing.T) {
@@ -257,7 +286,7 @@ func TestOpenAIIQRunnerCompletesEachSelectedGroupUsingClaimedSnapshot(t *testing
 		},
 		reserve: true,
 	}
-	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1}}}, nil)
+	svc := NewOpenAIIQService(settings, &iqRunnerGroupsStub{group: group}, nil, nil, repo, NewBillingService(nil, nil), nil, &iqRunnerAccountsStub{accounts: []Account{{ID: 1, Status: StatusActive, Schedulable: true}}}, nil)
 
 	var requestInputs []string
 	var requestModels []string

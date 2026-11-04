@@ -40,3 +40,25 @@ func TestExtractIQAnswerRequiresUniqueFinalMarker(t *testing.T) {
 		})
 	}
 }
+
+func TestIQAnswerCorrectToleratesCountUnitsOnlyForIntegerAnswers(t *testing.T) {
+	for _, test := range []struct {
+		answer   string
+		expected string
+		correct  bool
+	}{
+		{answer: "15颗", expected: "15", correct: true},
+		{answer: "15 个", expected: "15", correct: true},
+		{answer: "15个颗", expected: "15", correct: false},
+		{answer: "约15颗", expected: "15", correct: false},
+		{answer: "15颗或21颗", expected: "15", correct: false},
+		{answer: "15", expected: "15个", correct: false},
+		{answer: "Apple", expected: "apple", correct: true},
+	} {
+		t.Run(test.answer+"/"+test.expected, func(t *testing.T) {
+			if got := IQAnswerCorrect("FINAL_ANSWER: "+test.answer, test.expected); got != test.correct {
+				t.Fatalf("IQAnswerCorrect() = %v, want %v", got, test.correct)
+			}
+		})
+	}
+}

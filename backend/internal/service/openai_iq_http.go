@@ -19,6 +19,7 @@ import (
 )
 
 const iqHTTPMaxBodyBytes = 4 << 20
+const iqHTTPTimeout = 120 * time.Second
 
 // iqHTTPClient is deliberately small so IQ's loopback request can be tested
 // without changing the service constructor.
@@ -49,7 +50,7 @@ func (s *OpenAIIQService) configureIQHTTP() {
 	s.requestToken = []byte(base64.RawURLEncoding.EncodeToString(token))
 	s.endpoint = "http://" + net.JoinHostPort(host, fmt.Sprint(port)) + "/v1/responses"
 	s.client = &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: iqHTTPTimeout,
 		Transport: &http.Transport{
 			Proxy: nil, DialContext: (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 			TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 30 * time.Second,

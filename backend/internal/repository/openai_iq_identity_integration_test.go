@@ -92,8 +92,8 @@ func TestOpenAIIQIdentityPostgresIsDedicatedAndFailsClosedWhenTampered(t *testin
 	var ordinaryUserID int64
 	ordinaryEmail := fmt.Sprintf("ordinary-openai-iq-%d@example.invalid", groupIDs[0])
 	require.NoError(t, integrationDB.QueryRowContext(ctx, `
-		INSERT INTO users (email, password_hash, role, balance, status)
-		VALUES ($1, 'ordinary-hash', 'user', 7, 'active')
+		INSERT INTO users (email, password_hash, role, balance, status, concurrency)
+		VALUES ($1, 'ordinary-hash', 'user', 7, 'active', 3)
 		RETURNING id`, ordinaryEmail).Scan(&ordinaryUserID))
 	t.Cleanup(func() {
 		var generatedUserID int64
@@ -121,14 +121,27 @@ func TestOpenAIIQIdentityPostgresIsDedicatedAndFailsClosedWhenTampered(t *testin
 	require.Equal(t, "active", status)
 	require.True(t, restricted)
 	require.Equal(t, "!openai-iq:"+notes, passwordHash)
+	var concurrency int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT concurrency FROM users WHERE id=$1`, identity.UserID).Scan(&concurrency))
+	require.Equal(t, service.OpenAIIQConcurrency, concurrency)
+
+	// Restarted runners upgrade a previously serial dedicated identity.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE users SET concurrency=1 WHERE id=$1`, identity.UserID)
+	require.NoError(t, err)
+	_, err = repo.Identity(ctx)
+	require.NoError(t, err)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT concurrency FROM users WHERE id=$1`, identity.UserID).Scan(&concurrency))
+	require.Equal(t, service.OpenAIIQConcurrency, concurrency)
 
 	repeated, err := repo.EnsureIdentity(ctx, groupIDs)
 	require.NoError(t, err)
 	require.Equal(t, identity.UserID, repeated.UserID)
 
 	var ordinaryBalance float64
-	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT balance FROM users WHERE id = $1`, ordinaryUserID).Scan(&ordinaryBalance))
+	var ordinaryConcurrency int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT balance, concurrency FROM users WHERE id = $1`, ordinaryUserID).Scan(&ordinaryBalance, &ordinaryConcurrency))
 	require.Equal(t, float64(7), ordinaryBalance, "ordinary user must not be adopted or modified")
+	require.Equal(t, 3, ordinaryConcurrency)
 
 	_, err = repo.EnsureIdentity(ctx, groupIDs[:1])
 	require.NoError(t, err)

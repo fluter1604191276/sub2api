@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,9 @@ import (
 )
 
 const SettingKeyOpenAIIQ = "openai_iq"
+
+// OpenAIIQConcurrency bounds the runner and its dedicated gateway identity.
+const OpenAIIQConcurrency = 16
 
 const defaultOpenAIIQQuestion = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。已知不同口味的糖果和不同形状的数量如下：
 
@@ -346,6 +350,21 @@ func ExtractIQAnswer(output string) (string, bool) {
 }
 func IQAnswerCorrect(output, expected string) bool {
 	answer, ok := ExtractIQAnswer(output)
-	return ok && strings.EqualFold(strings.TrimSpace(answer), strings.TrimSpace(expected))
+	if !ok {
+		return false
+	}
+	expected = strings.TrimSpace(expected)
+	if strings.EqualFold(answer, expected) {
+		return true
+	}
+	if _, err := strconv.ParseInt(expected, 10, 64); err != nil {
+		return false
+	}
+	for _, unit := range []string{"颗", "个"} {
+		if strings.HasSuffix(answer, unit) {
+			return strings.TrimSpace(strings.TrimSuffix(answer, unit)) == expected
+		}
+	}
+	return false
 }
 func IQBudgetDate() time.Time { return timezone.Today() }
