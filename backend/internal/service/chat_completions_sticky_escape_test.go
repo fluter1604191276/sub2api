@@ -246,6 +246,40 @@ func TestChatCompletionsStickyEscapeSelectionTraceIsolatedUntilAdmission(t *test
 	}
 }
 
+func TestChatCompletionsStickyEscapeProfitGateDefersAcquiredSwitchAccounting(t *testing.T) {
+	fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(59000, 10), 0)
+	fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+	fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	repo := fixture.svc.accountRepo.(schedulerGroupAwareOpenAIAccountRepo)
+	for index := range repo.accounts {
+		rate := 0.1
+		repo.accounts[index].RateMultiplier = &rate
+	}
+	fixture.svc.accountRepo = repo
+	ctx := context.WithValue(
+		WithSmartSchedulerEndpoint(context.Background(), "chat_completions"),
+		openAIProfitControlGateCtxKey{},
+		&openAIProfitControlGate{groupID: chatStickyEscapeGroupID, platform: PlatformOpenAI, threshold: 0.5, pricingAt: time.Now()},
+	)
+
+	selection, _, err := fixture.selectAccount(ctx, "")
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.True(t, selection.Acquired)
+	require.Equal(t, chatStickyPrimaryA, selection.Account.ID)
+	require.NotNil(t, selection.stickySwitchTrace)
+	selection.stickySwitchTrace.mu.Lock()
+	require.False(t, selection.stickySwitchTrace.applied)
+	selection.stickySwitchTrace.mu.Unlock()
+	for _, state := range fixture.svc.smartStickyReviews {
+		require.NotEqual(t, selection.Account.ID, state.lastSwitchedAccountID)
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestChatCompletionsWarmStickyEscapeDoesNotLeaveHealthyOrIncomparableAccounts(t *testing.T) {
 	tests := []struct {
 		name     string
