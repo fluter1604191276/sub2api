@@ -33,7 +33,13 @@ func RegisterGatewayRoutes(
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
-	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
+	opsMiddleware := handler.OpsErrorLoggerMiddleware(opsService)
+	opsErrorLogger := func(c *gin.Context) {
+		if h.ChannelMonitorV3 != nil {
+			c.Request = h.ChannelMonitorV3.MarkRequest(c.Request)
+		}
+		opsMiddleware(c)
+	}
 	endpointNorm := handler.InboundEndpointMiddleware()
 	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)

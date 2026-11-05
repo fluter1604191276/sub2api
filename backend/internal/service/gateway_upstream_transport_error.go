@@ -40,6 +40,9 @@ var gatewayTransportFailoverBody = []byte(`{"type":"error","error":{"type":"upst
 // It deliberately does NOT write to the response: the handler owns the
 // response (failover, or a protocol-correct error once failover is exhausted).
 func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, event OpsUpstreamErrorEvent) error {
+	if IsChannelMonitorV3Request(ctx) {
+		return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: gatewayTransportFailoverBody}
+	}
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}
@@ -95,7 +98,7 @@ func (s *GatewayService) tempUnscheduleTransportError(ctx context.Context, accou
 // shared by every forward path whose scheduler reads the persisted
 // temp-unschedulable state (Anthropic/Bedrock and Gemini).
 func tempUnscheduleAccountForTransportError(ctx context.Context, repo AccountRepository, account *Account, safeErr string) {
-	if account == nil || repo == nil {
+	if IsChannelMonitorV3Request(ctx) || account == nil || repo == nil {
 		return
 	}
 	until := time.Now().Add(gatewayTransportErrorTempUnschedDuration)

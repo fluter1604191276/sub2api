@@ -851,6 +851,7 @@ const adminNavItems = computed((): NavItem[] => {
       children: [
         { path: '/admin/channels/pricing', label: t('nav.channelPricing'), icon: PriceTagIcon },
         { path: '/admin/channels/monitor', label: t('nav.channelMonitor'), icon: SignalIcon, featureFlag: flagChannelMonitor },
+        { path: '/admin/channel-monitors-v3', label: t('nav.channelMonitorV3'), icon: SignalIcon },
         { path: '/admin/channels/catalog', label: t('nav.publicCatalog'), icon: PublicCatalogIcon },
         { path: '/admin/openai-iq', label: t('nav.modelIQSettings'), icon: SignalIcon },
       ],

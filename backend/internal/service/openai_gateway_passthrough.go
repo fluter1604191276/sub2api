@@ -1906,6 +1906,9 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 	terminalSeen bool,
 	reason string,
 ) {
+	if c != nil && c.Request != nil && IsChannelMonitorV3Request(c.Request.Context()) {
+		return
+	}
 	if s == nil || account == nil || clientDisconnected || terminalSeen || !s.openAIStreamStickyEscapeEnabled(c) {
 		return
 	}
@@ -1967,6 +1970,9 @@ func (s *OpenAIGatewayService) handleCommittedOpenAIStreamDisconnect(
 }
 
 func (s *OpenAIGatewayService) handleCommittedOpenAIStreamFailure(c *gin.Context, account *Account, canonicalModel string, payload []byte, message string) {
+	if c != nil && c.Request != nil && IsChannelMonitorV3Request(c.Request.Context()) {
+		return
+	}
 	if s == nil || account == nil || !s.openAIStreamStickyEscapeEnabled(c) || !openAIStreamFailedEventShouldFailover(payload, message) {
 		return
 	}

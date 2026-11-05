@@ -204,6 +204,15 @@ func TestHandleGrokAccountUpstreamError_FreeUsageBodyCoolsAccount(t *testing.T) 
 	require.Less(t, repo.lastTempUnschedUntil, before.Add(grokFreeUsageProbeCooldown+time.Second))
 }
 
+func TestChannelMonitorV3GrokFailureDoesNotCooldownAccount(t *testing.T) {
+	repo := &grokQuotaAccountRepo{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	account := &Account{ID: 9110, Platform: PlatformGrok, Type: AccountTypeOAuth}
+	svc.handleGrokAccountUpstreamError(context.WithValue(context.Background(), channelMonitorV3RequestContextKey{}, true), account, http.StatusTooManyRequests, nil, []byte(`{"error":{"code":"rate_limit_exceeded"}}`))
+	require.Zero(t, repo.tempUnschedCalls)
+	require.True(t, repo.lastRateLimitResetAt.IsZero())
+}
+
 func TestHandleGrokAccountUpstreamError_FreeUsageUsesUpstreamReset(t *testing.T) {
 	repo := &grokQuotaAccountRepo{}
 	svc := &OpenAIGatewayService{accountRepo: repo}

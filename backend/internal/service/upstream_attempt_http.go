@@ -69,6 +69,9 @@ func NewObservedHTTPUpstream(base HTTPUpstream, recorder *UpstreamAttemptRecorde
 
 func (u *observedHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
 	attempt := u.start(req, accountID)
+	if err := u.recorder.guardChannelMonitorV3Attempt(req, attempt); err != nil {
+		return nil, err
+	}
 	tracked, observed := u.trackRoundTrips(req, attempt, accountID)
 	resp, err := u.base.Do(tracked, proxyURL, accountID, concurrency)
 	if observed.Load() {
@@ -79,6 +82,9 @@ func (u *observedHTTPUpstream) Do(req *http.Request, proxyURL string, accountID 
 
 func (u *observedHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	attempt := u.start(req, accountID)
+	if err := u.recorder.guardChannelMonitorV3Attempt(req, attempt); err != nil {
+		return nil, err
+	}
 	tracked, observed := u.trackRoundTrips(req, attempt, accountID)
 	resp, err := u.base.DoWithTLS(tracked, proxyURL, accountID, concurrency, profile)
 	if observed.Load() {

@@ -152,6 +152,9 @@ func WithOpenAIProfitControlSuppressed(ctx context.Context) context.Context {
 func (s *OpenAIGatewayService) WithOpenAITurnPricingContext(ctx context.Context, groupID *int64) (context.Context, time.Time) {
 	pricingAt := timezone.Now()
 	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
+	if IsChannelMonitorV3Request(ctx) {
+		return clearChannelMonitorV3ProfitControlGate(ctx), pricingAt
+	}
 	if _, suppressed := ctx.Value(openAIProfitControlSuppressCtxKey{}).(struct{}); suppressed {
 		return ctx, pricingAt
 	}
@@ -192,6 +195,14 @@ func OpenAIPricingAtFromContext(ctx context.Context) time.Time {
 // （门不存在，全部否决点自动放行，既有行为零变化）。ctx 已有同分组门时直接
 // 复用：同一请求的全部 failover 重入共享同一阈值。
 func (s *OpenAIGatewayService) withOpenAIProfitControlGate(ctx context.Context, groupID *int64) context.Context {
+	// V3 probes are authenticated process-private loopback requests. Their
+	// upstream spend is reserved and rechecked by the probe runner, while the
+	// monitor identity deliberately uses a 0.001 downstream multiplier. Letting
+	// that multiplier enter the normal revenue gate would reject every paid
+	// upstream before the runner can perform its own budget guard.
+	if IsChannelMonitorV3Request(ctx) {
+		return clearChannelMonitorV3ProfitControlGate(ctx)
+	}
 	if _, suppressed := ctx.Value(openAIProfitControlSuppressCtxKey{}).(struct{}); suppressed {
 		return ctx
 	}
@@ -212,6 +223,13 @@ func (s *OpenAIGatewayService) withOpenAIProfitControlGate(ctx context.Context, 
 	}
 	openAIProfitControlObserverInstance.recordInstall(gate.groupID, gate.platform, gate.threshold)
 	return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, gate)
+}
+
+func clearChannelMonitorV3ProfitControlGate(ctx context.Context) context.Context {
+	if existing, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && existing != nil {
+		return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, (*openAIProfitControlGate)(nil))
+	}
+	return ctx
 }
 
 func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Context, groupID *int64) *openAIProfitControlGate {
@@ -288,6 +306,9 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
+	if IsChannelMonitorV3Request(ctx) {
+		return clearChannelMonitorV3ProfitControlGate(ctx)
+	}
 	if sel == nil || sel.profitGate == nil {
 		return ctx
 	}
