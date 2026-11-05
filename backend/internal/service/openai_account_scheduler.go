@@ -2479,8 +2479,33 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if preserveGuardianParentBinding {
 			legacySessionHash = ""
 		}
+		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
+		if sessionHash != "" && s.cache != nil {
+			if stickyAccountID, stickyErr := s.getStickySessionAccountID(ctx, groupID, sessionHash); stickyErr == nil && stickyAccountID > 0 {
+				if stickyAccount, accountErr := s.getSchedulableAccount(ctx, stickyAccountID); accountErr == nil && stickyAccount != nil {
+					review := s.reviewOpenAISmartStickySession(ctx, openAISmartStickyReviewRequest{
+						GroupID:                 groupID,
+						SessionHash:             sessionHash,
+						Platform:                platform,
+						RequestedModel:          requestedModel,
+						ExcludedIDs:             effectiveExcludedIDs,
+						RequireCompact:          requireCompact,
+						RequiredTransport:       requiredTransport,
+						RequiredCapability:      requiredCapability,
+						RequiredImageCapability: requiredImageCapability,
+						PreviousResponseID:      previousResponseID,
+					}, stickyAccountID)
+					if review.Switch && review.Reason == chatCompletionsWarmLatencyEscapeReason {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						if effectiveExcludedIDs == nil {
+							effectiveExcludedIDs = make(map[int64]struct{})
+						}
+						effectiveExcludedIDs[stickyAccountID] = struct{}{}
+					}
+				}
+			}
+		}
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
-			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
 				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 				if err != nil {
@@ -2506,7 +2531,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			}
 		}
 
-		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 		for {
 			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 			if err != nil {

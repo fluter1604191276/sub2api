@@ -42,6 +42,53 @@ func TestChatCompletionsWarmStickyEscapeLeavesSlowLowestAccount(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsWarmStickyEscapeExcludesSlowAccountFromLegacyReselection(t *testing.T) {
+	tests := []struct {
+		name         string
+		batchEnabled bool
+	}{
+		{name: "without_batch_loads"},
+		{name: "with_batch_loads", batchEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(59000, 10), 0)
+			fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+			fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = tt.batchEnabled
+			fixture.orderer.pools = map[int64]string{
+				chatStickySlowAccountID: "warm",
+				chatStickyPrimaryA:      "warm",
+				chatStickyPrimaryB:      "warm",
+			}
+			fixture.orderer.scores = map[int64]float64{
+				chatStickySlowAccountID: 80,
+				chatStickyPrimaryA:      81,
+				chatStickyPrimaryB:      82,
+			}
+			fixture.orderer.costs = map[int64]float64{
+				chatStickySlowAccountID: 0.5,
+				chatStickyPrimaryA:      1,
+				chatStickyPrimaryB:      1,
+			}
+			ctx, logs := chatStickyEscapeContext(t, "chat_completions")
+
+			selection, _, err := fixture.selectAccount(ctx, "")
+
+			require.NoError(t, err)
+			require.NotNil(t, selection)
+			require.NotNil(t, selection.Account)
+			require.NotEqual(t, chatStickySlowAccountID, selection.Account.ID, logs.String())
+			require.Equal(t, selection.Account.ID, fixture.cache.sessionBindings["openai:"+fixture.session])
+			require.Equal(t, 1, fixture.cache.deletedSessions["openai:"+fixture.session])
+			require.Contains(t, logs.String(), "reason="+chatCompletionsWarmLatencyEscapeReason)
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+		})
+	}
+}
+
 func TestChatCompletionsWarmStickyEscapeDoesNotLeaveHealthyOrIncomparableAccounts(t *testing.T) {
 	tests := []struct {
 		name     string
