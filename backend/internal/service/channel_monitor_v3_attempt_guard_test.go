@@ -112,3 +112,24 @@ func TestChannelMonitorV3AttemptGuardRejectsGatewayRaisedOrMissingOutputLimit(t 
 		require.Zero(t, base.calls.Load())
 	}
 }
+
+func TestChannelMonitorV3AttemptGuardKeepsProviderOverrunForSettlement(t *testing.T) {
+	accounts := &cmv3AccountsFake{accounts: []Account{{ID: 31, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true}}}
+	cost := NewUpstreamAttemptCostCalculator(accounts, nil, NewBillingService(&config.Config{}, nil))
+	repo := &attemptCaptureRepo{}
+	base := &attemptHTTPStub{status: http.StatusOK, contentType: "application/json",
+		body: `{"usage":{"input_tokens":1,"output_tokens":2000000}}`}
+	client := NewObservedHTTPUpstream(base, NewUpstreamAttemptRecorder(repo, cost))
+	guard := &channelMonitorV3AttemptGuard{day: channelMonitorV3BudgetDay(time.Now()), limit: 2, now: time.Now}
+	resp, err := client.Do(cmv3GuardRequest(t, guard, "claude-sonnet-4"), "", 31, 1)
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, resp.Body)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	repo.wait(t, 1)
+	// A provider that violates the outgoing 128-token limit must not have its
+	// observed usage or cost clamped to the reservation during settlement.
+	require.EqualValues(t, 2000000, *repo.items[0].OutputTokens)
+	require.Equal(t, "known", repo.items[0].CostStatus)
+	require.Greater(t, *repo.items[0].CostUSD, guard.limit)
+}
