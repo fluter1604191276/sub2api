@@ -731,6 +731,36 @@ export default {
         }
       }
     },
+    channelMonitorV3: {
+      title: '渠道监控 V3',
+      description: '配置公开渠道可见性与独立健康探针。',
+      loading: '正在加载监控配置…',
+      loadError: '加载监控配置失败。',
+      global: '全局监控',
+      enabled: '启用监控',
+      dailyBudget: '每日探针预算（USD）',
+      budgetHint: '此预算只用于监控成本，不会改变用户计费。',
+      userCost: '用户计费：$0.001 与此预算独立记录。',
+      saveGlobal: '保存全局设置',
+      settingsSaved: '已保存全局监控设置。',
+      invalidBudget: '请输入大于 0 的每日预算。',
+      groups: '分组',
+      groupHint: '展示全部未删除分组；仅公开、启用且配置模型的分组会执行探针。',
+      name: '分组',
+      platform: '平台',
+      status: '状态',
+      visible: '公开可见',
+      interval: '探针间隔（秒）',
+      model: '测试模型',
+      saveGroup: '保存分组',
+      groupSaved: '已保存分组配置。',
+      disabledInterval: '0 表示禁用该分组探针。',
+      modelHint: '留空表示禁用该分组探针。',
+      invalidInterval: '请输入 0，或 60 到 86400 的整数秒数。',
+      invalidModel: '请输入不含空白字符的单个模型标识。',
+      saveError: '无法保存监控配置。',
+      noGroups: '没有可用分组。',
+    },
 
     // Subscriptions Management
     subscriptions: {

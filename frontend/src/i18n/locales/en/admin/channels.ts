@@ -731,6 +731,36 @@ export default {
         }
       }
     },
+    channelMonitorV3: {
+      title: 'Channel monitor V3',
+      description: 'Configure public channel visibility and independent health probes.',
+      loading: 'Loading monitor configuration…',
+      loadError: 'Failed to load monitor configuration.',
+      global: 'Global monitor',
+      enabled: 'Enable monitor',
+      dailyBudget: 'Daily probe budget (USD)',
+      budgetHint: 'This is a monitor-only cost budget. It does not change user billing.',
+      userCost: 'User billing: $0.001 is tracked separately from this budget.',
+      saveGlobal: 'Save global settings',
+      settingsSaved: 'Global monitor settings saved.',
+      invalidBudget: 'Enter a positive daily budget.',
+      groups: 'Groups',
+      groupHint: 'Every non-deleted group is listed. Only visible, active groups with a model are eligible for probes.',
+      name: 'Group',
+      platform: 'Platform',
+      status: 'Status',
+      visible: 'Public visibility',
+      interval: 'Probe interval (seconds)',
+      model: 'Test model',
+      saveGroup: 'Save group',
+      groupSaved: 'Group configuration saved.',
+      disabledInterval: '0 disables probes for this group.',
+      modelHint: 'Leave blank to disable probes for this group.',
+      invalidInterval: 'Use 0, or a whole number from 60 to 86400 seconds.',
+      invalidModel: 'Use a single model identifier with no whitespace.',
+      saveError: 'Unable to save monitor configuration.',
+      noGroups: 'No groups found.',
+    },
 
     // Subscriptions
     subscriptions: {

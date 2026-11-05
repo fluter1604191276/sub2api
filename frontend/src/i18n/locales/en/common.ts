@@ -211,6 +211,7 @@ export default {
     channelManagement: 'Channels',
     channelPricing: 'Channel Pricing',
     channelMonitor: 'Channel Monitor',
+    channelMonitorV3: 'Channel monitor V3',
     publicCatalog: 'Catalog Display',
     modelIQ: 'Model IQ',
     modelIQSettings: 'Model IQ Settings',

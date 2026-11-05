@@ -511,6 +511,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/channel-monitors-v3',
+    name: 'AdminChannelMonitorV3',
+    component: () => import('@/views/admin/ChannelMonitorV3View.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Channel Monitor V3',
+      titleKey: 'admin.channelMonitorV3.title',
+      descriptionKey: 'admin.channelMonitorV3.description'
+    }
+  },
+  {
     path: '/admin/channels/catalog',
     name: 'AdminPublicCatalog',
     component: () => import('@/views/admin/PublicCatalogView.vue'),
