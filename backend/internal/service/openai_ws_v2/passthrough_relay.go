@@ -79,6 +79,10 @@ type RelayOptions struct {
 	FirstMessageType                coderws.MessageType
 	FirstMessageSent                bool
 	StartClientAfterFirstDownstream bool
+	// BeforeWriteUpstream runs immediately before a client frame is offered to
+	// the upstream transport. It is intentionally invoked even when the write
+	// later fails because callers may need to retain a possible-write attempt.
+	BeforeWriteUpstream func(msgType coderws.MessageType, payload []byte)
 	// AfterWriteUpstream runs only after a frame has reached the upstream
 	// transport. Callers use it for observation that must not include locally
 	// rejected or failed-to-write response.create frames.
@@ -209,6 +213,9 @@ func Relay(
 	}
 
 	writeUpstream := func(msgType coderws.MessageType, payload []byte) error {
+		if options.BeforeWriteUpstream != nil {
+			options.BeforeWriteUpstream(msgType, payload)
+		}
 		writeCtx, cancel := context.WithTimeout(relayCtx, writeTimeout)
 		defer cancel()
 		err := upstreamConn.WriteFrame(writeCtx, msgType, payload)

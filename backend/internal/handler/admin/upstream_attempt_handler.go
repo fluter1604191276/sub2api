@@ -19,6 +19,10 @@ func NewUpstreamAttemptHandler(repository service.UpstreamAttemptRepository) *Up
 	return &UpstreamAttemptHandler{repository: repository}
 }
 
+func (h *UpstreamAttemptHandler) QueueStatus(c *gin.Context) {
+	response.Success(c, service.UpstreamAttemptQueueStatus())
+}
+
 // List returns individual upstream attempts. GET /admin/ops/upstream-attempts
 func (h *UpstreamAttemptHandler) List(c *gin.Context) {
 	if h == nil || h.repository == nil {

@@ -342,7 +342,23 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		return nil, err
 	}
 
+	// Prepare the observer and diagnostics before the write. A transport error
+	// can still mean the frame reached the upstream, so it is a real attempt.
+	upstreamAttempt := s.startUpstreamAttemptWebSocket(
+		ctx,
+		c,
+		account,
+		mappedModel,
+		optionalStringValue(extractOpenAIServiceTier(reqBody)),
+		optionalStringValue(extractOpenAIReasoningEffort(reqBody, mappedModel, originalModel)),
+	)
+	upstreamAttempt.setUpstreamRequestID(lease.HandshakeHeaders())
+	payloadDiagnosticBytes := payloadAsJSONBytes(payload)
+	beginOpenAIResponseDiagnosticsForTurn(c, payloadDiagnosticBytes, true)
+	observeOpenAIResponseDiagnosticForwarded(c, payloadDiagnosticBytes, account.ID)
+	observeOpenAIResponseDiagnosticHeaders(c, lease.HandshakeHeader("x-request-id"))
 	if err := lease.WriteJSONWithContextTimeout(ctx, payload, s.openAIWSWriteTimeout()); err != nil {
+		upstreamAttempt.finish()
 		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"write_request_fail account_id=%d conn_id=%s cause=%s payload_bytes=%d",
@@ -363,15 +379,6 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			truncateOpenAIWSLogValue(previousResponseID, openAIWSIDValueMaxLen),
 		)
 	}
-	upstreamAttempt := s.startUpstreamAttemptWebSocket(
-		ctx,
-		c,
-		account,
-		mappedModel,
-		optionalStringValue(extractOpenAIServiceTier(reqBody)),
-		optionalStringValue(extractOpenAIReasoningEffort(reqBody, mappedModel, originalModel)),
-	)
-	upstreamAttempt.setUpstreamRequestID(lease.HandshakeHeaders())
 	defer upstreamAttempt.finish()
 
 	usage := &OpenAIUsage{}
@@ -616,6 +623,7 @@ readLoop:
 			return nil, fmt.Errorf("openai ws read event: %w", readErr)
 		}
 		upstreamAttempt.observe(message)
+		observeOpenAIResponseDiagnosticUsage(c, message)
 		if normalized, changed := normalizeCompletedImageGenerationStatus(message); changed {
 			message = normalized
 		}
@@ -640,6 +648,9 @@ readLoop:
 			tokenEventCount++
 		}
 		isTerminalEvent := isOpenAIWSTerminalEvent(eventType)
+		if isTerminalEvent {
+			observeOpenAIResponseDiagnosticTerminal(c, message, eventType, nil)
+		}
 		if isTerminalEvent {
 			terminalEventCount++
 		}

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -31,30 +32,30 @@ func WithUpstreamAttemptSource(ctx context.Context, source string) context.Conte
 // UpstreamAttemptRecorder writes an independent shadow ledger. Its inputs contain
 // only protocol metadata. Neither request nor response bodies enter the ledger.
 type UpstreamAttemptRecorder struct {
-	repo UpstreamAttemptRepository
-	cost *UpstreamAttemptCostCalculator
+	repo  UpstreamAttemptRepository
+	cost  *UpstreamAttemptCostCalculator
+	queue *upstreamAttemptQueue
 }
 
 func NewUpstreamAttemptRecorder(repo UpstreamAttemptRepository, cost *UpstreamAttemptCostCalculator) *UpstreamAttemptRecorder {
-	return &UpstreamAttemptRecorder{repo: repo, cost: cost}
+	return &UpstreamAttemptRecorder{repo: repo, cost: cost, queue: defaultUpstreamAttemptQueue}
 }
 
 func (r *UpstreamAttemptRecorder) record(ctx context.Context, attempt *UpstreamAttempt) {
-	if r == nil || r.repo == nil {
+	if r == nil || r.repo == nil || attempt == nil {
 		return
 	}
-	// Closing a cancelled upstream response must still preserve its observed
-	// usage. A failed ledger write never changes the client's response or charge.
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
-	defer cancel()
+	copy := *attempt
+	// Price uses the already frozen snapshot and performs no repository reads.
+	// Release the pricing graph before queueing scalar persistence metadata.
 	if r.cost != nil {
-		if err := r.cost.Price(ctx, attempt); err != nil {
-			slog.Warn("upstream_attempt_price_failed", "attempt_id", attempt.AttemptID)
+		if err := r.cost.Price(context.Background(), &copy); err != nil {
+			slog.Warn("upstream_attempt_price_failed", "attempt_id", copy.AttemptID)
 		}
 	}
-	if err := r.repo.Insert(ctx, attempt); err != nil {
-		slog.Warn("upstream_attempt_insert_failed", "attempt_id", attempt.AttemptID)
-	}
+	copy.accountStatsChannel = nil
+	copy.pricingSnapshot = nil
+	r.queue.enqueue(upstreamAttemptJob{repository: r.repo, attempt: copy})
 }
 
 type observedHTTPUpstream struct {
@@ -68,13 +69,21 @@ func NewObservedHTTPUpstream(base HTTPUpstream, recorder *UpstreamAttemptRecorde
 
 func (u *observedHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
 	attempt := u.start(req, accountID)
-	resp, err := u.base.Do(req, proxyURL, accountID, concurrency)
+	tracked, observed := u.trackRoundTrips(req, attempt, accountID)
+	resp, err := u.base.Do(tracked, proxyURL, accountID, concurrency)
+	if observed.Load() {
+		return resp, err
+	}
 	return u.observe(req, attempt, resp, err)
 }
 
 func (u *observedHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	attempt := u.start(req, accountID)
-	resp, err := u.base.DoWithTLS(req, proxyURL, accountID, concurrency, profile)
+	tracked, observed := u.trackRoundTrips(req, attempt, accountID)
+	resp, err := u.base.DoWithTLS(tracked, proxyURL, accountID, concurrency, profile)
+	if observed.Load() {
+		return resp, err
+	}
 	return u.observe(req, attempt, resp, err)
 }
 
@@ -196,13 +205,20 @@ type upstreamAttemptBody struct {
 	mu          sync.Mutex
 	once        sync.Once
 	persist     sync.Once
+	bytesRead   atomic.Int64
+	eof         atomic.Bool
+	closeErr    error
 }
 
 func (b *upstreamAttemptBody) Read(p []byte) (int, error) {
 	b.mu.Lock()
 	n, err := b.body.Read(p)
+	b.bytesRead.Add(int64(n))
 	b.feed(p[:n])
 	if err != nil {
+		if err == io.EOF {
+			b.eof.Store(true)
+		}
 		b.finish(err == io.EOF)
 	}
 	b.mu.Unlock()
@@ -210,14 +226,27 @@ func (b *upstreamAttemptBody) Read(p []byte) (int, error) {
 }
 
 func (b *upstreamAttemptBody) Close() error {
-	// The underlying transport cancels any blocked Read before acquiring its
-	// read lock. Close it before taking ours to preserve that cancellation order.
-	err := b.body.Close()
-	b.mu.Lock()
-	b.finish(false)
-	b.persist.Do(func() { b.recorder.record(b.ctx, b.attempt) })
-	b.mu.Unlock()
-	return err
+	b.persist.Do(func() {
+		if b.attempt.HTTPStatus >= 400 && !b.eof.Load() {
+			// Error handlers often read a prefix. Capture a bounded tail while the
+			// request still owns the connection, then release it promptly.
+			remaining := int64(upstreamAttemptFrameLimit+1) - b.bytesRead.Load()
+			if remaining > 0 {
+				done := make(chan struct{})
+				go func() { _, _ = io.CopyN(io.Discard, b, remaining); close(done) }()
+				select {
+				case <-done:
+				case <-time.After(100 * time.Millisecond):
+				}
+			}
+		}
+		b.closeErr = b.body.Close()
+		b.mu.Lock()
+		b.finish(false)
+		b.recorder.record(b.ctx, b.attempt)
+		b.mu.Unlock()
+	})
+	return b.closeErr
 }
 
 func (b *upstreamAttemptBody) feed(data []byte) {

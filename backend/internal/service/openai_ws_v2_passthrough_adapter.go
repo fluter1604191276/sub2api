@@ -1154,6 +1154,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			"",
 		)
 		observer.setUpstreamRequestID(handshakeHeaders)
+		beginOpenAIResponseDiagnosticsForTurn(c, payload, true)
+		observeOpenAIResponseDiagnosticForwarded(c, payload, account.ID)
+		observeOpenAIResponseDiagnosticHeaders(c, handshakeHeaders.Get("x-request-id"))
 		upstreamAttemptMu.Lock()
 		previous := upstreamAttempt
 		upstreamAttempt = observer
@@ -1178,6 +1181,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		observer := upstreamAttempt
 		upstreamAttemptMu.Unlock()
 		observer.observe(payload)
+		observeOpenAIResponseDiagnosticUsage(c, payload)
+		eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+		if isOpenAIWSTerminalEvent(eventType) {
+			observeOpenAIResponseDiagnosticTerminal(c, payload, eventType, nil)
+		}
 	}
 	defer func() {
 		upstreamAttemptMu.Lock()
@@ -1186,6 +1194,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		upstreamAttemptMu.Unlock()
 		observer.finish()
 	}()
+	beginUpstreamAttempt(firstClientMessage)
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
@@ -1197,7 +1206,6 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		)
 	}
 	upstreamFirstMessageSent = true
-	beginUpstreamAttempt(firstClientMessage)
 
 	readNextClientFrame := func(readCtx context.Context, conn openaiwsv2.FrameConn) (coderws.MessageType, []byte, error) {
 		for {
@@ -1242,7 +1250,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			FirstMessageSent:                upstreamFirstMessageSent,
 			StartClientAfterFirstDownstream: true,
 			ReadClientFrame:                 readNextClientFrame,
-			AfterWriteUpstream:              func(msgType coderws.MessageType, payload []byte) { beginUpstreamAttempt(payload) },
+			BeforeWriteUpstream:             func(msgType coderws.MessageType, payload []byte) { beginUpstreamAttempt(payload) },
 			AfterReadUpstream:               observeRawUpstreamFrame,
 			OnUsageParseFailure: func(eventType string, usageRaw string) {
 				logOpenAIWSV2Passthrough(

@@ -112,6 +112,7 @@ func TestRecoveryProbeBudgetPlanExcludesPermanentlyRejectedProtocol(t *testing.T
 	job.State.ProtocolEligibility = map[string]GroupRecoveryProbeProtocolStatus{
 		APIProtocolChatCompletions: {
 			Status: GroupRecoveryProbeStatusPaused, LastErrorClass: GroupRecoveryProbeErrorPermanent,
+			LastError: "cross_protocol_conversion_disabled",
 		},
 	}
 	require.Equal(t, 4, runner.plannedProbeAttempts(context.Background(), job))

@@ -283,6 +283,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		if h.Admin.UpstreamAttempts != nil {
 			ops.GET("/upstream-attempts", h.Admin.UpstreamAttempts.List)
 			ops.GET("/upstream-attempts/daily-costs", h.Admin.UpstreamAttempts.DailyCosts)
+			ops.GET("/upstream-attempts/queue-status", h.Admin.UpstreamAttempts.QueueStatus)
 		}
 
 		// Indexed system logs

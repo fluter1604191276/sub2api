@@ -135,6 +135,49 @@ func TestGroupRecoveryProbeRepositoryExecutesTimestampQueries(t *testing.T) {
 	require.Equal(t, 2, jobs[0].BeneficiaryGroups)
 	require.Equal(t, service.GroupRecoveryProbeModeSmart, jobs[0].Mode, "the earliest due projection owns the physical probe policy")
 	require.Equal(t, 1, jobs[0].AttemptsPerRound)
+
+	// A configuration change may clear a complete cross-protocol conversion
+	// pause, but never while a worker owns this physical probe. The preceding
+	// two concurrent ClaimDue calls proved one claim only; this PostgreSQL
+	// assertion covers the maintenance/claim interleaving by making the first
+	// winner appear to have an in-flight, now-stale policy reset.
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE accounts
+		SET platform = 'kimi', credentials = '{"api_protocol":"adaptive"}'::jsonb
+		WHERE id = $1
+	`, accountID)
+	require.NoError(t, err)
+	crossPausedEligibility := `{"chat_completions":{"status":"paused","last_error_class":"permanent","last_error":"cross_protocol_conversion_disabled"}}`
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE group_recovery_probe_physical_states
+		SET status = 'probing', protocol_eligibility = $2::jsonb,
+			last_probe_at = $3, updated_at = $3
+		WHERE id = $1
+	`, jobs[0].PhysicalStateID, crossPausedEligibility, probeNow)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `UPDATE groups SET updated_at = $2 WHERE id = $1`, groupID, probeNow.Add(time.Second))
+	require.NoError(t, err)
+	maintenanceJobs, err := repo.ClaimDue(ctx, probeNow.Add(2*time.Second), 4)
+	require.NoError(t, err)
+	require.Empty(t, maintenanceJobs)
+	var inFlightStatus string
+	var inFlightEligibility []byte
+	err = integrationDB.QueryRowContext(ctx, `
+		SELECT status, protocol_eligibility
+		FROM group_recovery_probe_physical_states WHERE id = $1
+	`, jobs[0].PhysicalStateID).Scan(&inFlightStatus, &inFlightEligibility)
+	require.NoError(t, err)
+	require.Equal(t, service.GroupRecoveryProbeStatusProbing, inFlightStatus)
+	require.JSONEq(t, crossPausedEligibility, string(inFlightEligibility))
+	_, err = integrationDB.ExecContext(ctx, `UPDATE accounts SET platform = 'openai', credentials = '{}'::jsonb WHERE id = $1`, accountID)
+	require.NoError(t, err)
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE group_recovery_probe_physical_states
+		SET protocol_eligibility = '{}'::jsonb
+		WHERE id = $1
+	`, jobs[0].PhysicalStateID)
+	require.NoError(t, err)
+
 	var physicalStates int
 	err = integrationDB.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM group_recovery_probe_physical_states
@@ -466,8 +509,9 @@ func TestGroupRecoveryProbeRepositoryExecutesTimestampQueries(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, count)
 
-	// A permanent result is projected according to each beneficiary policy:
-	// smart pauses for six hours, while manual keeps its configured cadence.
+	// A generic permanent upstream result must remain retryable. Even if an
+	// old caller supplies paused, only the explicit cross-protocol conversion
+	// policy may persist a paused state.
 	permanentClaimedAt := realUsageAt.Add(2 * time.Minute)
 	_, err = integrationDB.ExecContext(ctx, `
 		UPDATE group_recovery_probe_physical_states
@@ -499,9 +543,9 @@ func TestGroupRecoveryProbeRepositoryExecutesTimestampQueries(t *testing.T) {
 		WHERE account_id = $1
 	`, accountID, groupID, siblingGroupID).Scan(&smartStatus, &manualStatus, &smartNext, &manualNext)
 	require.NoError(t, err)
-	require.Equal(t, service.GroupRecoveryProbeStatusPaused, smartStatus)
+	require.Equal(t, service.GroupRecoveryProbeStatusFailed, smartStatus)
 	require.Equal(t, service.GroupRecoveryProbeStatusFailed, manualStatus)
-	require.True(t, manualNext.Before(smartNext), "manual policy must not inherit the smart six-hour pause")
+	require.True(t, smartNext.Before(manualNext), "generic permanent failures must use smart backoff, not a pause")
 	count, err = repo.ReconcileRealUsage(ctx, permanentClaimedAt.Add(time.Second))
 	require.NoError(t, err)
 	require.Zero(t, count)
@@ -513,17 +557,26 @@ func TestGroupRecoveryProbeRepositoryExecutesTimestampQueries(t *testing.T) {
 		WHERE account_id = $1
 	`, accountID, groupID, siblingGroupID).Scan(&smartStatus, &manualStatus)
 	require.NoError(t, err)
-	require.Equal(t, service.GroupRecoveryProbeStatusPaused, smartStatus)
+	require.Equal(t, service.GroupRecoveryProbeStatusFailed, smartStatus)
 	require.Equal(t, service.GroupRecoveryProbeStatusFailed, manualStatus)
 	err = integrationDB.QueryRowContext(ctx, `
 		SELECT next_probe_at FROM group_recovery_probe_physical_states WHERE id = $1
 	`, jobs[0].PhysicalStateID).Scan(&physicalNext)
 	require.NoError(t, err)
-	require.WithinDuration(t, manualNext, physicalNext, time.Microsecond)
+	require.WithinDuration(t, smartNext, physicalNext, time.Microsecond)
+
+	// Make the manual projection due first so the next ownership assertion is
+	// independent from the smart retry cadence above.
+	_, err = integrationDB.ExecContext(ctx, `
+		UPDATE group_recovery_probe_states
+		SET next_probe_at = $2
+		WHERE group_id = $1 AND account_id = $3
+	`, groupID, manualNext.Add(time.Hour), accountID)
+	require.NoError(t, err)
 
 	// The next physical claim is owned by the manual projection. Reservation
-	// failures must restore that projection's failed state, not the shared
-	// physical paused state left by the previous smart owner.
+	// failures must restore that projection's failed state without reviving a
+	// generic permanent pause on the smart sibling.
 	manualJobs, err := repo.ClaimDue(ctx, manualNext.Add(time.Second), 1)
 	require.NoError(t, err)
 	require.Len(t, manualJobs, 1)

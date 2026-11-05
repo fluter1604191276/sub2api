@@ -15,6 +15,7 @@ import (
 )
 
 const openAIResponseDiagnosticsContextKey = "openai_response_diagnostics"
+const openAIResponseDiagnosticsSinkContextKey = "openai_response_diagnostics_sink"
 
 // OpenAIResponseDiagnosticSnapshot is a scalar-only view of one Responses
 // exchange. Pointer token values preserve the distinction between absent and
@@ -44,9 +45,18 @@ type openAIResponseDiagnostics struct {
 	mu                sync.RWMutex
 	snapshot          OpenAIResponseDiagnosticSnapshot
 	terminalEventType string
+	sink              func(OpenAIResponseDiagnosticSnapshot)
+	published         bool
 }
 
 func beginOpenAIResponseDiagnostics(c *gin.Context, body []byte) *openAIResponseDiagnostics {
+	return beginOpenAIResponseDiagnosticsForTurn(c, body, false)
+}
+
+// beginOpenAIResponseDiagnosticsForTurn resets attempt-local fields. WebSocket
+// turns supply their own client frame cap; ordinary HTTP failover preserves the
+// original request cap for the whole request.
+func beginOpenAIResponseDiagnosticsForTurn(c *gin.Context, body []byte, replaceRequestedCap bool) *openAIResponseDiagnostics {
 	if c == nil || isOpenAIResponsesCompactPath(c) {
 		return nil
 	}
@@ -55,16 +65,68 @@ func beginOpenAIResponseDiagnostics(c *gin.Context, body []byte) *openAIResponse
 		// native attempt is actually built, suppress the prior attempt so a
 		// bridge/local return cannot be attributed to stale metadata.
 		existing.mu.Lock()
+		var pending OpenAIResponseDiagnosticSnapshot
+		var sink func(OpenAIResponseDiagnosticSnapshot)
+		// A WebSocket connection can start its next response.create before a
+		// provisional bare error receives an authoritative terminal (or before
+		// it receives any terminal). Preserve that completed attempt boundary;
+		// ordinary HTTP failover deliberately keeps its existing fallback rule.
+		if replaceRequestedCap && existing.snapshot.Active && !existing.published && existing.sink != nil {
+			pending = existing.snapshot
+			sink = existing.sink
+			existing.published = true
+		}
 		requested := existing.snapshot.RequestedMaxOutputTokens
+		if replaceRequestedCap {
+			requested = jsonInt64(body, "max_output_tokens")
+		}
 		existing.snapshot = OpenAIResponseDiagnosticSnapshot{RequestedMaxOutputTokens: requested}
 		existing.terminalEventType = ""
+		existing.published = false
 		existing.mu.Unlock()
+		if sink != nil {
+			sink(pending)
+		}
 		return existing
 	}
 	d := &openAIResponseDiagnostics{}
+	if sink, ok := c.Get(openAIResponseDiagnosticsSinkContextKey); ok {
+		d.sink, _ = sink.(func(OpenAIResponseDiagnosticSnapshot))
+	}
 	d.snapshot.RequestedMaxOutputTokens = jsonInt64(body, "max_output_tokens")
 	c.Set(openAIResponseDiagnosticsContextKey, d)
 	return d
+}
+
+// BindOpenAIResponseDiagnosticSink receives immutable scalar snapshots as
+// formal Responses terminals arrive. It is deliberately request-scoped; the
+// handler owns queueing and persistence.
+func BindOpenAIResponseDiagnosticSink(c *gin.Context, sink func(OpenAIResponseDiagnosticSnapshot)) {
+	if c == nil {
+		return
+	}
+	c.Set(openAIResponseDiagnosticsSinkContextKey, sink)
+	if d := openAIResponseDiagnosticsFromContext(c); d != nil {
+		d.mu.Lock()
+		d.sink = sink
+		d.mu.Unlock()
+	}
+}
+
+// TakeOpenAIResponseDiagnosticSnapshot returns a final fallback only when a
+// terminal was not already delivered to the request sink.
+func TakeOpenAIResponseDiagnosticSnapshot(c *gin.Context) (OpenAIResponseDiagnosticSnapshot, bool) {
+	d := openAIResponseDiagnosticsFromContext(c)
+	if d == nil {
+		return OpenAIResponseDiagnosticSnapshot{}, false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.snapshot.Active || d.published {
+		return OpenAIResponseDiagnosticSnapshot{}, false
+	}
+	d.published = true
+	return d.snapshot, true
 }
 
 func openAIResponseDiagnosticsFromContext(c *gin.Context) *openAIResponseDiagnostics {
@@ -102,13 +164,23 @@ func observeOpenAIResponseDiagnosticForwarded(c *gin.Context, body []byte, accou
 	d.snapshot = OpenAIResponseDiagnosticSnapshot{
 		Active:                   true,
 		RequestedMaxOutputTokens: requested,
-		ForwardedMaxOutputTokens: jsonInt64(body, "max_output_tokens"),
+		ForwardedMaxOutputTokens: firstDiagnosticCap(body),
 	}
 	if len(accountIDs) > 0 {
 		d.snapshot.AccountID = accountIDs[0]
 	}
 	d.terminalEventType = ""
+	d.published = false
 	d.mu.Unlock()
+}
+
+func firstDiagnosticCap(body []byte) *int64 {
+	for _, path := range []string{"max_output_tokens", "max_completion_tokens", "max_tokens", "generationConfig.maxOutputTokens", "output_config.max_tokens"} {
+		if value := jsonInt64(body, path); value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 // Observe all frames for diagnostics, independently of the existing converter
@@ -123,6 +195,17 @@ func observeOpenAIResponseDiagnosticSSEBody(c *gin.Context, body []byte) {
 			observeOpenAIResponseDiagnosticTerminal(c, data, eventType, nil)
 		}
 	})
+}
+
+// observeOpenAIResponseDiagnosticPayload records scalar metadata from a
+// Responses-shaped payload produced by a protocol bridge. The caller retains
+// ownership of the payload and may still write it unchanged to the client.
+func observeOpenAIResponseDiagnosticPayload(c *gin.Context, payload []byte) {
+	if openAIResponseDiagnosticsFromContext(c) == nil {
+		return
+	}
+	observeOpenAIResponseDiagnosticUsage(c, payload)
+	observeOpenAIResponseDiagnosticTerminal(c, payload, gjson.GetBytes(payload, "type").String(), nil)
 }
 
 func observeOpenAIResponseDiagnosticHeaders(c *gin.Context, upstreamRequestID string) {
@@ -144,7 +227,6 @@ func observeOpenAIResponseDiagnosticTerminal(c *gin.Context, payload []byte, eve
 	}
 	value := gjson.ParseBytes(payload)
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	eventType = strings.TrimSpace(eventType)
 	// Codex can send a provisional bare error followed by an authoritative
@@ -155,9 +237,11 @@ func observeOpenAIResponseDiagnosticTerminal(c *gin.Context, payload []byte, eve
 		status = terminalStatusFromEvent(eventType)
 	}
 	if status == "" {
+		d.mu.Unlock()
 		return
 	}
 	if d.snapshot.Terminal && !(d.terminalEventType == "error" && eventType != "error") {
+		d.mu.Unlock()
 		return
 	}
 	d.snapshot.Terminal = true
@@ -175,6 +259,18 @@ func observeOpenAIResponseDiagnosticTerminal(c *gin.Context, payload []byte, eve
 		"usage.output_tokens_details.reasoning_tokens",
 		"response.usage.completion_tokens_details.reasoning_tokens",
 		"usage.completion_tokens_details.reasoning_tokens")
+	// A bare error may be superseded by an authoritative response terminal;
+	// leave it for middleware fallback so we never publish two records for one
+	// ordinary HTTP attempt.
+	if eventType == "error" || d.published || d.sink == nil {
+		d.mu.Unlock()
+		return
+	}
+	snapshot := d.snapshot
+	sink := d.sink
+	d.published = true
+	d.mu.Unlock()
+	sink(snapshot)
 }
 
 // observeOpenAIResponseDiagnosticUsage retains only fields which were present

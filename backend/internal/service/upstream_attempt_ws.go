@@ -32,6 +32,13 @@ func (s *OpenAIGatewayService) startUpstreamAttemptWebSocket(ctx context.Context
 	if c != nil && c.Request != nil {
 		ctx = c.Request.Context()
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	// A WebSocket write commonly uses a short-lived timeout context. Keep the
+	// request values but detach cancellation before snapshotting price metadata,
+	// so a write timeout cannot erase the attempt's price identity.
+	ctx = context.WithoutCancel(ctx)
 	a := &UpstreamAttempt{
 		AttemptID:       uuid.NewString(),
 		AccountID:       account.ID,
@@ -58,7 +65,10 @@ func (s *OpenAIGatewayService) startUpstreamAttemptWebSocket(ctx context.Context
 		a.Source = "openai_iq"
 	}
 	if observed.recorder.cost != nil {
-		if err := observed.recorder.cost.Snapshot(ctx, a); err != nil {
+		snapshotCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := observed.recorder.cost.Snapshot(snapshotCtx, a)
+		cancel()
+		if err != nil {
 			// A failed snapshot is represented as unknown pricing and must not alter
 			// the successful WebSocket request.
 			a.CostSnapshotAvailable = false
