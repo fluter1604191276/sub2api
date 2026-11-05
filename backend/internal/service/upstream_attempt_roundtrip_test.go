@@ -3,6 +3,7 @@
 package service
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -67,4 +68,38 @@ func TestUpstreamAttemptRecordsEachPhysicalHTTPRedirectExchange(t *testing.T) {
 	require.EqualValues(t, 11, *repo.items[1].InputTokens)
 	require.InDelta(t, .011, *repo.items[0].CostUSD, 1e-10)
 	require.InDelta(t, .017, *repo.items[1].CostUSD, 1e-10)
+}
+
+func TestObserveHTTPUpstreamRoundTripPreparesOnlyObservedRequests(t *testing.T) {
+	base := attemptRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("raw"))}, nil
+	})
+	prepareCalls := 0
+	prepare := func(resp *http.Response) {
+		prepareCalls++
+		resp.Header = http.Header{"X-Prepared": []string{"yes"}}
+	}
+
+	plain, err := http.NewRequest(http.MethodGet, "https://example.invalid/plain", nil)
+	require.NoError(t, err)
+	resp, err := ObserveHTTPUpstreamRoundTrip(plain, base, prepare)
+	require.NoError(t, err)
+	require.Zero(t, prepareCalls)
+	require.Empty(t, resp.Header.Get("X-Prepared"))
+	require.NoError(t, resp.Body.Close())
+
+	observed := false
+	ctx := context.WithValue(context.Background(), upstreamAttemptRoundTripKey{}, upstreamAttemptRoundTripObserver(func(req *http.Request, transport http.RoundTripper) (*http.Response, error) {
+		response, roundTripErr := transport.RoundTrip(req)
+		require.Equal(t, "yes", response.Header.Get("X-Prepared"))
+		observed = true
+		return response, roundTripErr
+	}))
+	tracked, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://example.invalid/tracked", nil)
+	require.NoError(t, err)
+	resp, err = ObserveHTTPUpstreamRoundTrip(tracked, base, prepare)
+	require.NoError(t, err)
+	require.True(t, observed)
+	require.Equal(t, 1, prepareCalls)
+	require.NoError(t, resp.Body.Close())
 }

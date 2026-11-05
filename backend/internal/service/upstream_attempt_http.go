@@ -205,6 +205,7 @@ type upstreamAttemptBody struct {
 	mu          sync.Mutex
 	once        sync.Once
 	persist     sync.Once
+	tailOnce    sync.Once
 	bytesRead   atomic.Int64
 	eof         atomic.Bool
 	closeErr    error
@@ -227,19 +228,7 @@ func (b *upstreamAttemptBody) Read(p []byte) (int, error) {
 
 func (b *upstreamAttemptBody) Close() error {
 	b.persist.Do(func() {
-		if b.attempt.HTTPStatus >= 400 && !b.eof.Load() {
-			// Error handlers often read a prefix. Capture a bounded tail while the
-			// request still owns the connection, then release it promptly.
-			remaining := int64(upstreamAttemptFrameLimit+1) - b.bytesRead.Load()
-			if remaining > 0 {
-				done := make(chan struct{})
-				go func() { _, _ = io.CopyN(io.Discard, b, remaining); close(done) }()
-				select {
-				case <-done:
-				case <-time.After(100 * time.Millisecond):
-				}
-			}
-		}
+		b.ObserveUpstreamAttemptErrorTail()
 		b.closeErr = b.body.Close()
 		b.mu.Lock()
 		b.finish(false)
@@ -247,6 +236,33 @@ func (b *upstreamAttemptBody) Close() error {
 		b.mu.Unlock()
 	})
 	return b.closeErr
+}
+
+// ObserveUpstreamAttemptErrorTail captures the bounded unread portion of an
+// error response before an outer transport wrapper cancels or closes it. It is
+// safe for both the repository transport and this body's Close to call; only
+// the first call performs the bounded drain.
+func (b *upstreamAttemptBody) ObserveUpstreamAttemptErrorTail() {
+	if b == nil {
+		return
+	}
+	b.tailOnce.Do(func() {
+		if b.attempt == nil || b.attempt.HTTPStatus < http.StatusBadRequest || b.eof.Load() {
+			return
+		}
+		// Error handlers often read a prefix. Capture a bounded tail while the
+		// request still owns the connection, then release it promptly.
+		remaining := int64(upstreamAttemptFrameLimit+1) - b.bytesRead.Load()
+		if remaining <= 0 {
+			return
+		}
+		done := make(chan struct{})
+		go func() { _, _ = io.CopyN(io.Discard, b, remaining); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(100 * time.Millisecond):
+		}
+	})
 }
 
 func (b *upstreamAttemptBody) feed(data []byte) {
