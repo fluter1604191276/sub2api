@@ -61,6 +61,7 @@ type smartStickySwitchPending struct {
 	previousScore           *float64
 	expectedChallengerScore *float64
 	policy                  SmartStickyPolicy
+	selectedAccountID       int64
 }
 
 type smartStickyReviewState struct {
@@ -821,13 +822,31 @@ func armSmartStickySwitchTrace(ctx context.Context, req openAISmartStickyReviewR
 	trace.applied = false
 }
 
+// bindSmartStickySwitchTrace ties a reviewed switch to the account selected by
+// this request. A review can finish before capacity admission; without this
+// binding, a later cache write on a reused context could consume its cooldown
+// and escape budget.
+func bindSmartStickySwitchTrace(ctx context.Context, accountID int64) {
+	trace, _ := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
+	if trace == nil || accountID <= 0 {
+		return
+	}
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	if trace.applied || trace.pending == nil {
+		return
+	}
+	trace.pending.selectedAccountID = accountID
+}
+
 func (s *OpenAIGatewayService) logSmartStickySwitchApplied(ctx context.Context, groupID *int64, accountID int64) {
 	trace, _ := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
 	if trace == nil || accountID <= 0 {
 		return
 	}
 	trace.mu.Lock()
-	if trace.applied || trace.pending == nil || trace.pending.groupID != derefGroupID(groupID) || trace.pending.previousAccountID == accountID {
+	if trace.applied || trace.pending == nil || trace.pending.groupID != derefGroupID(groupID) ||
+		trace.pending.selectedAccountID != accountID || trace.pending.previousAccountID == accountID {
 		trace.mu.Unlock()
 		return
 	}
@@ -846,6 +865,7 @@ func (s *OpenAIGatewayService) logSmartStickySwitchApplied(ctx context.Context, 
 			"fallback_account_id", accountID,
 			"session_fingerprint", smartStickySessionFingerprint(pending.reviewKey),
 		)
+		s.markSmartStickySwitchAppliedWithPolicy(pending.reviewKey, accountID, time.Now(), pending.policy, pending.expectedChallengerScore)
 		return
 	}
 	s.markSmartStickySwitchAppliedWithPolicy(pending.reviewKey, accountID, time.Now(), pending.policy, pending.expectedChallengerScore)
