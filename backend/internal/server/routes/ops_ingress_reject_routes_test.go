@@ -15,7 +15,10 @@ import (
 func TestIngressRejectAdminRoutesRequireAdminAuthentication(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
-	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{Ops: adminhandler.NewOpsHandler(nil)}}
+	handlers := &handler.Handlers{Admin: &handler.AdminHandlers{
+		Ops:              adminhandler.NewOpsHandler(nil),
+		UpstreamAttempts: adminhandler.NewUpstreamAttemptHandler(nil),
+	}}
 	adminAuth := servermiddleware.AdminAuthMiddleware(func(c *gin.Context) {
 		if c.GetHeader("Authorization") == "" {
 			servermiddleware.AbortWithError(c, http.StatusUnauthorized, "UNAUTHORIZED", "Authorization required")
@@ -31,6 +34,8 @@ func TestIngressRejectAdminRoutesRequireAdminAuthentication(t *testing.T) {
 		"/api/v1/admin/ops/ingress-rejections",
 		"/api/v1/admin/ops/ingress-rejections/health",
 		"/api/v1/admin/ops/response-diagnostics",
+		"/api/v1/admin/ops/upstream-attempts",
+		"/api/v1/admin/ops/upstream-attempts/daily-costs",
 	} {
 		for _, tc := range []struct {
 			name       string

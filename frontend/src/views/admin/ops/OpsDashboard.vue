@@ -105,6 +105,8 @@
 
       <OpsResponseDiagnosticsTable v-if="opsEnabled && !(loading && !hasLoadedOnce)" />
 
+      <OpsUpstreamAttemptLedger v-if="opsEnabled && !(loading && !hasLoadedOnce)" />
+
       <!-- Settings Dialog (hidden in fullscreen mode) -->
       <template v-if="!isFullscreen">
         <OpsSettingsDialog :show="showSettingsDialog" @close="showSettingsDialog = false" @saved="onSettingsSaved" />
@@ -176,6 +178,7 @@ import OpsRequestDetailsModal, { type OpsRequestDetailsPreset } from './componen
 import OpsSettingsDialog from './components/OpsSettingsDialog.vue'
 import OpsAlertRulesCard from './components/OpsAlertRulesCard.vue'
 import OpsResponseDiagnosticsTable from './components/OpsResponseDiagnosticsTable.vue'
+import OpsUpstreamAttemptLedger from './components/OpsUpstreamAttemptLedger.vue'
 
 const route = useRoute()
 const router = useRouter()

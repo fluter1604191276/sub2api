@@ -42,6 +42,155 @@ type reviewScheduleRepo struct {
 	eligibility map[string]GroupRecoveryProbeProtocolStatus
 }
 
+type pausedProtocolProbeTester struct {
+	calls    int
+	observed []string
+}
+
+func (t *pausedProtocolProbeTester) RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error) {
+	return &ScheduledTestResult{Status: "success"}, nil
+}
+
+func (t *pausedProtocolProbeTester) ProbeBusinessProtocols(ctx context.Context, _ int64, _ string) (map[string]*ScheduledTestResult, bool, error) {
+	t.calls++
+	allowed := businessProbeProtocolsFromContext(ctx)
+	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
+		if _, ok := allowed[protocol]; ok {
+			t.observed = append(t.observed, protocol)
+		}
+	}
+	return map[string]*ScheduledTestResult{
+		APIProtocolAnthropic: {Status: "success"},
+		APIProtocolResponses: {Status: "success"},
+	}, true, nil
+}
+
+type pausedProtocolPlanner struct{}
+
+func (pausedProtocolPlanner) RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error) {
+	return &ScheduledTestResult{Status: "success"}, nil
+}
+
+func (pausedProtocolPlanner) PlannedBusinessProtocolAttempts(context.Context, int64, string) (int, bool) {
+	return 3, true
+}
+
+func (pausedProtocolPlanner) PlannedBusinessProtocols(context.Context, int64, string) ([]string, bool) {
+	return []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses}, true
+}
+
+func TestRecoveryProbeSkipsPermanentlyRejectedProtocolBeforeNetworkAttempt(t *testing.T) {
+	paused := GroupRecoveryProbeProtocolStatus{
+		Status: GroupRecoveryProbeStatusPaused, LastErrorClass: GroupRecoveryProbeErrorPermanent,
+		LastError: "cross_protocol_conversion_disabled",
+	}
+	repo := &reviewScheduleRepo{
+		reviewProtocolRepo: reviewProtocolRepo{accept: true},
+		eligibility: map[string]GroupRecoveryProbeProtocolStatus{
+			APIProtocolChatCompletions: paused,
+			APIProtocolAnthropic:       {Status: GroupRecoveryProbeStatusWarm, ConsecutiveSuccesses: 1},
+			APIProtocolResponses:       {Status: GroupRecoveryProbeStatusWarm, ConsecutiveSuccesses: 1},
+		},
+	}
+	tester := &pausedProtocolProbeTester{}
+	runner := &GroupRecoveryProbeRunner{repo: repo, accountTestSvc: tester}
+
+	round, eligibility, handled := runner.collectAdaptiveProtocolProbe(context.Background(), reviewProbeJob())
+
+	require.True(t, handled)
+	require.Equal(t, 1, tester.calls)
+	require.Equal(t, []string{APIProtocolAnthropic, APIProtocolResponses}, tester.observed)
+	require.Equal(t, 2, round.Attempts)
+	require.Equal(t, GroupRecoveryProbeStatusPaused, eligibility[APIProtocolChatCompletions].Status)
+	require.Equal(t, GroupRecoveryProbeErrorPermanent, eligibility[APIProtocolChatCompletions].LastErrorClass)
+}
+
+func TestRecoveryProbeBudgetPlanExcludesPermanentlyRejectedProtocol(t *testing.T) {
+	runner := &GroupRecoveryProbeRunner{accountTestSvc: pausedProtocolPlanner{}}
+	job := reviewProbeJob()
+	job.AttemptsPerRound = 2
+	job.State.ProtocolEligibility = map[string]GroupRecoveryProbeProtocolStatus{
+		APIProtocolChatCompletions: {
+			Status: GroupRecoveryProbeStatusPaused, LastErrorClass: GroupRecoveryProbeErrorPermanent,
+		},
+	}
+	require.Equal(t, 4, runner.plannedProbeAttempts(context.Background(), job))
+}
+
+func TestRecoveryProbeClassifiesCrossProtocolConversionDisabledAsPermanent(t *testing.T) {
+	require.Equal(t, GroupRecoveryProbeErrorPermanent, classifyGroupRecoveryProbeError("cross_protocol_conversion_disabled"))
+	require.Equal(t, GroupRecoveryProbeErrorTransient, classifyGroupRecoveryProbeError("temporary upstream overload"))
+}
+
+type newlyPausedProtocolProbeTester struct {
+	calls    int
+	observed [][]string
+}
+
+func (t *newlyPausedProtocolProbeTester) RunTestBackground(context.Context, int64, string) (*ScheduledTestResult, error) {
+	return &ScheduledTestResult{Status: "success"}, nil
+}
+
+func (t *newlyPausedProtocolProbeTester) ProbeBusinessProtocols(ctx context.Context, _ int64, _ string) (map[string]*ScheduledTestResult, bool, error) {
+	t.calls++
+	allowed := businessProbeProtocolsFromContext(ctx)
+	seen := make([]string, 0, len(allowed))
+	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
+		if len(allowed) == 0 {
+			seen = append(seen, protocol)
+			continue
+		}
+		if _, ok := allowed[protocol]; ok {
+			seen = append(seen, protocol)
+		}
+	}
+	t.observed = append(t.observed, seen)
+	if t.calls == 1 {
+		return map[string]*ScheduledTestResult{
+			APIProtocolChatCompletions: {Status: "failed", ErrorMessage: crossProtocolConversionDisabledMarker},
+			APIProtocolAnthropic:       {Status: "success"},
+			APIProtocolResponses:       {Status: "success"},
+		}, true, nil
+	}
+	return map[string]*ScheduledTestResult{
+		APIProtocolAnthropic: {Status: "success"},
+		APIProtocolResponses: {Status: "success"},
+	}, true, nil
+}
+
+func TestRecoveryProbeStopsNewlyPermanentProtocolBeforeNextRound(t *testing.T) {
+	repo := &reviewScheduleRepo{reviewProtocolRepo: reviewProtocolRepo{accept: true}}
+	tester := &newlyPausedProtocolProbeTester{}
+	runner := &GroupRecoveryProbeRunner{repo: repo, accountTestSvc: tester}
+	job := reviewProbeJob()
+	job.AttemptsPerRound = 2
+
+	round, eligibility, handled := runner.collectAdaptiveProtocolProbe(context.Background(), job)
+
+	require.True(t, handled)
+	require.Equal(t, [][]string{
+		{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses},
+		{APIProtocolAnthropic, APIProtocolResponses},
+	}, tester.observed)
+	require.Equal(t, 5, round.Attempts)
+	require.Equal(t, GroupRecoveryProbeStatusPaused, eligibility[APIProtocolChatCompletions].Status)
+}
+
+func TestAggregateBusinessProtocolStatusPausesOnlyCrossProtocolConversionRejection(t *testing.T) {
+	require.Equal(t, GroupRecoveryProbeStatusPaused, aggregateBusinessProtocolStatus(map[string]GroupRecoveryProbeProtocolStatus{
+		APIProtocolChatCompletions: {
+			Status: GroupRecoveryProbeStatusPaused, LastErrorClass: GroupRecoveryProbeErrorPermanent,
+			LastError: crossProtocolConversionDisabledMarker,
+		},
+	}))
+	require.Equal(t, GroupRecoveryProbeStatusFailed, aggregateBusinessProtocolStatus(map[string]GroupRecoveryProbeProtocolStatus{
+		APIProtocolChatCompletions: {
+			Status: GroupRecoveryProbeStatusPaused, LastErrorClass: GroupRecoveryProbeErrorPermanent,
+			LastError: "invalid api key",
+		},
+	}))
+}
+
 func (r *reviewScheduleRepo) Complete(_ context.Context, completion GroupRecoveryProbeCompletion) (bool, error) {
 	r.completion = completion
 	return r.accept, nil

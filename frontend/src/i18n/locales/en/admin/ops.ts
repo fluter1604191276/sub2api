@@ -140,6 +140,10 @@ export default {
         invalidId: 'Account ID and user ID must be positive integers.', invalidTimeRange: 'Start time must be before end time.',
         statuses: { completed: 'Completed', incomplete: 'Incomplete', failed: 'Failed', client_disconnected: 'Client disconnected', missing_terminal: 'Terminal event missing' }
       },
+      upstreamAttempts: {
+        title: 'Upstream attempt shadow ledger', description: 'Actual upstream cost by Shanghai day and account. Reconciliation only; it never bills users.',
+        accountId: 'Account ID', startDate: 'Start date (Shanghai)', endDate: 'End date (Shanghai)', refresh: 'Refresh', day: 'Day', attempts: 'Attempts', knownCost: 'Known cost (USD)', unknown: 'Unknown-cost attempts', empty: 'No shadow ledger entries', loadFailed: 'Failed to load shadow ledger.', invalidAccountId: 'Account ID must be a valid positive integer.', invalidDateRange: 'End date cannot precede start date and the range cannot exceed 30 days.'
+      },
       failedToLoadOverview: 'Failed to load overview',
       failedToLoadThroughputTrend: 'Failed to load throughput trend',
       failedToLoadSwitchTrend: 'Failed to load avg account switches trend',

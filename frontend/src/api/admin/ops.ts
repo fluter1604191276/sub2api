@@ -1153,6 +1153,54 @@ export async function listResponseDiagnostics(
   return data
 }
 
+export type UpstreamAttemptSource = 'request' | 'recovery_probe' | 'channel_monitor' | 'channel_monitor_v3' | 'openai_iq'
+
+export interface UpstreamAttemptDailyCost {
+  day: string
+  account_id: number
+  attempt_count: number
+  known_cost_usd: number
+  unknown_count: number
+}
+
+export interface UpstreamAttemptDailyCostQuery {
+  start_time?: string
+  end_time?: string
+  time_range?: string
+  account_id?: number
+}
+
+export interface UpstreamAttempt {
+  id: number
+  attempt_id: string
+  request_id: string
+  client_request_id: string
+  upstream_request_id: string
+  created_at: string
+  account_id: number
+  group_id?: number | null
+  model: string
+  protocol: string
+  source: UpstreamAttemptSource
+  outcome: string
+  http_status: number
+  usage_present: boolean
+  cost_usd?: number | null
+  cost_status: 'known' | 'unknown_pricing' | 'no_usage'
+}
+
+export async function listUpstreamAttemptDailyCosts(
+  params: UpstreamAttemptDailyCostQuery
+): Promise<UpstreamAttemptDailyCost[]> {
+  const { data } = await apiClient.get<UpstreamAttemptDailyCost[]>('/admin/ops/upstream-attempts/daily-costs', { params })
+  return data
+}
+
+export async function listUpstreamAttempts(params: UpstreamAttemptDailyCostQuery & { source?: UpstreamAttemptSource, page?: number, page_size?: number }) {
+  const { data } = await apiClient.get<{ items: UpstreamAttempt[], total: number, page: number, page_size: number }>('/admin/ops/upstream-attempts', { params })
+  return data
+}
+
 export type OpsErrorListQueryParams = {
   page?: number
   page_size?: number
@@ -1407,6 +1455,8 @@ export const opsAPI = {
 
   listRequestDetails,
   listResponseDiagnostics,
+  listUpstreamAttempts,
+  listUpstreamAttemptDailyCosts,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

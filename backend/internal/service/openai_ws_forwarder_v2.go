@@ -363,6 +363,16 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			truncateOpenAIWSLogValue(previousResponseID, openAIWSIDValueMaxLen),
 		)
 	}
+	upstreamAttempt := s.startUpstreamAttemptWebSocket(
+		ctx,
+		c,
+		account,
+		mappedModel,
+		optionalStringValue(extractOpenAIServiceTier(reqBody)),
+		optionalStringValue(extractOpenAIReasoningEffort(reqBody, mappedModel, originalModel)),
+	)
+	upstreamAttempt.setUpstreamRequestID(lease.HandshakeHeaders())
+	defer upstreamAttempt.finish()
 
 	usage := &OpenAIUsage{}
 	imageCounter := newOpenAIImageOutputCounter()
@@ -605,6 +615,7 @@ readLoop:
 			setOpsUpstreamError(c, 0, sanitizeUpstreamErrorMessage(readErr.Error()), "")
 			return nil, fmt.Errorf("openai ws read event: %w", readErr)
 		}
+		upstreamAttempt.observe(message)
 		if normalized, changed := normalizeCompletedImageGenerationStatus(message); changed {
 			message = normalized
 		}

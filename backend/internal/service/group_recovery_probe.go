@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -333,6 +334,7 @@ func classifyGroupRecoveryProbeError(message string) string {
 		"invalid api key", "api key is missing", "no api key", "no access token",
 		"insufficient balance", "insufficient quota", "insufficient_quota", "balance exhausted", "余额不足",
 		"model not found", "model_not_found", "does not have access", "model access unavailable",
+		"cross_protocol_conversion_disabled",
 	}
 	for _, marker := range permanentMarkers {
 		if strings.Contains(message, marker) {
@@ -562,7 +564,11 @@ func normalizedGroupRecoveryProbeWorkerCount(configured int) int {
 }
 
 func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecoveryProbeJob) {
-	reservation, reserveErr := r.reserveProbeBudget(ctx, job, r.plannedProbeAttempts(ctx, job))
+	// Recovery probes are internal upstream attempts: tag them for the shadow
+	// attempt ledger and retain the owning group without involving user billing.
+	probeCtx := context.WithValue(ctx, ctxkey.Group, &Group{ID: job.State.GroupID})
+	probeCtx = WithUpstreamAttemptSource(probeCtx, "recovery_probe")
+	reservation, reserveErr := r.reserveProbeBudget(probeCtx, job, r.plannedProbeAttempts(probeCtx, job))
 	if reserveErr != nil {
 		r.finishReservationFailedJob(ctx, job, reserveErr)
 		return
@@ -573,7 +579,7 @@ func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecovery
 	startedAt := time.Now()
 	result := GroupRecoveryProbeRoundResult{}
 	var protocolEligibility map[string]GroupRecoveryProbeProtocolStatus
-	if round, eligibility, handled := r.collectAdaptiveProtocolProbe(ctx, job); handled {
+	if round, eligibility, handled := r.collectAdaptiveProtocolProbe(probeCtx, job); handled {
 		result = round
 		protocolEligibility = eligibility
 	} else {
@@ -582,7 +588,7 @@ func (r *GroupRecoveryProbeRunner) runJob(ctx context.Context, job GroupRecovery
 			attempts = 1
 		}
 		for i := 0; i < attempts; i++ {
-			attemptCtx, cancel := context.WithTimeout(ctx, groupRecoveryProbeAttemptTimeout)
+			attemptCtx, cancel := context.WithTimeout(probeCtx, groupRecoveryProbeAttemptTimeout)
 			testResult, err := r.accountTestSvc.RunTestBackground(attemptCtx, job.State.AccountID, job.State.Model)
 			cancel()
 			result.Attempts++
