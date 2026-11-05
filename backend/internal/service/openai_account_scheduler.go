@@ -1301,6 +1301,7 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			}
 		}
 		if req.SessionHash != "" && !req.PreserveStickyBinding {
+			bindSmartStickySwitchTrace(ctx, fresh.ID)
 			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
@@ -1392,6 +1393,7 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		if result != nil && result.Acquired {
 			if req.SessionHash != "" && !req.PreserveStickyBinding {
+				bindSmartStickySwitchTrace(ctx, account.ID)
 				_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, account.ID)
 			}
 			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
@@ -2279,8 +2281,15 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	platform string,
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
-) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	trace := &smartStickySwitchTrace{}
+	ctx = context.WithValue(ctx, smartStickySwitchTraceContextKey{}, trace)
+	defer func() {
+		if selection != nil {
+			selection.stickySwitchTrace = trace
+		}
+	}()
+	selection, decision, err = s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
 	}
@@ -2479,8 +2488,35 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		if preserveGuardianParentBinding {
 			legacySessionHash = ""
 		}
+		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
+		if sessionHash != "" && s.cache != nil {
+			if stickyAccountID, stickyErr := s.getStickySessionAccountID(ctx, groupID, sessionHash); stickyErr == nil && stickyAccountID > 0 {
+				if stickyAccount, accountErr := s.getSchedulableAccount(ctx, stickyAccountID); accountErr == nil && stickyAccount != nil {
+					review := s.reviewOpenAISmartStickySession(ctx, openAISmartStickyReviewRequest{
+						GroupID:                 groupID,
+						SessionHash:             sessionHash,
+						Platform:                platform,
+						RequestedModel:          requestedModel,
+						ExcludedIDs:             effectiveExcludedIDs,
+						RequireCompact:          requireCompact,
+						RequiredTransport:       requiredTransport,
+						RequiredCapability:      requiredCapability,
+						RequiredImageCapability: requiredImageCapability,
+						PreviousResponseID:      previousResponseID,
+					}, stickyAccountID)
+					if review.Switch {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						if review.Reason == chatCompletionsWarmLatencyEscapeReason {
+							if effectiveExcludedIDs == nil {
+								effectiveExcludedIDs = make(map[int64]struct{})
+							}
+							effectiveExcludedIDs[stickyAccountID] = struct{}{}
+						}
+					}
+				}
+			}
+		}
 		if requiredTransport == OpenAIUpstreamTransportAny || requiredTransport == OpenAIUpstreamTransportHTTPSSE {
-			effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 			for {
 				selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 				if err != nil {
@@ -2490,6 +2526,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 					return selection, decision, nil
 				}
 				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+					bindSmartStickySwitchTrace(ctx, selection.Account.ID)
+					if selection.Acquired && !gatewayProfitControlGateActive(ctx) {
+						s.logSmartStickySwitchApplied(ctx, groupID, selection.Account.ID)
+					}
 					applyLegacySelectionDecision(&decision, selection)
 					return selection, decision, nil
 				}
@@ -2506,7 +2546,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			}
 		}
 
-		effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 		for {
 			selection, err := s.selectAccountWithLoadAwareness(ctx, groupID, platform, legacySessionHash, requestedModel, effectiveExcludedIDs, requireCompact, requiredCapability, useUpstreamTokenCost)
 			if err != nil {
@@ -2517,6 +2556,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			}
 			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
 				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+				bindSmartStickySwitchTrace(ctx, selection.Account.ID)
+				if selection.Acquired && !gatewayProfitControlGateActive(ctx) {
+					s.logSmartStickySwitchApplied(ctx, groupID, selection.Account.ID)
+				}
 				applyLegacySelectionDecision(&decision, selection)
 				return selection, decision, nil
 			}
@@ -2546,10 +2589,11 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			stickyAccountID = accountID
 		}
 	}
+	effectiveExcludedIDs := cloneExcludedAccountIDs(excludedIDs)
 	smartPreferredAccountID := int64(0)
 	smartPreferredStrict := false
 	if stickyAccountID > 0 {
-		_, excluded := excludedIDs[stickyAccountID]
+		_, excluded := effectiveExcludedIDs[stickyAccountID]
 		if !excluded {
 			if stickyAccount, stickyErr := s.getSchedulableAccount(ctx, stickyAccountID); stickyErr == nil && stickyAccount != nil {
 				review := s.reviewOpenAISmartStickySession(ctx, openAISmartStickyReviewRequest{
@@ -2557,14 +2601,21 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 					SessionHash:             sessionHash,
 					Platform:                platform,
 					RequestedModel:          requestedModel,
-					ExcludedIDs:             excludedIDs,
+					ExcludedIDs:             effectiveExcludedIDs,
 					RequireCompact:          requireCompact,
 					RequiredTransport:       requiredTransport,
 					RequiredCapability:      requiredCapability,
 					RequiredImageCapability: requiredImageCapability,
+					PreviousResponseID:      previousResponseID,
 				}, stickyAccountID)
 				if review.Switch {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					if review.Reason == chatCompletionsWarmLatencyEscapeReason {
+						if effectiveExcludedIDs == nil {
+							effectiveExcludedIDs = make(map[int64]struct{})
+						}
+						effectiveExcludedIDs[stickyAccountID] = struct{}{}
+					}
 					stickyAccountID = 0
 					smartPreferredAccountID = review.ChallengerID
 					smartPreferredStrict = review.ChallengerID > 0
@@ -2600,7 +2651,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		RequiredCapability:      requiredCapability,
 		RequiredImageCapability: requiredImageCapability,
 		RequireCompact:          requireCompact,
-		ExcludedIDs:             excludedIDs,
+		ExcludedIDs:             effectiveExcludedIDs,
 	})
 }
 

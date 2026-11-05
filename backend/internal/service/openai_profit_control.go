@@ -277,6 +277,9 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 	if sel == nil {
 		return nil
 	}
+	if trace, ok := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace); ok {
+		sel.stickySwitchTrace = trace
+	}
 	if gate, ok := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate); ok && gate != nil {
 		sel.profitGate = gate
 	}
@@ -288,6 +291,14 @@ func attachSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult)
 // （ProfitControlVetoLatest / GatewayProfitControlVetoLatest）与准入后粘性
 // 绑定，否则这两步会因为看不到调度栈内安装的门而退化为空操作。
 func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionResult) context.Context {
+	// Restore the review belonging to this selection for the later admission
+	// and binding step. A failed prior selection must not leave a pending review.
+	if sel != nil && sel.stickySwitchTrace != nil {
+		ctx = context.WithValue(ctx, smartStickySwitchTraceContextKey{}, sel.stickySwitchTrace)
+		if sel.Account != nil {
+			bindSmartStickySwitchTrace(ctx, sel.Account.ID)
+		}
+	}
 	if sel == nil || sel.profitGate == nil {
 		return ctx
 	}
@@ -345,6 +356,7 @@ func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx contex
 	if gatewayProfitControlGateActive(ctx) || preserveOpenAIGuardianParentBinding(ctx, sessionHash) {
 		return nil
 	}
+	bindSmartStickySwitchTrace(ctx, accountID)
 	return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 }
 
@@ -364,6 +376,11 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 	if !gatewayProfitControlGateActive(ctx) {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 	}
+	// Terminal admission, not a cache rewrite, is the point at which a reviewed
+	// switch consumes its cooldown and escape budget. A prior sticky binding may
+	// deliberately remain in place under a profit gate, and cache read/write
+	// failures must not leave this request's trace pending for a later failover.
+	s.logSmartStickySwitchApplied(ctx, groupID, accountID)
 	existingAccountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)
 	if err != nil && !errors.Is(err, ErrStickySessionNotFound) {
 		slog.Warn("profit_control_sticky_binding_read_failed", "group_id", derefGroupID(groupID), "account_id", accountID, "error", err)

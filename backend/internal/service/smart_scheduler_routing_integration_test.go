@@ -21,6 +21,7 @@ type staticSmartSchedulerOrderer struct {
 	scores       map[int64]float64
 	costs        map[int64]float64
 	pools        map[int64]string
+	qualities    map[int64]AccountQualityStats
 	err          error
 	calls        int
 	endpoint     string
@@ -49,12 +50,20 @@ func (s *staticSmartSchedulerOrderer) OrderCandidates(_ context.Context, _ *Grou
 			pool = configured
 		}
 		ordering.RankByAccountID[accountID] = rank
-		ordering.ItemByAccountID[accountID] = SmartSchedulerPreviewItem{
+		item := SmartSchedulerPreviewItem{
 			AccountID:      accountID,
 			Pool:           pool,
 			Score:          previewFloat64Ptr(score),
 			CostMultiplier: s.costs[accountID],
 		}
+		if quality, ok := s.qualities[accountID]; ok {
+			item.Quality1h = quality.Recent1h
+			item.Quality24h = AccountQualityPeriod{Last10: quality.Last10, Last100: quality.Last100, WindowHours: quality.WindowHours}
+			if window, ok := comparableAccountQualityLatencyWindow(quality); ok {
+				item.ExactEndpointLatency = &window
+			}
+		}
+		ordering.ItemByAccountID[accountID] = item
 	}
 	for accountID := range s.isolated {
 		ordering.ItemByAccountID[accountID] = SmartSchedulerPreviewItem{AccountID: accountID, Pool: "isolated"}
@@ -256,6 +265,8 @@ func TestOpenAIGatewaySmartSchedulerWeakStickyMovesToBetterAccount(t *testing.T)
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.Equal(t, int64(12), selection.Account.ID)
+	handlerCtx := ContextWithSelectionProfitGate(ctx, selection)
+	require.NoError(t, svc.BindStickySessionAfterProfitAdmission(handlerCtx, &groupID, "weak-sticky", selection.Account.ID))
 	require.Equal(t, int64(12), cache.sessionBindings["openai:weak-sticky"])
 	require.Contains(t, logs.String(), "sticky.smart_scheduler_switch_applied")
 	require.Contains(t, logs.String(), "previous_account_id=11")
@@ -288,6 +299,8 @@ func TestOpenAIGatewaySmartSchedulerAStickyMovesToMateriallyBetterAccount(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, selection)
 	require.Equal(t, int64(22), selection.Account.ID)
+	handlerCtx := ContextWithSelectionProfitGate(ctx, selection)
+	require.NoError(t, svc.BindStickySessionAfterProfitAdmission(handlerCtx, &groupID, "strong-sticky", selection.Account.ID))
 	require.Equal(t, int64(22), cache.sessionBindings["openai:strong-sticky"])
 	reviewKey := smartStickyReviewKeyWithContext(ctx, openAISmartStickyReviewRequest{
 		GroupID:        &groupID,
@@ -727,22 +740,50 @@ func TestSmartStickyCooldownStrongSessionCannotBreakEarly(t *testing.T) {
 	require.False(t, smartStickyCooldownCanBeBrokenWithPolicy(decision, time.Second, RecommendedSmartStickyPolicy()))
 }
 
-func TestSmartStickyFallbackDoesNotEnterSuccessfulSwitchCooldown(t *testing.T) {
+func TestSmartStickyFallbackUsesReviewedSwitchCooldown(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "responses")
+	groupID := int64(15)
+	trace := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
+	trace.pending = &smartStickySwitchPending{
+		groupID:                 groupID,
+		reviewKey:               "strict-fallback",
+		previousAccountID:       1,
+		expectedChallengerID:    2,
+		expectedChallengerScore: previewFloat64Ptr(80),
+	}
+
+	bindSmartStickySwitchTrace(ctx, 3)
+	svc.logSmartStickySwitchApplied(ctx, &groupID, 3)
+
+	state, exists := svc.smartStickyReviews["strict-fallback"]
+	require.True(t, exists)
+	require.Equal(t, int64(3), state.lastSwitchedAccountID)
+	require.False(t, state.cooldownUntil.IsZero())
+}
+
+func TestSmartStickySwitchTraceDoesNotConsumeUnboundSelection(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	ctx := WithSmartSchedulerEndpoint(context.Background(), "responses")
 	groupID := int64(15)
 	trace := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
 	trace.pending = &smartStickySwitchPending{
 		groupID:              groupID,
-		reviewKey:            "strict-fallback",
+		reviewKey:            "unbound-selection",
 		previousAccountID:    1,
 		expectedChallengerID: 2,
 	}
 
-	svc.logSmartStickySwitchApplied(ctx, &groupID, 3)
+	svc.logSmartStickySwitchApplied(ctx, &groupID, 2)
 
-	_, exists := svc.smartStickyReviews["strict-fallback"]
+	_, exists := svc.smartStickyReviews["unbound-selection"]
 	require.False(t, exists)
+
+	bindSmartStickySwitchTrace(ctx, 2)
+	svc.logSmartStickySwitchApplied(ctx, &groupID, 2)
+	state, exists := svc.smartStickyReviews["unbound-selection"]
+	require.True(t, exists)
+	require.Equal(t, int64(2), state.lastSwitchedAccountID)
 }
 
 func TestOpenAIGatewaySmartSchedulerOverridesLoadAwarePriorityAndLoad(t *testing.T) {

@@ -213,22 +213,26 @@ type SmartSchedulerGroupSummary struct {
 }
 
 type SmartSchedulerPreviewItem struct {
-	Rank                            int                      `json:"rank"`
-	AccountID                       int64                    `json:"account_id"`
-	AccountName                     string                   `json:"account_name"`
-	Platform                        string                   `json:"platform"`
-	Priority                        *int                     `json:"priority,omitempty"`
-	Status                          string                   `json:"status"`
-	Schedulable                     bool                     `json:"schedulable"`
-	Pool                            string                   `json:"pool"`
-	Decision                        string                   `json:"decision"`
-	Reason                          string                   `json:"reason"`
-	Score                           *float64                 `json:"score,omitempty"`
-	RawScore                        *float64                 `json:"raw_score,omitempty"`
-	Confidence                      float64                  `json:"confidence"`
-	ConfidenceLabel                 string                   `json:"confidence_label"`
-	EvidenceScope                   string                   `json:"evidence_scope"`
-	EvidenceFallback                bool                     `json:"evidence_fallback"`
+	Rank             int      `json:"rank"`
+	AccountID        int64    `json:"account_id"`
+	AccountName      string   `json:"account_name"`
+	Platform         string   `json:"platform"`
+	Priority         *int     `json:"priority,omitempty"`
+	Status           string   `json:"status"`
+	Schedulable      bool     `json:"schedulable"`
+	Pool             string   `json:"pool"`
+	Decision         string   `json:"decision"`
+	Reason           string   `json:"reason"`
+	Score            *float64 `json:"score,omitempty"`
+	RawScore         *float64 `json:"raw_score,omitempty"`
+	Confidence       float64  `json:"confidence"`
+	ConfidenceLabel  string   `json:"confidence_label"`
+	EvidenceScope    string   `json:"evidence_scope"`
+	EvidenceFallback bool     `json:"evidence_fallback"`
+	// ExactEndpointLatency is the newest comparable model+endpoint first-token
+	// window. Chat-completions sticky escape reads it as an observation; it is
+	// not a score or pool input.
+	ExactEndpointLatency            *AccountQualityWindow    `json:"exact_endpoint_latency,omitempty"`
 	ExplorationCandidate            bool                     `json:"exploration_candidate"`
 	ProbeBootstrap                  bool                     `json:"probe_bootstrap"`
 	Quality1h                       AccountQualityPeriod     `json:"quality_1h"`
@@ -452,6 +456,7 @@ func (s *SmartSchedulerPreviewService) OrderCandidates(
 		item := buildSmartSchedulerPreviewItem(account, group, requestedModel, endpoint, quality, errorStats[account.ID], loads[account.ID])
 		item.EvidenceScope = evidenceScope
 		item.EvidenceFallback = evidenceFallback
+		attachSmartSchedulerExactEndpointLatency(&item, scopedQuality, account.ID)
 		applySmartSchedulerEvidencePolicy(&item)
 		applySmartSchedulerAccountCircuitBreaker(&item, accountErrorStats[account.ID])
 		if state, ok := recoveryProbeStates[account.ID]; ok {
@@ -797,6 +802,7 @@ func (s *SmartSchedulerPreviewService) Preview(ctx context.Context, groupID int6
 		item := buildSmartSchedulerPreviewItem(&accounts[i], group, requestedModel, endpoint, quality, errors[accounts[i].ID], loads[accounts[i].ID])
 		item.EvidenceScope = evidenceScope
 		item.EvidenceFallback = evidenceFallback
+		attachSmartSchedulerExactEndpointLatency(&item, scopedQuality, accounts[i].ID)
 		applySmartSchedulerEvidencePolicy(&item)
 		applySmartSchedulerAccountCircuitBreaker(&item, accountErrors[accounts[i].ID])
 		if state, ok := recoveryProbeStates[accounts[i].ID]; ok {
@@ -926,6 +932,17 @@ func hasSmartSchedulerQualityEvidence(quality AccountQualityStats) bool {
 		quality.Recent1h.Last100.QualityScore != nil ||
 		quality.Last10.QualityScore != nil ||
 		quality.Last100.QualityScore != nil
+}
+
+func attachSmartSchedulerExactEndpointLatency(item *SmartSchedulerPreviewItem, scoped []smartSchedulerScopedQuality, accountID int64) {
+	if item == nil || len(scoped) == 0 || scoped[0].Scope.Fallback {
+		return
+	}
+	window, ok := comparableAccountQualityLatencyWindow(scoped[0].Stats[accountID])
+	if !ok {
+		return
+	}
+	item.ExactEndpointLatency = &window
 }
 
 func applySmartSchedulerEvidencePolicy(item *SmartSchedulerPreviewItem) {
