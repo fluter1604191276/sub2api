@@ -2527,7 +2527,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				}
 				if accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
 					bindSmartStickySwitchTrace(ctx, selection.Account.ID)
-					if selection.Acquired {
+					if selection.Acquired && !gatewayProfitControlGateActive(ctx) {
 						s.logSmartStickySwitchApplied(ctx, groupID, selection.Account.ID)
 					}
 					applyLegacySelectionDecision(&decision, selection)
@@ -2557,7 +2557,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 			if s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) &&
 				accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
 				bindSmartStickySwitchTrace(ctx, selection.Account.ID)
-				if selection.Acquired {
+				if selection.Acquired && !gatewayProfitControlGateActive(ctx) {
 					s.logSmartStickySwitchApplied(ctx, groupID, selection.Account.ID)
 				}
 				applyLegacySelectionDecision(&decision, selection)
