@@ -274,6 +274,9 @@ func TestChannelMonitorV3MarkRequestRequiresLoopbackTokenAndUUID(t *testing.T) {
 			require.Equal(t, tc.marked, IsChannelMonitorV3Request(got.Context()))
 			if tc.marked {
 				require.Equal(t, "cmv3-"+id, got.Context().Value(ctxkey.ClientRequestID))
+				require.True(t, HTTPUpstreamRedirectsDisabled(got.Context()), "trusted V3 requests must have one-send redirect policy")
+			} else {
+				require.False(t, HTTPUpstreamRedirectsDisabled(got.Context()))
 			}
 		})
 	}
@@ -312,4 +315,18 @@ func TestChannelMonitorV3ProbePayloadUsesNativeProtocolAndBoundedTokens(t *testi
 func TestNewChannelMonitorV3ProbeRunnerDerivesLoopbackEndpoint(t *testing.T) {
 	r := NewChannelMonitorV3ProbeRunner(nil, nil, nil, nil, nil, &config.Config{Server: config.ServerConfig{Host: "::1", Port: 19090}}, nil, nil)
 	require.Equal(t, "http://[::1]:19090", r.endpoint)
+}
+
+func TestChannelMonitorV3ReconcileWaitsFromCompletionForAsyncLedger(t *testing.T) {
+	now := time.Now()
+	repo := cmv3EnabledRepo()
+	repo.job = &ChannelMonitorV3ProbeJob{DispatchID: uuid.NewString(), CreatedAt: now.Add(-time.Hour), CompletedAt: now}
+	repo.finishedOK = true
+	r := newCMV3Runner(now, repo, &cmv3ClientFake{})
+	r.attempts = &cmv3AttemptsFake{}
+	require.NoError(t, r.reconcile(context.Background(), repo))
+	require.Zero(t, repo.settled)
+	r.now = func() time.Time { return now.Add(61 * time.Second) }
+	require.NoError(t, r.reconcile(context.Background(), repo))
+	require.Equal(t, 1, repo.settled)
 }

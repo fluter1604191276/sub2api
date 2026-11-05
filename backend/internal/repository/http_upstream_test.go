@@ -2,6 +2,7 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -22,6 +24,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
+
+// channelMonitorV3Context exposes only the process-private marker that the
+// repository is allowed to consume. Production callers cannot manufacture
+// this marker because its key type remains private to service.
+type channelMonitorV3Context struct{ context.Context }
+
+func (c channelMonitorV3Context) Value(key any) any {
+	typeOfKey := reflect.TypeOf(key)
+	if typeOfKey != nil && typeOfKey.PkgPath() == "github.com/Wei-Shaw/sub2api/internal/service" && typeOfKey.Name() == "channelMonitorV3RequestContextKey" {
+		return true
+	}
+	return c.Context.Value(key)
+}
 
 func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	var redirectedCalls atomic.Int64
@@ -49,6 +64,77 @@ func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
 	require.Equal(t, http.StatusFound, resp.StatusCode)
 	require.NoError(t, resp.Body.Close())
 	require.Zero(t, redirectedCalls.Load())
+}
+
+func TestHTTPUpstreamDoDoesNotReplay307WhenRedirectsDisabled(t *testing.T) {
+	var redirectCalls atomic.Int64
+	var targetCalls atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetCalls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(target.Close)
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		redirectCalls.Add(1)
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(redirector.Close)
+
+	req, err := http.NewRequestWithContext(
+		service.WithHTTPUpstreamRedirectsDisabled(t.Context()),
+		http.MethodPost,
+		redirector.URL,
+		strings.NewReader(`{"probe":true}`),
+	)
+	require.NoError(t, err)
+	resp, err := NewHTTPUpstream(nil).Do(req, "", 1, 1)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusTemporaryRedirect, resp.StatusCode)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, int64(1), redirectCalls.Load())
+	require.Zero(t, targetCalls.Load(), "the POST must not be replayed to a redirect target")
+}
+
+func TestHTTPUpstreamDoV3DoesNotMutateOpenAIHTTP2FallbackHealth(t *testing.T) {
+	cfg := &config.Config{Gateway: config.GatewayConfig{OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
+		Enabled:                   true,
+		AllowProxyFallbackToHTTP1: true,
+		FallbackErrorThreshold:    2,
+		FallbackWindowSeconds:     60,
+		FallbackTTLSeconds:        600,
+	}}}
+	svc := &httpUpstreamService{cfg: cfg, clients: make(map[string]*upstreamClientEntry)}
+	const proxyURL = "http://proxy.local:8080"
+	entry, err := svc.getClientEntry(proxyURL, 91, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(t, err)
+	entry.client.Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("http2: protocol error")
+	})
+
+	ctx := service.WithHTTPUpstreamProfile(channelMonitorV3Context{Context: t.Context()}, service.HTTPUpstreamProfileOpenAI)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/responses", nil)
+	require.NoError(t, err)
+	_, err = svc.Do(req, proxyURL, 91, 1)
+	require.Error(t, err)
+	_, wroteFailure := svc.openAIHTTP2Fallbacks.Load(proxyURL)
+	require.False(t, wroteFailure, "a V3 transport failure must not affect shared HTTP/2 health")
+
+	svc.recordOpenAIHTTP2Failure(service.HTTPUpstreamProfileOpenAI, upstreamProtocolModeOpenAIH2, proxyURL, errors.New("http2: protocol error"))
+	raw, ok := svc.openAIHTTP2Fallbacks.Load(proxyURL)
+	require.True(t, ok)
+	state := raw.(*openAIHTTP2FallbackState)
+	state.mu.Lock()
+	require.Equal(t, 1, state.errorCount)
+	state.mu.Unlock()
+	entry.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}")), Request: req}, nil
+	})
+	resp, err := svc.Do(req, proxyURL, 91, 1)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	state.mu.Lock()
+	require.Equal(t, 1, state.errorCount, "a V3 success must not reset shared HTTP/2 failure state")
+	state.mu.Unlock()
 }
 
 func TestHTTPUpstreamDoWithTLSPlainHTTPUsesConfiguredHTTPProxy(t *testing.T) {

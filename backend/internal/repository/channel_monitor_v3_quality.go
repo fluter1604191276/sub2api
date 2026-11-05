@@ -48,8 +48,11 @@ func (r *usageLogRepository) GetChannelMonitorV3GroupQualityWindows(ctx context.
 					SELECT 1
 					FROM ops_error_logs oe
 					WHERE oe.group_id = ul.group_id
-						AND NULLIF(oe.request_id, '') IS NOT NULL
-						AND oe.request_id = NULLIF(ul.request_id, '')
+						AND (
+							NULLIF(oe.request_id, '') = NULLIF(ul.request_id, '')
+							OR ('client:' || NULLIF(oe.client_request_id, '')) = NULLIF(ul.request_id, '')
+							OR ('local:' || NULLIF(oe.request_id, '')) = NULLIF(ul.request_id, '')
+						)
 						AND (
 							oe.error_owner = 'client'
 							OR oe.error_source = 'client_request'

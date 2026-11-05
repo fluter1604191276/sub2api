@@ -61,6 +61,10 @@ func (r *ChannelMonitorV3ProbeRunner) MarkRequest(req *http.Request) *http.Reque
 		guard = &channelMonitorV3AttemptGuard{now: r.now}
 	}
 	ctx := context.WithValue(req.Context(), channelMonitorV3RequestContextKey{}, true)
+	// A probe has one reserved upstream attempt. Redirects can resend its
+	// credential-bearing request, so force the shared HTTP transport to return
+	// the first redirect response instead.
+	ctx = WithHTTPUpstreamRedirectsDisabled(ctx)
 	ctx = context.WithValue(ctx, channelMonitorV3AttemptGuardKey{}, guard)
 	ctx = WithUpstreamAttemptSource(ctx, "channel_monitor_v3")
 	ctx = context.WithValue(ctx, ctxkey.ClientRequestID, "cmv3-"+id.String())

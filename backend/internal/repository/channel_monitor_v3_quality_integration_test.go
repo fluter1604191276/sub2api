@@ -30,13 +30,19 @@ func TestChannelMonitorV3QualityHistoryAndClientErrors(t *testing.T) {
 		insertUsage(fmt.Sprintf("cmv3-quality-%d", i), 100+i, now.Add(-48*time.Hour).Add(time.Duration(i)*time.Second))
 	}
 	insertUsage("cmv3-quality-client", 90000, now)
+	insertUsage("client:cmv3-client-id", 90000, now)
+	insertUsage("client:cmv3-no-server-id", 90000, now)
+	insertUsage("local:cmv3-server-id", 90000, now)
 	insertUsage("cmv3-quality-policy", 90000, now)
 	_, err := tx.ExecContext(ctx, `UPDATE usage_logs SET request_type=4 WHERE group_id=$1 AND request_id='cmv3-quality-policy'`, groupID)
 	require.NoError(t, err)
 	insertUsage("cmv3-quality-provider", 10000, now.Add(-time.Minute))
-	_, err = tx.ExecContext(ctx, `INSERT INTO ops_error_logs(group_id,request_id,error_phase,error_type,status_code,error_owner)
-		VALUES($1,'cmv3-quality-client','request','invalid_request',400,'client'),
-		($1,'cmv3-quality-provider','upstream','upstream_error',503,'provider')`, groupID)
+	_, err = tx.ExecContext(ctx, `INSERT INTO ops_error_logs(group_id,request_id,client_request_id,error_phase,error_type,status_code,error_owner)
+		VALUES($1,'cmv3-quality-client',NULL,'request','invalid_request',400,'client'),
+		($1,'ignored-server','cmv3-client-id','request','invalid_request',400,'client'),
+		($1,'','cmv3-no-server-id','request','invalid_request',400,'client'),
+		($1,'cmv3-server-id',NULL,'request','invalid_request',400,'client'),
+		($1,'cmv3-quality-provider',NULL,'upstream','upstream_error',503,'provider')`, groupID)
 	require.NoError(t, err)
 
 	repo := newUsageLogRepositoryWithSQL(nil, tx)

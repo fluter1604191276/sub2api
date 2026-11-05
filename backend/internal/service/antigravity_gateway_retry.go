@@ -805,6 +805,9 @@ const googleConfigErrorCooldown = 1 * time.Minute
 // tempUnscheduleGoogleConfigError 对服务端配置类 400 错误触发临时封禁，
 // 避免短时间内反复调度到同一个有问题的账号。
 func tempUnscheduleGoogleConfigError(ctx context.Context, repo AccountRepository, accountID int64, logPrefix string) {
+	if IsChannelMonitorV3Request(ctx) {
+		return
+	}
 	until := time.Now().Add(googleConfigErrorCooldown)
 	reason := "400: invalid project resource name (auto temp-unschedule 1m)"
 	if err := repo.SetTempUnschedulable(ctx, accountID, until, reason); err != nil {
@@ -820,6 +823,9 @@ const emptyResponseCooldown = 1 * time.Minute
 // tempUnscheduleEmptyResponse 对空流式响应触发临时封禁，
 // 避免短时间内反复调度到同一个返回空响应的账号。
 func tempUnscheduleEmptyResponse(ctx context.Context, repo AccountRepository, accountID int64, logPrefix string) {
+	if IsChannelMonitorV3Request(ctx) {
+		return
+	}
 	until := time.Now().Add(emptyResponseCooldown)
 	reason := "empty stream response (auto temp-unschedule 1m)"
 	if err := repo.SetTempUnschedulable(ctx, accountID, until, reason); err != nil {
@@ -865,7 +871,7 @@ func isSingleAccountRetry(ctx context.Context) bool {
 // 直接使用上游返回的模型 ID（如 claude-sonnet-4-5）作为限流 key
 // 返回是否已成功设置（若模型名为空或 repo 为 nil 将返回 false）
 func setModelRateLimitByModelName(ctx context.Context, repo AccountRepository, accountID int64, modelName, prefix string, statusCode int, resetAt time.Time, afterSmartRetry bool) bool {
-	if repo == nil || modelName == "" {
+	if IsChannelMonitorV3Request(ctx) || repo == nil || modelName == "" {
 		return false
 	}
 	// 直接使用官方模型 ID 作为 key，不再转换为 scope
@@ -882,7 +888,7 @@ func setModelRateLimitByModelName(ctx context.Context, repo AccountRepository, a
 }
 
 func (s *AntigravityGatewayService) setAntigravityModelRateLimits(ctx context.Context, repo AccountRepository, account *Account, modelName, prefix string, statusCode int, resetAt time.Time, afterSmartRetry bool) bool {
-	if account == nil || repo == nil {
+	if IsChannelMonitorV3Request(ctx) || account == nil || repo == nil {
 		return false
 	}
 	keys := antigravityModelRateLimitKeys(modelName)

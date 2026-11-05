@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,9 @@ func (r *UpstreamAttemptRecorder) guardChannelMonitorV3Attempt(req *http.Request
 	if guard.day != channelMonitorV3BudgetDay(guard.now()) || guard.used.Swap(true) {
 		return fmt.Errorf("channel monitor v3 upstream attempt window exhausted")
 	}
+	if guard.limit <= 0 || math.IsNaN(guard.limit) || math.IsInf(guard.limit, 0) {
+		return fmt.Errorf("channel monitor v3 upstream reservation unavailable")
+	}
 	if r == nil || r.cost == nil || attempt == nil || req.GetBody == nil {
 		return fmt.Errorf("channel monitor v3 upstream pricing unavailable")
 	}
@@ -39,10 +43,25 @@ func (r *UpstreamAttemptRecorder) guardChannelMonitorV3Attempt(req *http.Request
 	if err != nil {
 		return err
 	}
-	raw, readErr := io.ReadAll(io.LimitReader(body, (4<<20)+1))
+	const maxProbeRequestBytes = 32 << 10
+	raw, readErr := io.ReadAll(io.LimitReader(body, maxProbeRequestBytes+1))
 	_ = body.Close()
-	if readErr != nil || len(raw) > 4<<20 || !gjson.ValidBytes(raw) {
+	if readErr != nil || len(raw) > maxProbeRequestBytes || !gjson.ValidBytes(raw) {
 		return fmt.Errorf("channel monitor v3 upstream request exceeds estimate bounds")
+	}
+	// The synthetic probe has no paid tools and requests one output. Reject
+	// gateway additions that would introduce costs outside the token ceiling.
+	for _, path := range []string{"tools", "request.tools", "plugins"} {
+		value := gjson.GetBytes(raw, path)
+		if value.Exists() && value.Raw != "null" && value.Raw != "[]" {
+			return fmt.Errorf("channel monitor v3 upstream tools cannot be bounded")
+		}
+	}
+	for _, path := range []string{"n", "generationConfig.candidateCount", "request.generationConfig.candidateCount"} {
+		value := gjson.GetBytes(raw, path)
+		if value.Exists() && (value.Type != gjson.Number || value.Float() != 1) {
+			return fmt.Errorf("channel monitor v3 upstream requires one output")
+		}
 	}
 	bounded := false
 	for _, path := range []string{"max_output_tokens", "max_completion_tokens", "max_tokens", "generationConfig.maxOutputTokens", "request.generationConfig.maxOutputTokens"} {
@@ -61,13 +80,11 @@ func (r *UpstreamAttemptRecorder) guardChannelMonitorV3Attempt(req *http.Request
 	// A byte-count allowance bounds the small synthetic request, including
 	// gateway-added prompts. Output includes the declared 128-token ceiling.
 	input, output := int64(len(raw))+1024, int64(channelMonitorV3MaxOutputTokens)
-	bound := *attempt
-	bound.UsagePresent = true
-	bound.InputTokens, bound.OutputTokens, bound.CacheCreationTokens = &input, &output, &input
-	if err := r.cost.Price(req.Context(), &bound); err != nil {
+	bound, err := channelMonitorV3HTTPUpperBound(req.Context(), r.cost, attempt, input, output)
+	if err != nil {
 		return err
 	}
-	if bound.CostUSD == nil || *bound.CostUSD > guard.limit {
+	if bound > guard.limit {
 		return fmt.Errorf("channel monitor v3 upstream attempt exceeds reservation")
 	}
 	return nil

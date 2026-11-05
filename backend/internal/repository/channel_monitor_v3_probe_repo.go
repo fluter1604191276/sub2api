@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
@@ -23,8 +24,10 @@ const channelMonitorV3RealTrafficSQL = `SELECT EXISTS(
  AND NOT EXISTS (SELECT 1 FROM usage_logs u WHERE u.group_id=a.group_id AND (u.request_id=a.request_id OR u.request_id='client:'||a.client_request_id) AND LOWER(COALESCE(u.user_agent,'')) LIKE '%sub2api-channel-monitor/%')
 )`
 
+const channelMonitorV3BudgetUsedSQL = `SELECT COALESCE(SUM(CASE WHEN status='settled' THEN actual_cost_usd ELSE GREATEST(reserved_usd,COALESCE(actual_cost_usd,0)) END),0) FROM channel_monitor_v3_probe_dispatches WHERE budget_day=$1`
+
 func (r *channelMonitorV3Repository) ListPendingProbes(ctx context.Context) ([]service.ChannelMonitorV3ProbeJob, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT dispatch_id::text,client_request_id,group_id,model,platform,budget_day::text,reserved_usd,created_at FROM channel_monitor_v3_probe_dispatches WHERE status='completed' ORDER BY created_at`)
+	rows, err := r.db.QueryContext(ctx, `SELECT dispatch_id::text,client_request_id,group_id,model,platform,budget_day::text,reserved_usd,created_at,updated_at FROM channel_monitor_v3_probe_dispatches WHERE status='completed' ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +35,7 @@ func (r *channelMonitorV3Repository) ListPendingProbes(ctx context.Context) ([]s
 	var out []service.ChannelMonitorV3ProbeJob
 	for rows.Next() {
 		var j service.ChannelMonitorV3ProbeJob
-		if err := rows.Scan(&j.DispatchID, &j.ClientRequestID, &j.GroupID, &j.Model, &j.Platform, &j.BudgetDay, &j.ReservedUSD, &j.CreatedAt); err != nil {
+		if err := rows.Scan(&j.DispatchID, &j.ClientRequestID, &j.GroupID, &j.Model, &j.Platform, &j.BudgetDay, &j.ReservedUSD, &j.CreatedAt, &j.CompletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, j)
@@ -59,7 +62,7 @@ func (r *channelMonitorV3Repository) TryClaimProbe(ctx context.Context, group se
 	}
 	var enabled bool
 	var currentLimit float64
-	if err = tx.QueryRowContext(ctx, `SELECT enabled,daily_budget_usd FROM channel_monitor_v3_settings WHERE singleton=TRUE`).Scan(&enabled, &currentLimit); err != nil || !enabled {
+	if err = tx.QueryRowContext(ctx, `SELECT enabled,daily_budget_usd FROM channel_monitor_v3_settings WHERE singleton=TRUE FOR UPDATE`).Scan(&enabled, &currentLimit); err != nil || !enabled {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -89,7 +92,7 @@ func (r *channelMonitorV3Repository) TryClaimProbe(ctx context.Context, group se
 		return nil, nil
 	}
 	var reserved float64
-	if err = tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN status='settled' THEN actual_cost_usd ELSE reserved_usd END),0) FROM channel_monitor_v3_probe_dispatches WHERE budget_day=$1`, day).Scan(&reserved); err != nil {
+	if err = tx.QueryRowContext(ctx, channelMonitorV3BudgetUsedSQL, day).Scan(&reserved); err != nil {
 		return nil, err
 	}
 	if reserved >= limit {
@@ -115,18 +118,45 @@ func (r *channelMonitorV3Repository) ReleaseUndispatchedProbe(ctx context.Contex
 	return err
 }
 func (r *channelMonitorV3Repository) MarkProbeDispatched(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status='sent',sent_at=NOW(),updated_at=NOW() WHERE dispatch_id=$1::uuid AND status='claimed'`, id)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, err := result.RowsAffected()
-	if err != nil {
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(315000001)`); err != nil {
 		return err
 	}
-	if n != 1 {
+	var enabled bool
+	var limit float64
+	if err = tx.QueryRowContext(ctx, `SELECT enabled,daily_budget_usd FROM channel_monitor_v3_settings WHERE singleton=TRUE FOR UPDATE`).Scan(&enabled, &limit); err != nil {
+		return err
+	}
+	var day, status string
+	if err = tx.QueryRowContext(ctx, `SELECT budget_day::text,status FROM channel_monitor_v3_probe_dispatches WHERE dispatch_id=$1::uuid FOR UPDATE`, id).Scan(&day, &status); err != nil {
+		return err
+	}
+	if status != "claimed" {
 		return fmt.Errorf("probe dispatch claim is no longer available")
 	}
-	return nil
+	var occupied float64
+	if err = tx.QueryRowContext(ctx, channelMonitorV3BudgetUsedSQL, day).Scan(&occupied); err != nil {
+		return err
+	}
+	// This transaction is the send-admission point. Serialize it with settings,
+	// claims and settlements, and release an obsolete, proven-unsent claim.
+	if !enabled || !finiteProbeMoney(limit) || occupied > limit || day != time.Now().In(time.FixedZone("Asia/Shanghai", 8*60*60)).Format("2006-01-02") {
+		if _, err = tx.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status='undispatched',reserved_usd=0,updated_at=NOW() WHERE dispatch_id=$1::uuid`, id); err != nil {
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		return fmt.Errorf("probe dispatch settings or budget changed before admission")
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status='sent',sent_at=NOW(),updated_at=NOW() WHERE dispatch_id=$1::uuid`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (r *channelMonitorV3Repository) FinishProbe(ctx context.Context, id string, completed bool) error {
 	status := "uncertain"
@@ -137,12 +167,44 @@ func (r *channelMonitorV3Repository) FinishProbe(ctx context.Context, id string,
 	return err
 }
 func (r *channelMonitorV3Repository) SettleProbe(ctx context.Context, id string, c service.UpstreamAttemptCostSummary) error {
-	if c.AttemptCount <= 0 || c.UnknownCount > 0 || !finiteProbeMoney(c.KnownCostUSD) {
-		_, e := r.db.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status='uncertain',updated_at=NOW() WHERE dispatch_id=$1::uuid AND status='completed'`, id)
-		return e
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	_, e := r.db.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status='settled',actual_cost_usd=$2,settled_at=NOW(),updated_at=NOW() WHERE dispatch_id=$1::uuid AND status='completed'`, id, c.KnownCostUSD)
-	return e
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(315000001)`); err != nil {
+		return err
+	}
+	var reserved float64
+	var status string
+	if err = tx.QueryRowContext(ctx, `SELECT reserved_usd,status FROM channel_monitor_v3_probe_dispatches WHERE dispatch_id=$1::uuid FOR UPDATE`, id).Scan(&reserved, &status); err != nil {
+		return err
+	}
+	if status != "completed" {
+		return tx.Commit()
+	}
+	status = "settled"
+	validCost := finiteProbeMoney(c.KnownCostUSD)
+	if c.AttemptCount <= 0 || c.UnknownCount > 0 || !validCost || c.KnownCostUSD > reserved {
+		status = "uncertain"
+	}
+	// Keep any known portion even if another attempt has unknown usage. The
+	// durable hold is never released by incomplete evidence or an overrun.
+	var actual any
+	if validCost && (status == "settled" || c.KnownCostUSD > 0) {
+		actual = c.KnownCostUSD
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE channel_monitor_v3_probe_dispatches SET status=$2::text,actual_cost_usd=$3,settled_at=CASE WHEN $2::text='settled' THEN NOW() ELSE NULL END,updated_at=NOW() WHERE dispatch_id=$1::uuid`, id, status, actual)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if validCost && c.KnownCostUSD > reserved {
+		slog.Error("channel_monitor_v3_probe_cost_exceeds_reservation", "dispatch_id", id, "actual_usd", c.KnownCostUSD, "reserved_usd", reserved)
+	}
+	return nil
 }
 func (r *channelMonitorV3Repository) HasRealTrafficSince(ctx context.Context, gid int64, since time.Time) (bool, error) {
 	var yes bool
@@ -152,7 +214,7 @@ func (r *channelMonitorV3Repository) HasRealTrafficSince(ctx context.Context, gi
 func (r *channelMonitorV3Repository) ProbeBudget(ctx context.Context, day string, limit float64) (service.ChannelMonitorV3Budget, error) {
 	var b service.ChannelMonitorV3Budget
 	b.Date = day
-	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(actual_cost_usd) FILTER(WHERE status='settled'),0),COALESCE(SUM(reserved_usd) FILTER(WHERE status<>'settled'),0) FROM channel_monitor_v3_probe_dispatches WHERE budget_day=$1`, day).Scan(&b.SpentUSD, &b.ReservedUSD)
+	err := r.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(actual_cost_usd),0),COALESCE(SUM(GREATEST(reserved_usd-COALESCE(actual_cost_usd,0),0)) FILTER(WHERE status<>'settled'),0) FROM channel_monitor_v3_probe_dispatches WHERE budget_day=$1`, day).Scan(&b.SpentUSD, &b.ReservedUSD)
 	b.RemainingUSD = math.Max(0, limit-b.SpentUSD-b.ReservedUSD)
 	return b, err
 }

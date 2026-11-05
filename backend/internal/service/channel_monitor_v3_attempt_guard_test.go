@@ -97,6 +97,10 @@ func TestChannelMonitorV3AttemptGuardRejectsGatewayRaisedOrMissingOutputLimit(t 
 	for _, body := range []string{
 		`{"model":"claude-sonnet-4","max_tokens":128000}`,
 		`{"model":"claude-sonnet-4"}`,
+		`{"model":"claude-sonnet-4","max_tokens":128,"tools":[{"type":"web_search"}]}`,
+		`{"model":"claude-sonnet-4","max_tokens":128,"n":2}`,
+		`{"model":"claude-sonnet-4","max_tokens":128,"generationConfig":{"candidateCount":2}}`,
+		`{"model":"claude-sonnet-4","max_tokens":128,"padding":"` + strings.Repeat("x", 32<<10) + `"}`,
 	} {
 		client, base := newCMV3GuardTransport()
 		guard := &channelMonitorV3AttemptGuard{day: channelMonitorV3BudgetDay(time.Now()), limit: 2, now: time.Now}

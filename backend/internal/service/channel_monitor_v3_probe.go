@@ -206,6 +206,11 @@ func (r *ChannelMonitorV3ProbeRunner) reconcile(ctx context.Context, store Chann
 		if err != nil {
 			return err
 		}
+		// Shadow writes are bounded asynchronous work. Give a completed loopback
+		// response one minute to flush before treating zero evidence as unknown.
+		if cost.AttemptCount == 0 && r.now().Sub(job.CompletedAt) < time.Minute {
+			continue
+		}
 		if err := store.SettleProbe(ctx, job.DispatchID, cost); err != nil {
 			return err
 		}
@@ -383,13 +388,11 @@ func (r *ChannelMonitorV3ProbeRunner) estimate(ctx context.Context, group *Group
 		if err := calculator.Snapshot(ctx, attempt); err != nil {
 			return 0, err
 		}
-		if err := calculator.Price(ctx, attempt); err != nil {
+		bound, err := channelMonitorV3HTTPUpperBound(ctx, calculator, attempt, input, output)
+		if err != nil {
 			return 0, err
 		}
-		if attempt.CostUSD == nil {
-			return 0, fmt.Errorf("unidentified upstream price")
-		}
-		upper = math.Max(upper, *attempt.CostUSD)
+		upper = math.Max(upper, bound)
 	}
 	if upper < 0 {
 		return 0, fmt.Errorf("no schedulable upstream pricing")

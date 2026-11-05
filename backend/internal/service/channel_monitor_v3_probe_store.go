@@ -14,6 +14,7 @@ type ChannelMonitorV3ProbeJob struct {
 	BudgetDay       string
 	ReservedUSD     float64
 	CreatedAt       time.Time
+	CompletedAt     time.Time
 }
 
 type ChannelMonitorV3Budget struct {
