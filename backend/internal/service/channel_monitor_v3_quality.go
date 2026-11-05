@@ -35,7 +35,7 @@ func NewChannelMonitorV3QualityService(reader ChannelMonitorV3QualityReader) *Ch
 	return &ChannelMonitorV3QualityService{reader: reader}
 }
 
-// GroupQuality grades the latest ten and hundred observed successful rows for
+// GroupQuality grades the latest ten and hundred valid observed rows for
 // each group. V3 deliberately permits one valid sample; existing account and
 // scheduler quality paths retain their three-sample minimum.
 func (s *ChannelMonitorV3QualityService) GroupQuality(ctx context.Context, groupIDs []int64) ([]ChannelMonitorV3GroupQuality, error) {

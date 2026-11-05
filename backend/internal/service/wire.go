@@ -936,6 +936,7 @@ var ProviderSet = wire.NewSet(
 	NewUpstreamAttemptRecorder,
 	ProvideChannelMonitorV3QualityService,
 	NewChannelMonitorV3Service,
+	ProvideChannelMonitorV3ProbeRunner,
 	// Core services
 	ProvideAuthService,
 	NewPasskeyService,

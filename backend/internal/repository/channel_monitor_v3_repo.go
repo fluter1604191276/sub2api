@@ -24,11 +24,30 @@ func (r *channelMonitorV3Repository) Settings(ctx context.Context) (service.Chan
 }
 
 func (r *channelMonitorV3Repository) SaveSettings(ctx context.Context, in service.ChannelMonitorV3Settings) (service.ChannelMonitorV3Settings, error) {
-	err := r.db.QueryRowContext(ctx, `INSERT INTO channel_monitor_v3_settings(singleton,enabled,daily_budget_usd,updated_at)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return in, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1)`, channelMonitorV3IdentityLock); err != nil {
+		return in, err
+	}
+	if in.Enabled {
+		if _, err = ensureChannelMonitorV3Identity(ctx, tx); err != nil {
+			return in, err
+		}
+	}
+	err = tx.QueryRowContext(ctx, `INSERT INTO channel_monitor_v3_settings(singleton,enabled,daily_budget_usd,updated_at)
 		VALUES(TRUE,$1,$2,NOW()) ON CONFLICT(singleton) DO UPDATE
 		SET enabled=EXCLUDED.enabled,daily_budget_usd=EXCLUDED.daily_budget_usd,updated_at=NOW()
 		RETURNING enabled,daily_budget_usd`, in.Enabled, in.DailyBudgetUSD).Scan(&in.Enabled, &in.DailyBudgetUSD)
-	return in, err
+	if err != nil {
+		return in, err
+	}
+	if err = tx.Commit(); err != nil {
+		return in, err
+	}
+	return in, nil
 }
 
 func (r *channelMonitorV3Repository) ListGroups(ctx context.Context) ([]service.ChannelMonitorV3GroupConfig, error) {

@@ -29,6 +29,7 @@ type ChannelMonitorV3GroupConfig struct {
 type ChannelMonitorV3ConfigView struct {
 	Settings ChannelMonitorV3Settings      `json:"settings"`
 	Groups   []ChannelMonitorV3GroupConfig `json:"groups"`
+	Budget   *ChannelMonitorV3Budget       `json:"budget,omitempty"`
 }
 
 type ChannelMonitorV3Repository interface {

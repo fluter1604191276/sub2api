@@ -18,6 +18,14 @@ export interface ChannelMonitorV3Group {
 export interface ChannelMonitorV3Config {
   settings: ChannelMonitorV3Settings
   groups: ChannelMonitorV3Group[]
+  budget?: ChannelMonitorV3Budget
+}
+
+export interface ChannelMonitorV3Budget {
+  date: string
+  spent_usd: number
+  reserved_usd: number
+  remaining_usd: number
 }
 
 export interface UpdateChannelMonitorV3Settings {

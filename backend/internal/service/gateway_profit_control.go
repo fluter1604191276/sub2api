@@ -11,6 +11,9 @@ import (
 // token requests. This keeps media, metadata, and models-list paths outside
 // the profit-control surface by construction.
 func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, groupID *int64) context.Context {
+	if IsChannelMonitorV3Request(ctx) {
+		return clearChannelMonitorV3ProfitControlGate(ctx)
+	}
 	if _, ok := gatewayTokenRequestPricingAtFromContext(ctx); !ok || groupID == nil || *groupID <= 0 {
 		return ctx
 	}

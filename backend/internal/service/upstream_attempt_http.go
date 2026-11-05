@@ -68,12 +68,18 @@ func NewObservedHTTPUpstream(base HTTPUpstream, recorder *UpstreamAttemptRecorde
 
 func (u *observedHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, concurrency int) (*http.Response, error) {
 	attempt := u.start(req, accountID)
+	if err := u.recorder.guardChannelMonitorV3Attempt(req, attempt); err != nil {
+		return nil, err
+	}
 	resp, err := u.base.Do(req, proxyURL, accountID, concurrency)
 	return u.observe(req, attempt, resp, err)
 }
 
 func (u *observedHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	attempt := u.start(req, accountID)
+	if err := u.recorder.guardChannelMonitorV3Attempt(req, attempt); err != nil {
+		return nil, err
+	}
 	resp, err := u.base.DoWithTLS(req, proxyURL, accountID, concurrency, profile)
 	return u.observe(req, attempt, resp, err)
 }

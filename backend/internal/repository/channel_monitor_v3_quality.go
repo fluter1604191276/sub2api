@@ -10,8 +10,8 @@ import (
 // GetChannelMonitorV3GroupQualityWindows returns the most recent valid
 // observed request rows with no age floor. Unlike scheduler/account quality,
 // monitor V3 intentionally includes probes, monitor traffic and zero-charge
-// requests when they carry observable latency. Zero-token placeholders and
-// client-visible failures are excluded.
+// requests when they carry observable latency. Client-attributed failures
+// are excluded using the existing Ops ownership classification.
 func (r *usageLogRepository) GetChannelMonitorV3GroupQualityWindows(ctx context.Context, groupIDs []int64) (map[int64]service.ChannelMonitorV3GroupQualityWindows, error) {
 	result := make(map[int64]service.ChannelMonitorV3GroupQualityWindows, len(groupIDs))
 	if len(groupIDs) == 0 {
@@ -49,7 +49,12 @@ func (r *usageLogRepository) GetChannelMonitorV3GroupQualityWindows(ctx context.
 					WHERE oe.group_id = ul.group_id
 						AND NULLIF(oe.request_id, '') IS NOT NULL
 						AND oe.request_id = NULLIF(ul.request_id, '')
-						AND (COALESCE(oe.status_code, 0) >= 400 OR oe.error_type = 'cyber_policy')
+						AND (
+							oe.error_owner = 'client'
+							OR oe.error_source = 'client_request'
+							OR (COALESCE(oe.error_owner, '') = '' AND oe.status_code IN (400, 401, 403, 404, 413, 422, 499))
+							OR oe.error_type = 'cyber_policy'
+						)
 				)
 				ORDER BY ul.created_at DESC, ul.id DESC
 				LIMIT 100
@@ -58,30 +63,6 @@ func (r *usageLogRepository) GetChannelMonitorV3GroupQualityWindows(ctx context.
 			SELECT *, ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY created_at DESC, id DESC) AS request_rank
 			FROM observed
 			WHERE duration_ms IS NOT NULL OR first_token_ms IS NOT NULL
-		), quality AS (
-			SELECT
-				group_id,
-				COUNT(*) FILTER (WHERE request_rank <= 10),
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0),
-				AVG(first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0),
-				AVG(duration_ms) FILTER (WHERE request_rank <= 10 AND duration_ms >= 0),
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0),
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 10 AND first_token_ms >= 0),
-				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 10),
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL),
-				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 10 AND generation_tokens_per_second IS NOT NULL),
-				COUNT(*) FILTER (WHERE request_rank <= 100),
-				COUNT(first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0),
-				AVG(first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0),
-				AVG(duration_ms) FILTER (WHERE request_rank <= 100 AND duration_ms >= 0),
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0),
-				PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY first_token_ms) FILTER (WHERE request_rank <= 100 AND first_token_ms >= 0),
-				COUNT(generation_tokens_per_second) FILTER (WHERE request_rank <= 100),
-				PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL),
-				PERCENTILE_CONT(0.1) WITHIN GROUP (ORDER BY generation_tokens_per_second) FILTER (WHERE request_rank <= 100 AND generation_tokens_per_second IS NOT NULL)
-			FROM ranked
-			WHERE request_rank <= 100
-			GROUP BY group_id
 		)
 		SELECT group_id,
 			COUNT(*) FILTER (WHERE request_rank <= 10),

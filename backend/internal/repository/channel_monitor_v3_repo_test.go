@@ -29,11 +29,29 @@ func TestChannelMonitorV3SaveSettingsRoundTrip(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WithArgs(channelMonitorV3IdentityLock).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)INSERT INTO channel_monitor_v3_settings.*ON CONFLICT\(singleton\).*RETURNING enabled,daily_budget_usd`).
-		WithArgs(true, 2.0).
-		WillReturnRows(sqlmock.NewRows([]string{"enabled", "daily_budget_usd"}).AddRow(true, 2.0))
-	got, err := (&channelMonitorV3Repository{db: db}).SaveSettings(context.Background(), service.ChannelMonitorV3Settings{Enabled: true, DailyBudgetUSD: 2})
+		WithArgs(false, 2.0).
+		WillReturnRows(sqlmock.NewRows([]string{"enabled", "daily_budget_usd"}).AddRow(false, 2.0))
+	mock.ExpectCommit()
+	got, err := (&channelMonitorV3Repository{db: db}).SaveSettings(context.Background(), service.ChannelMonitorV3Settings{Enabled: false, DailyBudgetUSD: 2})
 	require.NoError(t, err)
-	require.True(t, got.Enabled)
+	require.False(t, got.Enabled)
 	require.Equal(t, 2.0, got.DailyBudgetUSD)
+}
+
+func TestChannelMonitorV3SaveSettingsEnabledIdentityFailureRollsBack(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WithArgs(channelMonitorV3IdentityLock).WillReturnResult(sqlmock.NewResult(0, 1))
+	// Identity lookup fails before the settings upsert, so enabling cannot leave
+	// a partially persisted enabled flag.
+	mock.ExpectQuery(`(?s)SELECT m\.user_id,u\.balance,m\.identity_marker.*channel_monitor_v3_identity`).WillReturnError(sqlmock.ErrCancelled)
+	mock.ExpectRollback()
+	_, err = (&channelMonitorV3Repository{db: db}).SaveSettings(context.Background(), service.ChannelMonitorV3Settings{Enabled: true, DailyBudgetUSD: 2})
+	require.Error(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -9,11 +10,20 @@ import (
 )
 
 type ChannelMonitorV3Handler struct {
-	svc *service.ChannelMonitorV3Service
+	svc    *service.ChannelMonitorV3Service
+	runner *service.ChannelMonitorV3ProbeRunner
 }
 
 func NewChannelMonitorV3Handler(svc *service.ChannelMonitorV3Service) *ChannelMonitorV3Handler {
 	return &ChannelMonitorV3Handler{svc: svc}
+}
+
+func (h *ChannelMonitorV3Handler) SetProbeRunner(runner *service.ChannelMonitorV3ProbeRunner) {
+	h.runner = runner
+}
+
+func (h *ChannelMonitorV3Handler) MarkRequest(req *http.Request) *http.Request {
+	return h.runner.MarkRequest(req)
 }
 
 func (h *ChannelMonitorV3Handler) Config(c *gin.Context) {
@@ -21,6 +31,14 @@ func (h *ChannelMonitorV3Handler) Config(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	if h.runner != nil {
+		budget, err := h.runner.Budget(c.Request.Context(), out.Settings.DailyBudgetUSD)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		out.Budget = &budget
 	}
 	response.Success(c, out)
 }
