@@ -44,17 +44,20 @@ func TestChatCompletionsWarmStickyEscapeLeavesSlowLowestAccount(t *testing.T) {
 
 func TestChatCompletionsWarmStickyEscapeExcludesSlowAccountFromLegacyReselection(t *testing.T) {
 	tests := []struct {
-		name         string
-		batchEnabled bool
+		name            string
+		batchEnabled    bool
+		advancedEnabled string
 	}{
-		{name: "without_batch_loads"},
-		{name: "with_batch_loads", batchEnabled: true},
+		{name: "legacy_without_batch_loads", advancedEnabled: "false"},
+		{name: "legacy_with_batch_loads", batchEnabled: true, advancedEnabled: "false"},
+		{name: "advanced_without_batch_loads", advancedEnabled: "true"},
+		{name: "advanced_with_batch_loads", batchEnabled: true, advancedEnabled: "true"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(59000, 10), 0)
-			fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+			fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService(tt.advancedEnabled)
 			fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = tt.batchEnabled
 			fixture.orderer.pools = map[int64]string{
 				chatStickySlowAccountID: "warm",
@@ -70,6 +73,16 @@ func TestChatCompletionsWarmStickyEscapeExcludesSlowAccountFromLegacyReselection
 				chatStickySlowAccountID: 0.5,
 				chatStickyPrimaryA:      1,
 				chatStickyPrimaryB:      1,
+			}
+			items := []SmartSchedulerPreviewItem{
+				{AccountID: chatStickySlowAccountID, Pool: "warm", Score: previewFloat64Ptr(80), CostMultiplier: 0.5},
+				{AccountID: chatStickyPrimaryA, Pool: "warm", Score: previewFloat64Ptr(81), CostMultiplier: 1},
+				{AccountID: chatStickyPrimaryB, Pool: "warm", Score: previewFloat64Ptr(82), CostMultiplier: 1},
+			}
+			sortSmartSchedulerItems(items)
+			require.Equal(t, chatStickySlowAccountID, items[0].AccountID)
+			for index, item := range items {
+				fixture.orderer.ranks[item.AccountID] = index + 1
 			}
 			ctx, logs := chatStickyEscapeContext(t, "chat_completions")
 
