@@ -280,6 +280,78 @@ func TestChatCompletionsStickyEscapeProfitGateDefersAcquiredSwitchAccounting(t *
 	}
 }
 
+func TestChatCompletionsStickyEscapeProfitAdmissionAccountsWithoutRebinding(t *testing.T) {
+	fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(59000, 10), 0)
+	fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+	fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	repo := fixture.svc.accountRepo.(schedulerGroupAwareOpenAIAccountRepo)
+	for index := range repo.accounts {
+		rate := 0.1
+		repo.accounts[index].RateMultiplier = &rate
+	}
+	fixture.svc.accountRepo = repo
+	ctx := context.WithValue(
+		WithSmartSchedulerEndpoint(context.Background(), "chat_completions"),
+		openAIProfitControlGateCtxKey{},
+		&openAIProfitControlGate{groupID: chatStickyEscapeGroupID, platform: PlatformOpenAI, threshold: 0.5, pricingAt: time.Now()},
+	)
+
+	selection, _, err := fixture.selectAccount(ctx, "")
+
+	require.NoError(t, err)
+	require.True(t, selection.Acquired)
+	require.Equal(t, chatStickyPrimaryA, selection.Account.ID)
+	// Another admitted request can restore a sticky binding while this request
+	// waits for its terminal profit check.
+	fixture.cache.sessionBindings["openai:"+fixture.session] = chatStickySlowAccountID
+	handlerCtx := ContextWithSelectionProfitGate(ctx, selection)
+	require.NoError(t, fixture.svc.BindStickySessionAfterProfitAdmission(handlerCtx, int64PtrForChatSticky(chatStickyEscapeGroupID), fixture.session, selection.Account.ID))
+	// The pre-existing binding remains under a profit gate, but the admitted
+	// fallback still consumes exactly its own reviewed switch.
+	require.Equal(t, chatStickySlowAccountID, fixture.cache.sessionBindings["openai:"+fixture.session])
+	selection.stickySwitchTrace.mu.Lock()
+	require.True(t, selection.stickySwitchTrace.applied)
+	selection.stickySwitchTrace.mu.Unlock()
+	var applied smartStickyReviewState
+	found := false
+	for _, state := range fixture.svc.smartStickyReviews {
+		if state.lastSwitchedAccountID == selection.Account.ID {
+			applied = state
+			found = true
+		}
+	}
+	require.True(t, found)
+	require.Len(t, applied.escapeTimes, 1)
+
+	// A later failover binding attempt cannot consume the already-settled trace
+	// for a different account.
+	require.NoError(t, fixture.svc.BindStickySessionAfterProfitAdmission(handlerCtx, int64PtrForChatSticky(chatStickyEscapeGroupID), fixture.session, chatStickyPrimaryB))
+	for _, state := range fixture.svc.smartStickyReviews {
+		require.NotEqual(t, chatStickyPrimaryB, state.lastSwitchedAccountID)
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestChatCompletionsStickyEscapeGuardianAdmissionDoesNotConsumeTrace(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	groupID := chatStickyEscapeGroupID
+	sessionHash := "guardian-session"
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "chat_completions")
+	trace := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
+	trace.pending = &smartStickySwitchPending{groupID: groupID, reviewKey: "guardian", previousAccountID: chatStickySlowAccountID, expectedChallengerID: chatStickyPrimaryA, selectedAccountID: chatStickyPrimaryA}
+	ctx = context.WithValue(ctx, openAIProfitControlGateCtxKey{}, &openAIProfitControlGate{groupID: groupID, platform: PlatformOpenAI, threshold: 0.5})
+	ctx = context.WithValue(ctx, openAIGuardianParentAffinityContextKey{}, openAIGuardianParentAffinity{currentSessionHash: sessionHash})
+
+	require.NoError(t, svc.BindStickySessionAfterProfitAdmission(ctx, &groupID, sessionHash, chatStickyPrimaryA))
+	trace.mu.Lock()
+	require.False(t, trace.applied)
+	trace.mu.Unlock()
+	_, exists := svc.smartStickyReviews["guardian"]
+	require.False(t, exists)
+}
+
 func TestChatCompletionsWarmStickyEscapeDoesNotLeaveHealthyOrIncomparableAccounts(t *testing.T) {
 	tests := []struct {
 		name     string

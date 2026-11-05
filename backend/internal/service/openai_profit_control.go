@@ -376,6 +376,11 @@ func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context
 	if !gatewayProfitControlGateActive(ctx) {
 		return s.BindStickySession(ctx, groupID, sessionHash, accountID)
 	}
+	// Terminal admission, not a cache rewrite, is the point at which a reviewed
+	// switch consumes its cooldown and escape budget. A prior sticky binding may
+	// deliberately remain in place under a profit gate, and cache read/write
+	// failures must not leave this request's trace pending for a later failover.
+	s.logSmartStickySwitchApplied(ctx, groupID, accountID)
 	existingAccountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)
 	if err != nil && !errors.Is(err, ErrStickySessionNotFound) {
 		slog.Warn("profit_control_sticky_binding_read_failed", "group_id", derefGroupID(groupID), "account_id", accountID, "error", err)
