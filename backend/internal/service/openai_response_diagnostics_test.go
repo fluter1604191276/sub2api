@@ -169,3 +169,63 @@ func TestOpenAIResponseDiagnosticsSkipsCompactResponses(t *testing.T) {
 	_, ok := OpenAIResponseDiagnosticSnapshotFromContext(c)
 	require.False(t, ok)
 }
+
+func TestOpenAIResponseDiagnosticsSinkPublishesEachWebSocketTurnOnce(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	var published []OpenAIResponseDiagnosticSnapshot
+	BindOpenAIResponseDiagnosticSink(c, func(snapshot OpenAIResponseDiagnosticSnapshot) {
+		published = append(published, snapshot)
+	})
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{"max_output_tokens":64}`), true)
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":32}`), 17)
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"type":"response.incomplete","response":{"id":"resp_one","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"usage":{"input_tokens":2,"output_tokens":1}}}`), "response.incomplete", nil)
+	// Duplicate terminal frame must not enqueue another record.
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"type":"response.incomplete","response":{"id":"resp_one","status":"incomplete"}}`), "response.incomplete", nil)
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{"max_output_tokens":128}`), true)
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":96}`), 17)
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"type":"response.completed","response":{"id":"resp_two","status":"completed","usage":{"input_tokens":5,"output_tokens":3}}}`), "response.completed", nil)
+	require.Len(t, published, 2)
+	require.Equal(t, "resp_one", published[0].ResponseID)
+	require.Equal(t, "incomplete", published[0].Status)
+	require.EqualValues(t, 64, *published[0].RequestedMaxOutputTokens)
+	require.EqualValues(t, 32, *published[0].ForwardedMaxOutputTokens)
+	require.Equal(t, "resp_two", published[1].ResponseID)
+	require.Equal(t, "completed", published[1].Status)
+	require.EqualValues(t, 128, *published[1].RequestedMaxOutputTokens)
+	require.EqualValues(t, 96, *published[1].ForwardedMaxOutputTokens)
+	_, ok := TakeOpenAIResponseDiagnosticSnapshot(c)
+	require.False(t, ok, "published terminals must not be emitted again by middleware fallback")
+}
+
+func TestOpenAIResponseDiagnosticsWebSocketTurnResetPublishesPendingBareError(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	var published []OpenAIResponseDiagnosticSnapshot
+	BindOpenAIResponseDiagnosticSink(c, func(snapshot OpenAIResponseDiagnosticSnapshot) {
+		published = append(published, snapshot)
+	})
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{"max_output_tokens":11}`), true)
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":9}`), 17)
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"error":{"code":"upstream_error"}}`), "error", nil)
+
+	// A new WS turn must flush the prior scalar snapshot even though a bare
+	// error waits for a potential formal terminal on ordinary HTTP.
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{"max_output_tokens":22}`), true)
+	require.Len(t, published, 1)
+	require.Equal(t, int64(17), published[0].AccountID)
+	require.True(t, published[0].Terminal)
+	require.Equal(t, "failed", published[0].Status)
+	require.Equal(t, "upstream_error", published[0].Reason)
+	require.EqualValues(t, 11, *published[0].RequestedMaxOutputTokens)
+	require.EqualValues(t, 9, *published[0].ForwardedMaxOutputTokens)
+
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{"max_output_tokens":20}`), 17)
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"type":"response.completed","response":{"id":"resp_next","status":"completed"}}`), "response.completed", nil)
+	require.Len(t, published, 2)
+	require.Equal(t, "resp_next", published[1].ResponseID)
+	require.EqualValues(t, 22, *published[1].RequestedMaxOutputTokens)
+	require.EqualValues(t, 20, *published[1].ForwardedMaxOutputTokens)
+	_, ok := TakeOpenAIResponseDiagnosticSnapshot(c)
+	require.False(t, ok)
+}

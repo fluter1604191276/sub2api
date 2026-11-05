@@ -157,7 +157,7 @@ func recordOpsResponseDiagnostic(c *gin.Context, ops *service.OpsService) {
 	if c == nil || ops == nil || c.Request == nil || !ops.IsMonitoringEnabled(c.Request.Context()) {
 		return
 	}
-	snapshot, ok := service.OpenAIResponseDiagnosticSnapshotFromContext(c)
+	snapshot, ok := service.TakeOpenAIResponseDiagnosticSnapshot(c)
 	if !ok || !snapshot.Active {
 		return
 	}

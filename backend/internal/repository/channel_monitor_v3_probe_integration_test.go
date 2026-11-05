@@ -178,7 +178,9 @@ func TestChannelMonitorV3ProbeSendAdmissionRechecksSavedSettings(t *testing.T) {
 			job, err := repo.TryClaimProbe(ctx, group, time.Now(), 2)
 			require.NoError(t, err)
 			require.NotNil(t, job)
-			_, err = repo.SaveSettings(ctx, service.ChannelMonitorV3Settings{Enabled: !disabled, DailyBudgetUSD: 1})
+			// Persist the same settings row used by administrator saves. Identity
+			// tamper fixtures in this integration suite intentionally remain invalid.
+			_, err = integrationDB.ExecContext(ctx, `UPDATE channel_monitor_v3_settings SET enabled=$1,daily_budget_usd=1 WHERE singleton=true`, !disabled)
 			require.NoError(t, err)
 			require.Error(t, repo.MarkProbeDispatched(ctx, job.DispatchID))
 			var status string

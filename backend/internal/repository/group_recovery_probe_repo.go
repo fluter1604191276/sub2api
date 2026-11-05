@@ -70,7 +70,8 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 				),
 				next_probe_at = $1::timestamptz,
 				updated_at = $1::timestamptz
-			WHERE EXISTS (
+			WHERE p.status <> 'probing'
+				AND EXISTS (
 				SELECT 1
 				FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
 				WHERE entry.value->>'status' = 'paused'
@@ -437,7 +438,18 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			FOR UPDATE OF p
 		), normalized AS (
 			SELECT t.*,
-				CASE WHEN t.protocol_policy_changed THEN 'pending' ELSE $3 END AS completion_status,
+				CASE
+					WHEN t.protocol_policy_changed THEN 'pending'
+					-- A generic permanent upstream error (for example a revoked key,
+					-- unavailable model, or exhausted balance) is retryable after the
+					-- normal per-group backoff. Only this explicit adaptive protocol
+					-- compatibility rejection may stop probing until configuration changes.
+					WHEN $3 = 'paused'
+						AND LOWER(COALESCE($10, '')) LIKE '%cross_protocol_conversion_disabled%'
+						THEN 'paused'
+					WHEN $3 = 'paused' THEN 'failed'
+					ELSE $3
+				END AS completion_status,
 				CASE WHEN t.protocol_policy_changed THEN NOW() ELSE $8 END AS completion_next_probe_at,
 				CASE WHEN t.protocol_policy_changed THEN (
 					SELECT COALESCE(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
@@ -453,8 +465,6 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			UPDATE group_recovery_probe_states s
 			SET status = CASE
 					WHEN t.protocol_policy_changed THEN 'pending'
-					WHEN $9 = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
-					WHEN $9 = 'permanent' THEN 'failed'
 					ELSE t.completion_status
 				END,
 			consecutive_successes = $4,
@@ -465,9 +475,27 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			next_probe_at = CASE
 				WHEN t.protocol_policy_changed THEN NOW()
 				WHEN t.completion_status = 'paused' THEN NOW() + INTERVAL '100 years'
+				-- Defend persisted state from older callers that still submit a
+				-- generic permanent error as paused. Do not retain their long pause:
+				-- calculate the same normal retry cadence used for a failed result.
+				WHEN g.id = t.owner_group_id AND $3 = 'paused'
+					AND LOWER(COALESCE($10, '')) NOT LIKE '%cross_protocol_conversion_disabled%'
+					AND g.recovery_probe_mode = 'smart'
+					THEN NOW() + LEAST(
+						make_interval(secs => g.recovery_probe_backoff_cap_seconds),
+						CASE
+							WHEN $5 <= 1 THEN INTERVAL '1 minute'
+							WHEN $5 = 2 THEN INTERVAL '2 minutes'
+							WHEN $5 = 3 THEN INTERVAL '5 minutes'
+							WHEN $5 = 4 THEN INTERVAL '10 minutes'
+							WHEN $5 = 5 THEN INTERVAL '15 minutes'
+							ELSE INTERVAL '30 minutes'
+						END
+					)
+				WHEN g.id = t.owner_group_id AND $3 = 'paused'
+					AND LOWER(COALESCE($10, '')) NOT LIKE '%cross_protocol_conversion_disabled%'
+					THEN NOW() + make_interval(secs => g.recovery_probe_interval_seconds)
 				WHEN g.id = t.owner_group_id THEN t.completion_next_probe_at
-				WHEN $9 = 'permanent' AND g.recovery_probe_mode = 'smart'
-					THEN NOW() + INTERVAL '6 hours'
 				WHEN g.recovery_probe_mode = 'smart' AND t.completion_status = 'eligible'
 					THEN NOW() + make_interval(secs => GREATEST(
 						g.recovery_probe_interval_seconds,
@@ -714,7 +742,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 							(
 								p.status <> 'probing'
 								AND s.status IS DISTINCT FROM CASE
-									WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+									WHEN p.status = 'paused'
+										AND p.last_error_class = 'permanent'
+										AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+										THEN 'paused'
 									WHEN p.last_error_class = 'permanent' THEN 'failed'
 									ELSE p.status
 								END
@@ -737,7 +768,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 			UPDATE group_recovery_probe_states s
 			SET status = CASE
 					WHEN p.status = 'probing' THEN s.status
-					WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+					WHEN p.status = 'paused'
+						AND p.last_error_class = 'permanent'
+						AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+						THEN 'paused'
 					WHEN p.last_error_class = 'permanent' THEN 'failed'
 					ELSE p.status
 				END,
@@ -758,7 +792,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 					(
 						p.status <> 'probing'
 						AND s.status IS DISTINCT FROM CASE
-							WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+							WHEN p.status = 'paused'
+								AND p.last_error_class = 'permanent'
+								AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+								THEN 'paused'
 							WHEN p.last_error_class = 'permanent' THEN 'failed'
 							ELSE p.status
 						END

@@ -403,7 +403,8 @@ func buildGroupRecoveryProbeCompletion(job GroupRecoveryProbeJob, result GroupRe
 	completion.LastFailureAt = timePointer(now)
 	completion.LastErrorClass = classifyGroupRecoveryProbeError(completion.LastError)
 	if job.Mode == GroupRecoveryProbeModeSmart {
-		if completion.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+		if completion.LastErrorClass == GroupRecoveryProbeErrorPermanent &&
+			strings.Contains(strings.ToLower(completion.LastError), crossProtocolConversionDisabledMarker) {
 			completion.Status = GroupRecoveryProbeStatusPaused
 			completion.NextProbeAt = now.Add(GroupRecoveryProbePermanentRetryInterval)
 		} else {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,18 @@ func (r *attemptCaptureRepo) Insert(_ context.Context, a *UpstreamAttempt) error
 	copy := *a
 	r.items = append(r.items, &copy)
 	return nil
+}
+
+func (r *attemptCaptureRepo) wait(t *testing.T, count int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return len(r.items) == count
+	}, 3*time.Second, time.Millisecond)
+	r.mu.Lock()
+	sort.Slice(r.items, func(i, j int) bool { return r.items[i].CreatedAt.Before(r.items[j].CreatedAt) })
+	r.mu.Unlock()
 }
 
 type attemptHTTPStub struct {
@@ -81,6 +94,7 @@ func TestUpstreamAttemptHTTPPreservesFailureUsageAndRetryIdentity(t *testing.T) 
 		require.NoError(t, resp.Body.Close())
 		require.NoError(t, resp.Body.Close())
 	}
+	repo.wait(t, 2)
 	require.Len(t, repo.items, 2)
 	a := repo.items[0]
 	require.NotEqual(t, a.AttemptID, repo.items[1].AttemptID)
@@ -122,6 +136,7 @@ func TestUpstreamAttemptHTTPStreamingMetadata(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 			require.Equal(t, tc.body, actual.String())
+			repo.wait(t, 1)
 			require.Len(t, repo.items, 1)
 			a := repo.items[0]
 			require.Equal(t, tc.outcome, a.Outcome)
@@ -151,6 +166,7 @@ func TestUpstreamAttemptHTTPTransportFailureAndNoUsage(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, resp.Body.Close())
 		}
+		repo.wait(t, 1)
 		require.Len(t, repo.items, 1)
 		require.False(t, repo.items[0].UsagePresent)
 		require.Nil(t, repo.items[0].CostUSD)
@@ -167,6 +183,7 @@ func TestUpstreamAttemptHTTPFrameOverflowRecovers(t *testing.T) {
 	_, err = io.Copy(io.Discard, resp.Body)
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
+	repo.wait(t, 1)
 	require.Len(t, repo.items, 1)
 	require.EqualValues(t, 2, *repo.items[0].OutputTokens)
 }
@@ -181,6 +198,7 @@ func TestUpstreamAttemptHTTPSSEWithoutContentType(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, body, string(actual))
+	repo.wait(t, 1)
 	require.Len(t, repo.items, 1)
 	require.True(t, repo.items[0].UsagePresent)
 	require.EqualValues(t, 0, *repo.items[0].OutputTokens)
@@ -227,6 +245,7 @@ func TestUpstreamAttemptHTTPCloseUnblocksReadAndPersistsOnce(t *testing.T) {
 	}
 	<-readDone
 	require.NoError(t, observer.Close())
+	repo.wait(t, 1)
 	require.Len(t, repo.items, 1)
 	require.Equal(t, "failed", repo.items[0].Outcome)
 }

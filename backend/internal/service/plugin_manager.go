@@ -945,11 +945,15 @@ func (m *PluginManager) ReadUIAsset(ctx context.Context, id int64, relative stri
 }
 
 func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.Request, proxyURL string, account *Account) (*http.Response, bool, error) {
-	if !m.ShouldRouteOpenAIOAuth(account) {
+	return m.roundTripOpenAIOAuth(ctx, request, proxyURL, account, nil)
+}
+
+func (m *PluginManager) roundTripOpenAIOAuth(ctx context.Context, request *http.Request, proxyURL string, account *Account, beforeDispatch func() error) (*http.Response, bool, error) {
+	if m == nil || account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth {
 		return nil, false, nil
 	}
 	route := m.route.Load()
-	if route == nil {
+	if route == nil || route.rolloutPercent <= 0 || int(stablePluginBucket(account.ID)) >= route.rolloutPercent {
 		return nil, false, nil
 	}
 	if route.runtime == nil {
@@ -964,6 +968,12 @@ func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.
 	}
 	if !route.runtime.beginRequest() {
 		return nil, true, errors.New("OpenAI OAuth 插件正在停止")
+	}
+	if beforeDispatch != nil {
+		if err := beforeDispatch(); err != nil {
+			route.runtime.finishRequest()
+			return nil, true, err
+		}
 	}
 	response, err := route.runtime.roundTrip(ctx, request, proxyURL, account)
 	if err != nil {

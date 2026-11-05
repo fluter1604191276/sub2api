@@ -72,7 +72,7 @@ func activeBusinessProtocolCountFor(protocols []string, eligibility map[string]G
 	active := 0
 	for _, protocol := range protocols {
 		status, paused := eligibility[protocol]
-		if paused && status.Status == GroupRecoveryProbeStatusPaused && status.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+		if paused && isCrossProtocolConversionPause(status) {
 			continue
 		}
 		active++
@@ -83,7 +83,7 @@ func activeBusinessProtocolCountFor(protocols []string, eligibility map[string]G
 func activeBusinessProtocolCount(eligibility map[string]GroupRecoveryProbeProtocolStatus, fallback int) int {
 	active := fallback
 	for _, status := range eligibility {
-		if status.Status == GroupRecoveryProbeStatusPaused && status.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+		if isCrossProtocolConversionPause(status) {
 			active--
 		}
 	}
@@ -97,7 +97,7 @@ func activeBusinessProbeProtocols(protocols []string, eligibility map[string]Gro
 	active := make([]string, 0, len(protocols))
 	for _, protocol := range protocols {
 		status, paused := eligibility[protocol]
-		if paused && status.Status == GroupRecoveryProbeStatusPaused && status.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+		if paused && isCrossProtocolConversionPause(status) {
 			continue
 		}
 		active = append(active, protocol)
@@ -112,12 +112,18 @@ func recordedActiveBusinessProbeProtocols(eligibility map[string]GroupRecoveryPr
 	protocols := make([]string, 0, len(eligibility))
 	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
 		status, recorded := eligibility[protocol]
-		if !recorded || (status.Status == GroupRecoveryProbeStatusPaused && status.LastErrorClass == GroupRecoveryProbeErrorPermanent) {
+		if !recorded || isCrossProtocolConversionPause(status) {
 			continue
 		}
 		protocols = append(protocols, protocol)
 	}
 	return protocols
+}
+
+func isCrossProtocolConversionPause(status GroupRecoveryProbeProtocolStatus) bool {
+	return status.Status == GroupRecoveryProbeStatusPaused &&
+		status.LastErrorClass == GroupRecoveryProbeErrorPermanent &&
+		strings.Contains(strings.ToLower(status.LastError), crossProtocolConversionDisabledMarker)
 }
 
 func businessProtocolForEndpoint(endpoint string) string {
@@ -179,7 +185,10 @@ func mergeBusinessProtocolProbe(prev GroupRecoveryProbeProtocolStatus, success b
 	prev.LastErrorClass = classifyGroupRecoveryProbeError(errText)
 	prev.LastError = sanitizeGroupRecoveryProbeError(errText)
 	prev.Status = GroupRecoveryProbeStatusFailed
-	if prev.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+	// A protocol is stopped permanently only for this explicit compatibility
+	// policy. Other terminal-looking upstream failures remain probeable: their
+	// credentials, quota, or model availability can be repaired independently.
+	if strings.Contains(strings.ToLower(errText), crossProtocolConversionDisabledMarker) {
 		prev.Status = GroupRecoveryProbeStatusPaused
 	}
 	return prev
@@ -463,7 +472,7 @@ func (r *GroupRecoveryProbeRunner) collectAdaptiveProtocolProbe(ctx context.Cont
 		stopRound := false
 		for protocol, result := range results {
 			if len(protocols) > 0 {
-				if status, paused := eligibility[protocol]; paused && status.Status == GroupRecoveryProbeStatusPaused && status.LastErrorClass == GroupRecoveryProbeErrorPermanent {
+				if status, paused := eligibility[protocol]; paused && isCrossProtocolConversionPause(status) {
 					continue
 				}
 			}
