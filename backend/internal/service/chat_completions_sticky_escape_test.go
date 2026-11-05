@@ -102,6 +102,150 @@ func TestChatCompletionsWarmStickyEscapeExcludesSlowAccountFromLegacyReselection
 	}
 }
 
+func TestSmartStickySwitchExcludesPreviousAccountAcrossLegacyLoadBatchModes(t *testing.T) {
+	tests := []struct {
+		name   string
+		scores map[int64]float64
+		costs  map[int64]float64
+		pools  map[int64]string
+	}{
+		{
+			name:   "better_quality",
+			scores: map[int64]float64{chatStickySlowAccountID: 70, chatStickyPrimaryA: 80, chatStickyPrimaryB: 75},
+			pools:  map[int64]string{chatStickySlowAccountID: "warm", chatStickyPrimaryA: "primary", chatStickyPrimaryB: "warm"},
+		},
+		{
+			name:   "primary_over_warm",
+			scores: map[int64]float64{chatStickySlowAccountID: 69, chatStickyPrimaryA: 70, chatStickyPrimaryB: 68},
+			pools:  map[int64]string{chatStickySlowAccountID: "warm", chatStickyPrimaryA: "primary", chatStickyPrimaryB: "warm"},
+		},
+		{
+			name:   "cheaper_within_tolerance",
+			scores: map[int64]float64{chatStickySlowAccountID: 80, chatStickyPrimaryA: 78, chatStickyPrimaryB: 77},
+			costs:  map[int64]float64{chatStickySlowAccountID: 1, chatStickyPrimaryA: 0.5, chatStickyPrimaryB: 1},
+			pools:  map[int64]string{chatStickySlowAccountID: "primary", chatStickyPrimaryA: "primary", chatStickyPrimaryB: "primary"},
+		},
+	}
+	for _, test := range tests {
+		for _, batchEnabled := range []bool{false, true} {
+			t.Run(test.name+"/"+map[bool]string{false: "without_batch_loads", true: "with_batch_loads"}[batchEnabled], func(t *testing.T) {
+				fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(12000, 10), 0)
+				fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+				fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = batchEnabled
+				fixture.orderer.ranks = map[int64]int{chatStickyPrimaryA: 1, chatStickySlowAccountID: 2, chatStickyPrimaryB: 3}
+				fixture.orderer.scores = test.scores
+				fixture.orderer.costs = test.costs
+				fixture.orderer.pools = test.pools
+				fixture.svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{
+					loadMap:        map[int64]*AccountLoadInfo{chatStickyPrimaryA: {AccountID: chatStickyPrimaryA, CurrentConcurrency: 1, LoadRate: 100}},
+					acquireResults: map[int64]bool{chatStickyPrimaryA: false},
+				})
+
+				selection, _, err := fixture.selectAccount(WithSmartSchedulerEndpoint(context.Background(), "chat_completions"), "")
+
+				require.NoError(t, err)
+				require.NotNil(t, selection)
+				require.NotNil(t, selection.Account)
+				expectedAccountID := chatStickyPrimaryA
+				if batchEnabled {
+					expectedAccountID = chatStickySlowAccountID
+				}
+				require.Equal(t, expectedAccountID, selection.Account.ID, "non-latency switch keeps the existing full-challenger fallback")
+				require.Equal(t, 1, fixture.cache.deletedSessions["openai:"+fixture.session])
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+			})
+		}
+	}
+}
+
+func TestSmartStickySwitchFallsBackToAlternateAccountWhenChallengerIsFull(t *testing.T) {
+	fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(12000, 10), 0)
+	fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("true")
+	fixture.orderer.ranks = map[int64]int{chatStickyPrimaryA: 1, chatStickySlowAccountID: 2, chatStickyPrimaryB: 3}
+	fixture.orderer.scores = map[int64]float64{chatStickySlowAccountID: 70, chatStickyPrimaryA: 80, chatStickyPrimaryB: 75}
+	fixture.orderer.pools = map[int64]string{chatStickySlowAccountID: "warm", chatStickyPrimaryA: "primary", chatStickyPrimaryB: "warm"}
+	fixture.svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{chatStickyPrimaryA: {AccountID: chatStickyPrimaryA, CurrentConcurrency: 1, LoadRate: 100}},
+	})
+
+	selection, _, err := fixture.selectAccount(WithSmartSchedulerEndpoint(context.Background(), "chat_completions"), "")
+
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, chatStickyPrimaryB, selection.Account.ID)
+	markedFallback := false
+	for _, state := range fixture.svc.smartStickyReviews {
+		if state.lastSwitchedAccountID == chatStickyPrimaryB && !state.cooldownUntil.IsZero() && len(state.escapeTimes) == 1 {
+			markedFallback = true
+		}
+	}
+	require.True(t, markedFallback, "unexpected fallback must consume the reviewed switch cooldown and budget")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestChatCompletionsStickyEscapeSelectionTraceIsolatedUntilAdmission(t *testing.T) {
+	fixture := newChatCompletionsStickyEscapeFixture(t, chatStickySlowQuality(59000, 10), 0)
+	fixture.svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+	fixture.svc.cfg.Gateway.Scheduling.LoadBatchEnabled = false
+	excluded := map[int64]struct{}{chatStickyPrimaryB: {}}
+	ctx := WithSmartSchedulerEndpoint(context.Background(), "chat_completions")
+	callerTrace, _ := ctx.Value(smartStickySwitchTraceContextKey{}).(*smartStickySwitchTrace)
+	require.NotNil(t, callerTrace)
+
+	// The first selection can only offer the challenger as a wait plan. It must
+	// not consume the reviewed escape before a slot is actually admitted.
+	fixture.svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{
+		acquireResults: map[int64]bool{chatStickyPrimaryA: false},
+	})
+	first, _, err := fixture.selectAccountWithExclusions(ctx, "", excluded)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	require.Equal(t, chatStickyPrimaryA, first.Account.ID)
+	require.False(t, first.Acquired)
+	require.NotNil(t, first.WaitPlan)
+	require.NotNil(t, first.stickySwitchTrace)
+	require.NotSame(t, callerTrace, first.stickySwitchTrace)
+	first.stickySwitchTrace.mu.Lock()
+	require.False(t, first.stickySwitchTrace.applied)
+	first.stickySwitchTrace.mu.Unlock()
+	require.Equal(t, map[int64]struct{}{chatStickyPrimaryB: {}}, excluded)
+
+	// A retry on the same caller context receives a fresh trace. Its admission
+	// cannot consume the first selection's pending review.
+	fixture.svc.concurrencyService = NewConcurrencyService(schedulerTestConcurrencyCache{})
+	second, _, err := fixture.selectAccountWithExclusions(ctx, "", excluded)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	require.True(t, second.Acquired)
+	require.Equal(t, chatStickyPrimaryA, second.Account.ID)
+	require.NotNil(t, second.stickySwitchTrace)
+	require.NotSame(t, first.stickySwitchTrace, second.stickySwitchTrace)
+	require.Equal(t, map[int64]struct{}{chatStickyPrimaryB: {}}, excluded)
+
+	handlerCtx := ContextWithSelectionProfitGate(ctx, second)
+	require.NoError(t, fixture.svc.BindStickySessionAfterProfitAdmission(handlerCtx, int64PtrForChatSticky(chatStickyEscapeGroupID), fixture.session, second.Account.ID))
+	second.stickySwitchTrace.mu.Lock()
+	require.False(t, second.stickySwitchTrace.applied)
+	second.stickySwitchTrace.mu.Unlock()
+	first.stickySwitchTrace.mu.Lock()
+	require.False(t, first.stickySwitchTrace.applied)
+	first.stickySwitchTrace.mu.Unlock()
+
+	// The retry had no new review claim, so admitting it must not consume the
+	// first selection's pending escape or create a synthetic cooldown.
+	for _, state := range fixture.svc.smartStickyReviews {
+		require.NotEqual(t, second.Account.ID, state.lastSwitchedAccountID)
+	}
+	if second.ReleaseFunc != nil {
+		second.ReleaseFunc()
+	}
+}
+
 func TestChatCompletionsWarmStickyEscapeDoesNotLeaveHealthyOrIncomparableAccounts(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -238,7 +382,7 @@ func TestChatCompletionsWarmStickyEscapeUsesExactEndpointLatencyAfterScoreFallba
 		smartSchedulerTestAccount(chatStickyPrimaryA, 100),
 	}
 
-	ordering, err := preview.OrderCandidates(context.Background(), group, "gpt-5.5", "chat_completions", accounts, time.Now())
+	ordering, err := preview.OrderCandidates(withSmartSchedulerStableOrdering(context.Background()), group, "gpt-5.5", "chat_completions", accounts, time.Now())
 
 	require.NoError(t, err)
 	slow := ordering.ItemByAccountID[chatStickySlowAccountID]
@@ -369,13 +513,17 @@ func newChatCompletionsStickyEscapeFixture(t *testing.T, quality AccountQualityS
 }
 
 func (f chatStickyEscapeFixture) selectAccount(ctx context.Context, previousResponseID string) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	return f.selectAccountWithExclusions(ctx, previousResponseID, nil)
+}
+
+func (f chatStickyEscapeFixture) selectAccountWithExclusions(ctx context.Context, previousResponseID string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	return f.svc.SelectAccountWithSchedulerForCapability(
 		ctx,
 		int64PtrForChatSticky(chatStickyEscapeGroupID),
 		previousResponseID,
 		f.session,
 		"gpt-5.5",
-		nil,
+		excludedIDs,
 		OpenAIUpstreamTransportAny,
 		OpenAIEndpointCapabilityChatCompletions,
 		false,
