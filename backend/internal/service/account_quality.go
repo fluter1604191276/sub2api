@@ -371,20 +371,32 @@ func classifyAccountQualityActivity(successfulRequests, failedRequests int64) st
 }
 
 func applyAccountQualityScore(window AccountQualityWindow) AccountQualityWindow {
-	if window.SampleCount < accountQualityMinSamples {
+	return applyAccountQualityScoreWithMinSamples(window, accountQualityMinSamples)
+}
+
+// applyAccountQualityScoreWithMinSamples keeps the quality curves and scoring
+// policy identical while allowing an explicitly scoped consumer to grade a
+// smaller evidence window. Existing account and scheduler callers use the
+// public wrapper above and therefore retain the three-sample policy.
+func applyAccountQualityScoreWithMinSamples(window AccountQualityWindow, minSamples int64) AccountQualityWindow {
+	if minSamples < 1 {
+		minSamples = 1
+	}
+	if window.SampleCount < minSamples {
 		return window
 	}
 	if hasRobustQualityEvidence(window) {
-		return applyRobustQualityScore(
+		return applyRobustQualityScoreWithMinSamples(
 			window,
 			accountQualityBasisTTFTGeneration,
 			accountQualityBasisTTFTOnly,
 			accountQualityBasisGenerationOnly,
+			minSamples,
 		)
 	}
 
 	ttftScore, hasTTFT := qualityCurveScore(window.AverageFirstTokenMs, accountQualityTTFTCurve)
-	if window.FirstTokenSampleCount < accountQualityMinTTFTSamples {
+	if window.FirstTokenSampleCount < minSamples {
 		hasTTFT = false
 	}
 	durationScore, hasDuration := qualityCurveScore(window.AverageDurationMs, accountQualityDurationCurve)
@@ -417,12 +429,19 @@ func hasRobustQualityEvidence(window AccountQualityWindow) bool {
 }
 
 func applyRobustQualityScore(window AccountQualityWindow, combinedBasis, ttftOnlyBasis, generationOnlyBasis string) AccountQualityWindow {
-	if window.SampleCount < accountQualityMinSamples {
+	return applyRobustQualityScoreWithMinSamples(window, combinedBasis, ttftOnlyBasis, generationOnlyBasis, accountQualityMinSamples)
+}
+
+func applyRobustQualityScoreWithMinSamples(window AccountQualityWindow, combinedBasis, ttftOnlyBasis, generationOnlyBasis string, minSamples int64) AccountQualityWindow {
+	if minSamples < 1 {
+		minSamples = 1
+	}
+	if window.SampleCount < minSamples {
 		return window
 	}
 
 	var ttftScore *float64
-	if window.FirstTokenSampleCount >= accountQualityMinTTFTSamples && validQualityMetric(window.P50FirstTokenMs) && validQualityMetric(window.P90FirstTokenMs) {
+	if window.FirstTokenSampleCount >= minSamples && validQualityMetric(window.P50FirstTokenMs) && validQualityMetric(window.P90FirstTokenMs) {
 		medianScore, medianOK := qualityCurveScore(window.P50FirstTokenMs, accountQualityTTFTCurve)
 		tailScore, tailOK := qualityCurveScore(window.P90FirstTokenMs, accountQualityTTFTCurve)
 		if medianOK && tailOK {
@@ -434,7 +453,7 @@ func applyRobustQualityScore(window AccountQualityWindow, combinedBasis, ttftOnl
 	}
 
 	var generationScore *float64
-	if window.GenerationSampleCount >= accountQualityMinSamples && validQualityMetric(window.P50GenerationTokensPerSecond) && validQualityMetric(window.P10GenerationTokensPerSecond) {
+	if window.GenerationSampleCount >= minSamples && validQualityMetric(window.P50GenerationTokensPerSecond) && validQualityMetric(window.P10GenerationTokensPerSecond) {
 		routingGeneration := *window.P50GenerationTokensPerSecond*accountQualityRobustMedianWeight + *window.P10GenerationTokensPerSecond*accountQualityRobustTailWeight
 		window.RoutingGenerationTokensPerSecond = &routingGeneration
 		medianScore := accountQualityGenerationScore(*window.P50GenerationTokensPerSecond)
