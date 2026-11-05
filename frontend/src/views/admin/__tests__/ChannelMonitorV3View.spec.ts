@@ -27,16 +27,17 @@ const IconStub = defineComponent({ template: '<i />' })
 const config = {
   settings: { enabled: false, daily_budget_usd: 2 },
   groups: [{ group_id: 7, name: 'OpenAI', platform: 'openai', status: 'active', visible: true, probe_interval_seconds: 600, test_model: 'gpt-5.5' }],
+  budget: { date: '2026-11-05', spent_usd: 0.125, reserved_usd: 0.25, remaining_usd: 1.625 },
 }
 
 function mountView() {
-  return mount(ChannelMonitorV3View, { global: { stubs: { AppLayout: AppLayoutStub, Icon: IconStub } } })
+  return mount(ChannelMonitorV3View, { global: { stubs: { AppLayout: AppLayoutStub, Icon: IconStub, RouterLink: true } } })
 }
 
 describe('ChannelMonitorV3View', () => {
   beforeEach(() => {
     for (const fn of [getConfig, updateSettings, updateGroup, showSuccess, showError]) fn.mockReset()
-    getConfig.mockResolvedValue({ settings: { ...config.settings }, groups: config.groups.map((group) => ({ ...group })) })
+    getConfig.mockResolvedValue({ settings: { ...config.settings }, groups: config.groups.map((group) => ({ ...group })), budget: { ...config.budget } })
     updateSettings.mockResolvedValue({ enabled: true, daily_budget_usd: 3 })
     updateGroup.mockResolvedValue({ ...config.groups[0], visible: false, probe_interval_seconds: 0, test_model: '' })
   })
@@ -46,6 +47,8 @@ describe('ChannelMonitorV3View', () => {
     await flushPromises()
     expect(getConfig).toHaveBeenCalledOnce()
     expect(wrapper.text()).toContain('OpenAI')
+    expect(wrapper.get('[data-testid="budget-status"]').text()).toContain('$0.1250')
+    expect(wrapper.get('[data-testid="budget-status"]').text()).toContain('$0.2500')
 
     await wrapper.get('[data-testid="global-enabled"]').setValue(true)
     await wrapper.get('[data-testid="daily-budget"]').setValue(3)

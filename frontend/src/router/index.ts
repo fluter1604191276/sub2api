@@ -185,6 +185,16 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'modelPlaza.title'
     }
   },
+  {
+    path: '/channel-status-v3',
+    name: 'ChannelStatusV3',
+    component: () => import('@/views/user/ChannelStatusV3View.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Channel Status',
+      titleKey: 'channelMonitorV3.title',
+    }
+  },
 
   // ==================== User Routes ====================
   {
@@ -807,7 +817,7 @@ let authInitialized = false
 const navigationLoading = useNavigationLoadingState()
 // 延迟初始化预加载，传入 router 实例
 let routePrefetch: ReturnType<typeof useRoutePrefetch> | null = null
-const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal']
+const BACKEND_MODE_ALLOWED_PATHS = ['/login', '/key-usage', '/setup', '/payment/result', '/payment/airwallex', '/legal', '/channel-status-v3']
 const BACKEND_MODE_CALLBACK_PATHS = [
   '/auth/callback',
   '/auth/linuxdo/callback',

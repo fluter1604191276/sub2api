@@ -9,6 +9,9 @@
           {{ t('admin.channelMonitorV3.title') }}
         </h1>
         <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.description') }}</p>
+        <router-link to="/channel-status-v3" class="mt-3 inline-flex text-sm font-medium text-primary-600 hover:underline dark:text-primary-400">
+          {{ t('admin.channelMonitorV3.openPublicPage') }}
+        </router-link>
       </header>
 
       <p v-if="loading" class="text-sm text-gray-500" data-testid="loading">{{ t('admin.channelMonitorV3.loading') }}</p>
@@ -34,6 +37,12 @@
             </button>
           </form>
           <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.budgetHint') }} {{ t('admin.channelMonitorV3.userCost') }}</p>
+          <dl v-if="budget" class="mt-4 grid gap-3 rounded-xl bg-gray-50 p-3 text-sm dark:bg-dark-900 sm:grid-cols-4" data-testid="budget-status">
+            <div><dt class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.budgetDate') }}</dt><dd class="font-medium">{{ budget.date }}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.knownSpent') }}</dt><dd class="font-medium">${{ budget.spent_usd.toFixed(4) }}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.reservedUnknown') }}</dt><dd class="font-medium">${{ budget.reserved_usd.toFixed(4) }}</dd></div>
+            <div><dt class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channelMonitorV3.remaining') }}</dt><dd class="font-medium">${{ budget.remaining_usd.toFixed(4) }}</dd></div>
+          </dl>
         </section>
 
         <section class="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6">
@@ -83,7 +92,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { channelMonitorV3API, type ChannelMonitorV3Group } from '@/api/admin/channelMonitorV3'
+import { channelMonitorV3API, type ChannelMonitorV3Budget, type ChannelMonitorV3Group } from '@/api/admin/channelMonitorV3'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -93,6 +102,7 @@ const savingSettings = ref(false)
 const savingGroups = reactive(new Set<number>())
 const settings = reactive({ enabled: false, daily_budget_usd: 2 })
 const groups = ref<ChannelMonitorV3Group[]>([])
+const budget = ref<ChannelMonitorV3Budget | null>(null)
 
 function validBudget(value: number): boolean {
   return Number.isFinite(value) && value > 0
@@ -114,6 +124,7 @@ async function load() {
     settings.enabled = config.settings.enabled
     settings.daily_budget_usd = config.settings.daily_budget_usd
     groups.value = config.groups.map((group) => ({ ...group }))
+    budget.value = config.budget ?? null
   } catch (error) {
     loadError.value = true
     appStore.showError(extractApiErrorMessage(error, t('admin.channelMonitorV3.loadError')))

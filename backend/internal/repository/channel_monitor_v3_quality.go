@@ -39,6 +39,7 @@ func (r *usageLogRepository) GetChannelMonitorV3GroupQualityWindows(ctx context.
 				SELECT *
 				FROM usage_logs ul
 				WHERE ul.group_id = wanted.group_id
+				AND ul.request_type <> 4
 				AND (
 					ul.first_token_ms >= 0
 					OR ul.duration_ms >= 0
