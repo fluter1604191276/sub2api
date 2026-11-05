@@ -59,6 +59,10 @@ func TestBuildOpsResponseDiagnosticTerminalAndFailureStatusPrecedence(t *testing
 	}()
 	missing := buildOpsResponseDiagnostic(c, service.OpenAIResponseDiagnosticSnapshot{Active: true})
 	require.Equal(t, "missing_terminal", missing.Status)
+	transportFailure := buildOpsResponseDiagnostic(c, service.OpenAIResponseDiagnosticSnapshot{Active: true, Status: "failed", Reason: "transport", HTTPStatus: http.StatusServiceUnavailable})
+	require.Equal(t, "failed", transportFailure.Status)
+	require.Equal(t, "transport", transportFailure.Reason)
+	require.Equal(t, http.StatusServiceUnavailable, transportFailure.HTTPStatus)
 }
 
 func TestBuildOpsResponseDiagnosticCanceledClientContext(t *testing.T) {

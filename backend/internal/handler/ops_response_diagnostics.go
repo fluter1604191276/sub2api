@@ -187,6 +187,7 @@ func buildOpsResponseDiagnostic(c *gin.Context, snapshot service.OpenAIResponseD
 
 	entry := &service.OpsResponseDiagnostic{
 		RequestID:                requestID,
+		TurnID:                   snapshot.TurnID,
 		ClientRequestID:          clientRequestID,
 		UpstreamRequestID:        snapshot.UpstreamRequestID,
 		ResponseID:               snapshot.ResponseID,
@@ -203,6 +204,9 @@ func buildOpsResponseDiagnostic(c *gin.Context, snapshot service.OpenAIResponseD
 		OutputTokens:             snapshot.OutputTokens,
 		ReasoningTokens:          snapshot.ReasoningTokens,
 	}
+	if snapshot.HTTPStatus > 0 {
+		entry.HTTPStatus = snapshot.HTTPStatus
+	}
 	// Only the original client request context is considered here. Detached
 	// upstream contexts may end during normal retry/cleanup and must not be
 	// classified as a client disconnect.
@@ -214,6 +218,9 @@ func buildOpsResponseDiagnostic(c *gin.Context, snapshot service.OpenAIResponseD
 		entry.Reason = snapshot.Reason
 	} else if entry.ClientDisconnected {
 		entry.Status = "client_disconnected"
+	} else if snapshot.Status == "failed" {
+		entry.Status = "failed"
+		entry.Reason = snapshot.Reason
 	} else if entry.HTTPStatus >= 400 {
 		entry.Status = "failed"
 	} else {

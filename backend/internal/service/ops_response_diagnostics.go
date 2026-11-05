@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // OpsResponseDiagnostic is metadata only. It must never contain prompts, output text, or credentials.
@@ -12,6 +14,7 @@ type OpsResponseDiagnostic struct {
 	ID                       int64     `json:"id"`
 	CreatedAt                time.Time `json:"created_at"`
 	RequestID                string    `json:"request_id"`
+	TurnID                   string    `json:"turn_id"`
 	ClientRequestID          string    `json:"client_request_id"`
 	UpstreamRequestID        string    `json:"upstream_request_id"`
 	ResponseID               string    `json:"response_id"`
@@ -69,6 +72,14 @@ func NormalizeResponseDiagnostic(d *OpsResponseDiagnostic) error {
 	}
 	if strings.TrimSpace(d.RequestID) == "" {
 		return fmt.Errorf("missing request id")
+	}
+	d.TurnID = strings.TrimSpace(d.TurnID)
+	if d.TurnID != "" {
+		turnID, err := uuid.Parse(d.TurnID)
+		if err != nil {
+			return fmt.Errorf("invalid response diagnostic turn id")
+		}
+		d.TurnID = turnID.String()
 	}
 	for _, v := range []*string{&d.RequestID, &d.ClientRequestID, &d.UpstreamRequestID, &d.ResponseID, &d.Model} {
 		*v = strings.TrimSpace(*v)

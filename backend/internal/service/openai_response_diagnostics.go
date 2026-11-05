@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
 )
 
@@ -25,8 +26,10 @@ type OpenAIResponseDiagnosticSnapshot struct {
 	Active bool
 	// AccountID belongs to the observed outbound attempt, never the next candidate.
 	AccountID                int64
+	TurnID                   string
 	ResponseID               string
 	UpstreamRequestID        string
+	HTTPStatus               int
 	Status                   string
 	Reason                   string
 	RequestedMaxOutputTokens *int64
@@ -47,6 +50,7 @@ type openAIResponseDiagnostics struct {
 	terminalEventType string
 	sink              func(OpenAIResponseDiagnosticSnapshot)
 	published         bool
+	deferPublication  bool
 }
 
 func beginOpenAIResponseDiagnostics(c *gin.Context, body []byte) *openAIResponseDiagnostics {
@@ -56,7 +60,7 @@ func beginOpenAIResponseDiagnostics(c *gin.Context, body []byte) *openAIResponse
 // beginOpenAIResponseDiagnosticsForTurn resets attempt-local fields. WebSocket
 // turns supply their own client frame cap; ordinary HTTP failover preserves the
 // original request cap for the whole request.
-func beginOpenAIResponseDiagnosticsForTurn(c *gin.Context, body []byte, replaceRequestedCap bool) *openAIResponseDiagnostics {
+func beginOpenAIResponseDiagnosticsForTurn(c *gin.Context, body []byte, replaceRequestedCap bool, deferPublication ...bool) *openAIResponseDiagnostics {
 	if c == nil || isOpenAIResponsesCompactPath(c) {
 		return nil
 	}
@@ -80,9 +84,15 @@ func beginOpenAIResponseDiagnosticsForTurn(c *gin.Context, body []byte, replaceR
 		if replaceRequestedCap {
 			requested = jsonInt64(body, "max_output_tokens")
 		}
-		existing.snapshot = OpenAIResponseDiagnosticSnapshot{RequestedMaxOutputTokens: requested}
+		deferSink := len(deferPublication) > 0 && deferPublication[0]
+		turnID := ""
+		if replaceRequestedCap {
+			turnID = uuid.NewString()
+		}
+		existing.snapshot = OpenAIResponseDiagnosticSnapshot{RequestedMaxOutputTokens: requested, TurnID: turnID}
 		existing.terminalEventType = ""
 		existing.published = false
+		existing.deferPublication = deferSink
 		existing.mu.Unlock()
 		if sink != nil {
 			sink(pending)
@@ -94,6 +104,10 @@ func beginOpenAIResponseDiagnosticsForTurn(c *gin.Context, body []byte, replaceR
 		d.sink, _ = sink.(func(OpenAIResponseDiagnosticSnapshot))
 	}
 	d.snapshot.RequestedMaxOutputTokens = jsonInt64(body, "max_output_tokens")
+	if replaceRequestedCap {
+		d.snapshot.TurnID = uuid.NewString()
+	}
+	d.deferPublication = len(deferPublication) > 0 && deferPublication[0]
 	c.Set(openAIResponseDiagnosticsContextKey, d)
 	return d
 }
@@ -163,6 +177,7 @@ func observeOpenAIResponseDiagnosticForwarded(c *gin.Context, body []byte, accou
 	requested := d.snapshot.RequestedMaxOutputTokens
 	d.snapshot = OpenAIResponseDiagnosticSnapshot{
 		Active:                   true,
+		TurnID:                   d.snapshot.TurnID,
 		RequestedMaxOutputTokens: requested,
 		ForwardedMaxOutputTokens: firstDiagnosticCap(body),
 	}
@@ -208,7 +223,7 @@ func observeOpenAIResponseDiagnosticPayload(c *gin.Context, payload []byte) {
 	observeOpenAIResponseDiagnosticTerminal(c, payload, gjson.GetBytes(payload, "type").String(), nil)
 }
 
-func observeOpenAIResponseDiagnosticHeaders(c *gin.Context, upstreamRequestID string) {
+func observeOpenAIResponseDiagnosticHeaders(c *gin.Context, upstreamRequestID string, statusCodes ...int) {
 	d := openAIResponseDiagnosticsFromContext(c)
 	if d == nil {
 		return
@@ -216,6 +231,9 @@ func observeOpenAIResponseDiagnosticHeaders(c *gin.Context, upstreamRequestID st
 	d.mu.Lock()
 	if id := boundedOpenAIResponseDiagnosticString(upstreamRequestID, 256); id != "" {
 		d.snapshot.UpstreamRequestID = id
+	}
+	if len(statusCodes) > 0 && statusCodes[0] > 0 {
+		d.snapshot.HTTPStatus = statusCodes[0]
 	}
 	d.mu.Unlock()
 }
@@ -262,7 +280,7 @@ func observeOpenAIResponseDiagnosticTerminal(c *gin.Context, payload []byte, eve
 	// A bare error may be superseded by an authoritative response terminal;
 	// leave it for middleware fallback so we never publish two records for one
 	// ordinary HTTP attempt.
-	if eventType == "error" || d.published || d.sink == nil {
+	if eventType == "error" || d.deferPublication || d.published || d.sink == nil {
 		d.mu.Unlock()
 		return
 	}
@@ -271,6 +289,39 @@ func observeOpenAIResponseDiagnosticTerminal(c *gin.Context, payload []byte, eve
 	d.published = true
 	d.mu.Unlock()
 	sink(snapshot)
+}
+
+// finishOpenAIResponseDiagnosticTurn releases a bridge-owned WebSocket turn
+// after it has observed all raw frames and any disconnect outcome.
+func finishOpenAIResponseDiagnosticTurn(c *gin.Context) {
+	d := openAIResponseDiagnosticsFromContext(c)
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.deferPublication = false
+	if !d.snapshot.Active || d.published || d.sink == nil {
+		d.mu.Unlock()
+		return
+	}
+	snapshot := d.snapshot
+	sink := d.sink
+	d.published = true
+	d.mu.Unlock()
+	sink(snapshot)
+}
+
+// markOpenAIResponseDiagnosticFailure records a transport failure which has
+// no authoritative Responses terminal payload.
+func markOpenAIResponseDiagnosticFailure(c *gin.Context) {
+	d := openAIResponseDiagnosticsFromContext(c)
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	d.snapshot.Status = "failed"
+	d.snapshot.Terminal = false
+	d.mu.Unlock()
 }
 
 // observeOpenAIResponseDiagnosticUsage retains only fields which were present

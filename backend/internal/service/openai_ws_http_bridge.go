@@ -433,6 +433,16 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	if writeClientMessage == nil {
 		return nil, errors.New("client websocket writer is nil")
 	}
+	// A client WebSocket turn can use native HTTP without passing through
+	// Forward. Keep its original cap and publish only after the turn's client
+	// delivery/disconnect outcome is known.
+	beginOpenAIResponseDiagnosticsForTurn(c, payload, true, true)
+	defer func() {
+		if c != nil && c.Request != nil && c.Request.Context().Err() == context.Canceled {
+			observeOpenAIResponseDiagnosticClientDisconnected(c)
+		}
+		finishOpenAIResponseDiagnosticTurn(c)
+	}()
 	responseModelObserver := &upstreamResponseModelObserver{}
 
 	body, err := prepareOpenAIWSHTTPBridgeBody(account, payload)
@@ -549,8 +559,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		observeOpenAIResponseDiagnosticForwarded(c, body, account.ID)
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
+			markOpenAIResponseDiagnosticFailure(c)
 			if turn == 1 {
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 			}
@@ -558,9 +570,13 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			clientError := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadGateway, "Upstream request failed")
 			if writeErr := writeClientMessage(clientError); writeErr == nil {
 				markOpenAIWSClientVisibleFailure(c, "error", clientError)
+			} else if isOpenAIWSClientDisconnectError(writeErr) {
+				observeOpenAIResponseDiagnosticClientDisconnected(c)
 			}
 			return nil, fmt.Errorf("upstream http bridge request failed: %s", safeErr)
 		}
+		observeOpenAIResponseDiagnosticHeaders(c, firstNonEmpty(
+			UpstreamRequestIDFromHeaders(account, resp.Header), resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")), resp.StatusCode)
 		if resp.StatusCode < 400 {
 			break
 		}
@@ -610,6 +626,8 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
 		if writeErr := writeClientMessage(clientError); writeErr == nil {
 			markOpenAIWSClientVisibleFailure(c, "error", clientError)
+		} else if isOpenAIWSClientDisconnectError(writeErr) {
+			observeOpenAIResponseDiagnosticClientDisconnected(c)
 		}
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
 	}
@@ -723,6 +741,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			if err := writeClientMessage(message); err != nil {
 				if isOpenAIWSClientDisconnectError(err) {
 					clientDisconnected = true
+					observeOpenAIResponseDiagnosticClientDisconnected(c)
 					return nil
 				}
 				return fmt.Errorf("write synthesized websocket response.failed: %w", err)
@@ -756,6 +775,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 
 		upstreamMessage := []byte(openAICompatPayloadWithEventType(trimmedData, pendingSSEEventType))
+		observeOpenAIResponseDiagnosticUsage(c, upstreamMessage)
+		diagnosticEventType := firstNonEmpty(gjson.GetBytes(upstreamMessage, "type").String(), pendingSSEEventType)
+		if openAIStreamEventTypeIsTerminal(diagnosticEventType) {
+			observeOpenAIResponseDiagnosticTerminal(c, upstreamMessage, diagnosticEventType, nil)
+		}
 		if normalized, changed := normalizeCompletedImageGenerationStatus(upstreamMessage); changed {
 			upstreamMessage = normalized
 		}
@@ -911,6 +935,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					if err := writeClientMessage(message); err != nil {
 						if isOpenAIWSClientDisconnectError(err) {
 							clientDisconnected = true
+							observeOpenAIResponseDiagnosticClientDisconnected(c)
 							closeStatus, closeReason := summarizeOpenAIWSReadCloseError(err)
 							logOpenAIWSModeInfo(
 								"ingress_ws_http_bridge_client_disconnected_drain account_id=%d turn=%d close_status=%s close_reason=%s",

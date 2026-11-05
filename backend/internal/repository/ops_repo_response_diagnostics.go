@@ -9,7 +9,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-const responseDiagnosticColumns = "id,created_at,request_id,client_request_id,upstream_request_id,response_id,model,status,reason,user_id,account_id,group_id,stream,client_disconnected,http_status,requested_max_output_tokens,forwarded_max_output_tokens,upstream_max_output_tokens,input_tokens,cache_read_tokens,cache_creation_tokens,output_tokens,reasoning_tokens"
+const responseDiagnosticColumns = "id,created_at,request_id,turn_id,client_request_id,upstream_request_id,response_id,model,status,reason,user_id,account_id,group_id,stream,client_disconnected,http_status,requested_max_output_tokens,forwarded_max_output_tokens,upstream_max_output_tokens,input_tokens,cache_read_tokens,cache_creation_tokens,output_tokens,reasoning_tokens"
 
 func (r *opsRepository) InsertResponseDiagnostic(ctx context.Context, d *service.OpsResponseDiagnostic) error {
 	if r == nil || r.db == nil {
@@ -18,7 +18,7 @@ func (r *opsRepository) InsertResponseDiagnostic(ctx context.Context, d *service
 	if d == nil {
 		return fmt.Errorf("nil response diagnostic")
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO ops_response_diagnostics (created_at,request_id,client_request_id,upstream_request_id,response_id,model,status,reason,user_id,account_id,group_id,stream,client_disconnected,http_status,requested_max_output_tokens,forwarded_max_output_tokens,upstream_max_output_tokens,input_tokens,cache_read_tokens,cache_creation_tokens,output_tokens,reasoning_tokens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) ON CONFLICT (request_id) DO NOTHING`, d.CreatedAt, d.RequestID, d.ClientRequestID, d.UpstreamRequestID, d.ResponseID, d.Model, d.Status, d.Reason, d.UserID, d.AccountID, d.GroupID, d.Stream, d.ClientDisconnected, d.HTTPStatus, d.RequestedMaxOutputTokens, d.ForwardedMaxOutputTokens, d.UpstreamMaxOutputTokens, d.InputTokens, d.CacheReadTokens, d.CacheCreationTokens, d.OutputTokens, d.ReasoningTokens)
+	_, err := r.db.ExecContext(ctx, `INSERT INTO ops_response_diagnostics (created_at,request_id,turn_id,client_request_id,upstream_request_id,response_id,model,status,reason,user_id,account_id,group_id,stream,client_disconnected,http_status,requested_max_output_tokens,forwarded_max_output_tokens,upstream_max_output_tokens,input_tokens,cache_read_tokens,cache_creation_tokens,output_tokens,reasoning_tokens) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) ON CONFLICT (request_id,turn_id) DO NOTHING`, d.CreatedAt, d.RequestID, d.TurnID, d.ClientRequestID, d.UpstreamRequestID, d.ResponseID, d.Model, d.Status, d.Reason, d.UserID, d.AccountID, d.GroupID, d.Stream, d.ClientDisconnected, d.HTTPStatus, d.RequestedMaxOutputTokens, d.ForwardedMaxOutputTokens, d.UpstreamMaxOutputTokens, d.InputTokens, d.CacheReadTokens, d.CacheCreationTokens, d.OutputTokens, d.ReasoningTokens)
 	return err
 }
 func (r *opsRepository) ListResponseDiagnostics(ctx context.Context, f *service.OpsResponseDiagnosticFilter) (*service.OpsResponseDiagnosticList, error) {
@@ -89,7 +89,7 @@ func (r *opsRepository) ListResponseDiagnostics(ctx context.Context, f *service.
 	defer rows.Close()
 	for rows.Next() {
 		d := &service.OpsResponseDiagnostic{}
-		if err := rows.Scan(&d.ID, &d.CreatedAt, &d.RequestID, &d.ClientRequestID, &d.UpstreamRequestID, &d.ResponseID, &d.Model, &d.Status, &d.Reason, &d.UserID, &d.AccountID, &d.GroupID, &d.Stream, &d.ClientDisconnected, &d.HTTPStatus, &d.RequestedMaxOutputTokens, &d.ForwardedMaxOutputTokens, &d.UpstreamMaxOutputTokens, &d.InputTokens, &d.CacheReadTokens, &d.CacheCreationTokens, &d.OutputTokens, &d.ReasoningTokens); err != nil {
+		if err := rows.Scan(&d.ID, &d.CreatedAt, &d.RequestID, &d.TurnID, &d.ClientRequestID, &d.UpstreamRequestID, &d.ResponseID, &d.Model, &d.Status, &d.Reason, &d.UserID, &d.AccountID, &d.GroupID, &d.Stream, &d.ClientDisconnected, &d.HTTPStatus, &d.RequestedMaxOutputTokens, &d.ForwardedMaxOutputTokens, &d.UpstreamMaxOutputTokens, &d.InputTokens, &d.CacheReadTokens, &d.CacheCreationTokens, &d.OutputTokens, &d.ReasoningTokens); err != nil {
 			return nil, err
 		}
 		out.Items = append(out.Items, d)

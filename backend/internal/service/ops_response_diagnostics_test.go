@@ -33,6 +33,14 @@ func TestNormalizeResponseDiagnosticRequiresIdentityAndTerminalClass(t *testing.
 	}
 }
 
+func TestNormalizeResponseDiagnosticTurnIDAllowsOnlyUUIDOrEmpty(t *testing.T) {
+	d := &OpsResponseDiagnostic{RequestID: "request", Status: "completed", TurnID: "550E8400-E29B-41D4-A716-446655440000"}
+	require.NoError(t, NormalizeResponseDiagnostic(d))
+	require.Equal(t, "550e8400-e29b-41d4-a716-446655440000", d.TurnID)
+	require.NoError(t, NormalizeResponseDiagnostic(&OpsResponseDiagnostic{RequestID: "request", Status: "completed"}))
+	require.Error(t, NormalizeResponseDiagnostic(&OpsResponseDiagnostic{RequestID: "request", Status: "completed", TurnID: "not-a-uuid"}))
+}
+
 func TestNormalizeResponseDiagnosticRejectsFreeformIdentifiers(t *testing.T) {
 	invalidID := int64(0)
 	d := &OpsResponseDiagnostic{RequestID: "server-uuid", Status: "failed", ClientRequestID: "Bearer private-token", UpstreamRequestID: "{\"prompt\":\"secret\"}", ResponseID: "resp\nsecret", Model: "<script>alert(1)</script>", UserID: &invalidID}
