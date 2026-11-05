@@ -8,7 +8,7 @@ completed model response. This is diagnostic metadata, separate from billing,
 SLA error counters, retries and account scheduling.
 
 Owner: Codex, task https://tasks.fluterlab.top/tasks/74.
-Base: production revision `550fc80eb71746f07879eb3c01bfe5a5fdb50de0`.
+Base: rebased with tasks/141 onto production revision `a5382a523b77ce5a8fd565e0c6cf176bb39e537c`.
 Status: development candidate; not deployed.
 
 ## Contract
@@ -31,9 +31,11 @@ Status: development candidate; not deployed.
   implying successful delivery to the client.
 - No prompt, tool payload, authorization header or raw upstream error text is
   retained. Protocol strings and numeric fields are bounded/validated.
-- Collection covers the native HTTP Responses stream and JSON handlers, including
-  SSE-to-JSON responses, including native HTTP passthrough. Uninstrumented protocol bridges and WebSocket paths must
-  not be falsely classified as missing-terminal native responses.
+- Collection covers native HTTP stream/JSON/SSE-to-JSON/passthrough, Responses
+  WebSocket turns, OAuth plugin forwarding, Grok and the Anthropic/Chat
+  Completions bridges. Each WebSocket turn publishes its scalar terminal;
+  starting another turn flushes any earlier unpublished bare-error or unfinished
+  snapshot without changing response bytes or billing.
 - Ingestion is best effort on an independent bounded queue. Queue saturation or
   persistence failures may lose diagnostic metadata; this is not a billing
   journal. Drop/failure counters and rate-limited warnings expose those gaps.
