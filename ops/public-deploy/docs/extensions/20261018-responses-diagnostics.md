@@ -33,7 +33,7 @@ Status: development candidate; not deployed.
   retained. Protocol strings and numeric fields are bounded/validated.
 - Collection covers native HTTP stream/JSON/SSE-to-JSON/passthrough, Responses
   WebSocket turns, OAuth plugin forwarding, Grok and the Anthropic/Chat
-  Completions bridges. Each WebSocket turn publishes its scalar terminal;
+  Completions bridges, including the client WebSocket HTTP bridge. Each WebSocket turn publishes its scalar terminal;
   starting another turn flushes any earlier unpublished bare-error or unfinished
   snapshot without changing response bytes or billing.
 - Ingestion is best effort on an independent bounded queue. Queue saturation or
@@ -50,7 +50,13 @@ ingestion; dedicated repository and migration; administrator Ops list endpoint.
 Frontend: administrator Ops dashboard Responses diagnostic entry and details.
 Route: `GET /api/v1/admin/ops/response-diagnostics`.
 Data dependency: additive `ops_response_diagnostics` table with request dedupe
-and time/filter indexes. Retention follows the existing Ops error retention
+and time/filter indexes. The undeployed migration 313 now stores an optional
+UUID `turn_id` with unique `(request_id, turn_id)`: ordinary HTTP keeps an empty
+turn ID and its previous request dedupe, while WebSocket turns cannot collide on
+their shared connection request ID. The root request ID and exact search remain
+unchanged. Migration 313 must be reviewed and approved with this candidate;
+no production migration or applied checksum has been rewritten.
+Retention follows the existing Ops error retention
 setting and cleanup master switch, including its existing zero-day truncate
 semantics. This is distinct from usage-log retention; no retention defaults or
 settings are changed by this feature.
@@ -85,3 +91,17 @@ a later selected candidate that is never sent, and conflicting terminal frames.
 Development evidence lives on MacBook Pro under
 /Users/Admin/Documents/study_project/sub2api/.release-evidence/20261020-responses-diagnostics-revision/.
 Still a development candidate; production deployment is not part of this revision.
+
+## 2026-11-05 client WebSocket HTTP bridge revision
+
+The bridge observes original/forwarded caps, actual outbound account and upstream
+HTTP status/request ID, then raw upstream Responses usage and terminals before
+client-facing model/tool/error rewriting. It publishes at turn completion so a
+last-frame write failure preserves the client-disconnect flag. Bare-error and
+missing-terminal turns are flushed without inventing an upstream terminal.
+Actual local HTTP plus coder WebSocket tests compare client frames and billing
+usage with persistence enabled/disabled. PostgreSQL tests prove two turns with
+one root request ID survive, identical keys dedupe and root-ID queries return
+both. Evidence belongs to the MacBook Pro directory
+`/Users/Admin/Documents/study_project/sub2api/.release-evidence/20261105-ws-http-bridge-diagnostics`.
+No production action is included; PR5 retains its separate 24-hour rollout gate.

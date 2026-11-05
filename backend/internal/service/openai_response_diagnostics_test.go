@@ -194,8 +194,42 @@ func TestOpenAIResponseDiagnosticsSinkPublishesEachWebSocketTurnOnce(t *testing.
 	require.Equal(t, "completed", published[1].Status)
 	require.EqualValues(t, 128, *published[1].RequestedMaxOutputTokens)
 	require.EqualValues(t, 96, *published[1].ForwardedMaxOutputTokens)
+	require.NotEmpty(t, published[0].TurnID)
+	require.NotEqual(t, published[0].TurnID, published[1].TurnID)
 	_, ok := TakeOpenAIResponseDiagnosticSnapshot(c)
 	require.False(t, ok, "published terminals must not be emitted again by middleware fallback")
+}
+
+func TestOpenAIResponseDiagnosticsDeferredTurnWaitsForFinish(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	var published []OpenAIResponseDiagnosticSnapshot
+	BindOpenAIResponseDiagnosticSink(c, func(snapshot OpenAIResponseDiagnosticSnapshot) { published = append(published, snapshot) })
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{}`), true, true)
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{}`), 17)
+	observeOpenAIResponseDiagnosticTerminal(c, []byte(`{"type":"response.completed","response":{"id":"resp","status":"completed"}}`), "response.completed", nil)
+	require.Empty(t, published)
+	observeOpenAIResponseDiagnosticClientDisconnected(c)
+	finishOpenAIResponseDiagnosticTurn(c)
+	require.Len(t, published, 1)
+	require.True(t, published[0].ClientDisconnected)
+	require.NotEmpty(t, published[0].TurnID)
+	finishOpenAIResponseDiagnosticTurn(c)
+	require.Len(t, published, 1)
+}
+
+func TestOpenAIResponseDiagnosticsHeadersAndTransportFailure(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	beginOpenAIResponseDiagnosticsForTurn(c, []byte(`{}`), true)
+	observeOpenAIResponseDiagnosticForwarded(c, []byte(`{}`), 17)
+	observeOpenAIResponseDiagnosticHeaders(c, "upstream", http.StatusServiceUnavailable)
+	markOpenAIResponseDiagnosticFailure(c)
+	got, ok := OpenAIResponseDiagnosticSnapshotFromContext(c)
+	require.True(t, ok)
+	require.Equal(t, http.StatusServiceUnavailable, got.HTTPStatus)
+	require.Equal(t, "failed", got.Status)
+	require.False(t, got.Terminal)
 }
 
 func TestOpenAIResponseDiagnosticsWebSocketTurnResetPublishesPendingBareError(t *testing.T) {

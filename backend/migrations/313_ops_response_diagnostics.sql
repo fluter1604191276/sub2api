@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS ops_response_diagnostics (
     id BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     request_id VARCHAR(256) NOT NULL DEFAULT '',
+    turn_id VARCHAR(36) NOT NULL DEFAULT '',
     client_request_id VARCHAR(256) NOT NULL DEFAULT '',
     upstream_request_id VARCHAR(256) NOT NULL DEFAULT '',
     response_id VARCHAR(256) NOT NULL DEFAULT '',
@@ -24,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ops_response_diagnostics (
     output_tokens BIGINT CHECK (output_tokens >= 0),
     reasoning_tokens BIGINT CHECK (reasoning_tokens >= 0),
     CHECK (status IN ('completed','incomplete','failed','client_disconnected','missing_terminal')),
-    UNIQUE(request_id),
+    UNIQUE(request_id, turn_id),
     CHECK (request_id <> '')
 );
 CREATE INDEX IF NOT EXISTS idx_ops_response_diagnostics_time ON ops_response_diagnostics (created_at DESC, id DESC);
