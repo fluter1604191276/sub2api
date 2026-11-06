@@ -251,7 +251,7 @@
                 reserved: budget.reserved_usd,
               }) }}
             </p>
-            <dl class="mt-4 grid gap-3 sm:grid-cols-4">
+            <dl class="mt-4 grid gap-3 sm:grid-cols-5">
               <div>
                 <dt class="text-xs opacity-75">
                   {{ t('admin.openaiIQ.testUserId') }}
@@ -284,6 +284,20 @@
                   {{ budget.reserved_usd }}
                 </dd>
               </div>
+              <div class="min-w-0">
+                <dt class="text-xs opacity-75">
+                  {{ t('admin.openaiIQ.budgetUnconfirmed') }}
+                </dt>
+                <dd class="mt-1 font-semibold">
+                  {{ budget.unconfirmed_usd }}
+                </dd>
+                <p
+                  v-if="budget.unconfirmed_since"
+                  class="mt-1 break-words text-xs opacity-75"
+                >
+                  {{ t('admin.openaiIQ.budgetUnconfirmedSince', { time: formatDate(budget.unconfirmed_since) }) }}
+                </p>
+              </div>
               <div>
                 <dt class="text-xs opacity-75">
                   {{ t('admin.openaiIQ.budgetRemaining') }}
@@ -293,6 +307,110 @@
                 </dd>
               </div>
             </dl>
+          </section>
+          <section class="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700 sm:p-6">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="min-w-0">
+                <h2 class="text-base font-bold text-gray-900 dark:text-white">
+                  {{ t('admin.openaiIQ.diagnosticsTitle') }}
+                </h2>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.openaiIQ.diagnosticsHint') }}
+                </p>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" :disabled="diagnosticsLoading" @click="loadDiagnostics(1)">
+                {{ t('common.refresh') }}
+              </button>
+            </div>
+            <p v-if="diagnosticsError" class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              {{ t('admin.openaiIQ.diagnosticsLoadError') }}
+            </p>
+            <div v-else-if="diagnosticsLoading" class="mt-4 text-sm text-gray-500">
+              {{ t('common.loading') }}
+            </div>
+            <div v-else-if="diagnostics.runs.length" class="mt-4 space-y-3">
+              <details v-for="run in diagnostics.runs" :key="run.id" class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
+                <summary class="cursor-pointer break-words font-medium text-gray-900 dark:text-white">
+                  {{ run.model }} · {{ formatDate(run.started_at) }} · {{ run.status }}
+                </summary>
+                <p class="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
+                  {{ run.question }}
+                </p>
+                <div
+                  v-for="result in run.results"
+                  :key="result.id"
+                  class="mt-3 min-w-0 rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-900/50"
+                >
+                  <div class="flex flex-wrap justify-between gap-2">
+                    <span class="min-w-0 break-words font-medium">{{ result.group_name }} · {{ result.status }}</span>
+                    <span>{{ result.checked_at ? formatDate(result.checked_at) : t('common.notAvailable') }}</span>
+                  </div>
+                  <p
+                    v-if="result.response_model && result.response_model !== result.model"
+                    class="mt-2 break-words text-gray-500 dark:text-gray-400"
+                  >
+                    {{ t('admin.openaiIQ.diagnosticsResponseModel', { model: result.response_model }) }}
+                  </p>
+                  <dl class="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt class="text-xs text-gray-500">{{ t('admin.openaiIQ.expectedAnswer') }}</dt>
+                      <dd class="break-words">{{ result.expected_answer }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-xs text-gray-500">{{ t('admin.openaiIQ.diagnosticsModelAnswer') }}</dt>
+                      <dd class="break-words">{{ result.model_answer || t('common.notAvailable') }}</dd>
+                    </div>
+                  </dl>
+                  <p v-if="result.error" class="mt-3 whitespace-pre-wrap break-words text-red-700 dark:text-red-300">
+                    {{ result.error }}
+                  </p>
+                  <details v-if="result.output" class="mt-3">
+                    <summary class="cursor-pointer font-medium text-primary-600 dark:text-primary-400">
+                      {{ t('admin.openaiIQ.diagnosticsOutput') }}
+                    </summary>
+                    <pre class="mt-2 max-w-full overflow-x-auto whitespace-pre-wrap break-words font-sans text-xs text-gray-700 dark:text-gray-200">{{ result.output }}</pre>
+                  </details>
+                  <dl
+                    v-if="result.reservation"
+                    class="mt-3 grid gap-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-dark-700 sm:grid-cols-2"
+                  >
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsReservation') }}</dt>
+                      <dd>{{ result.reservation.reserved_usd }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsActualCost') }}</dt>
+                      <dd>{{ result.reservation.actual_cost_usd ?? t('common.notAvailable') }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsRequestID') }}</dt>
+                      <dd class="break-all">{{ result.reservation.request_id ?? t('common.notAvailable') }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsUsageLogID') }}</dt>
+                      <dd class="break-all">{{ result.reservation.usage_log_id ?? t('common.notAvailable') }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsAccountID') }}</dt>
+                      <dd class="break-all">{{ result.reservation.account_id ?? t('common.notAvailable') }}</dd>
+                    </div>
+                    <div>
+                      <dt class="text-gray-500">{{ t('admin.openaiIQ.diagnosticsSettledAt') }}</dt>
+                      <dd class="break-words">{{ result.reservation.settled_at ? formatDate(result.reservation.settled_at) : t('common.notAvailable') }}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </details>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="diagnostics.page <= 1" @click="loadDiagnostics(diagnostics.page - 1)">
+                  {{ t('admin.openaiIQ.previousPage') }}
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="diagnostics.page * diagnostics.page_size >= diagnostics.total" @click="loadDiagnostics(diagnostics.page + 1)">
+                  {{ t('admin.openaiIQ.nextPage') }}
+                </button>
+              </div>
+            </div>
+            <p v-else class="mt-4 text-sm text-gray-500">{{ t('common.noData') }}</p>
           </section>
         </fieldset>
       </form>
@@ -306,10 +424,12 @@ import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   getOpenAIIQSettings,
+  getOpenAIIQDiagnostics,
   updateOpenAIIQSettings,
   type IQBudget,
   type IQGroupOption,
   type IQSettings,
+  type OpenAIIQDiagnostics,
 } from '@/api/openaiIQ'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { useAppStore } from '@/stores/app'
@@ -328,8 +448,13 @@ const budget = ref<IQBudget>({
   date: '',
   spent_usd: 0,
   reserved_usd: 0,
+  unconfirmed_usd: 0,
+  unconfirmed_since: null,
   remaining_usd: 0,
 })
+const diagnosticsLoading = ref(false)
+const diagnosticsError = ref(false)
+const diagnostics = ref<OpenAIIQDiagnostics>({ runs: [], total: 0, page: 1, page_size: 20 })
 const settings = ref<IQSettings>({
   enabled: false,
   question: '',
@@ -394,11 +519,27 @@ async function load(): Promise<void> {
   try {
     applyView(await getOpenAIIQSettings())
     loaded.value = true
+    void loadDiagnostics(1)
   } catch (error: unknown) {
     loadError.value = extractApiErrorMessage(error, t('admin.openaiIQ.loadError'))
     appStore.showError(loadError.value)
   } finally {
     loading.value = false
+  }
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
+}
+async function loadDiagnostics(page: number): Promise<void> {
+  diagnosticsLoading.value = true
+  diagnosticsError.value = false
+  try {
+    diagnostics.value = await getOpenAIIQDiagnostics(page, diagnostics.value.page_size)
+  } catch {
+    diagnosticsError.value = true
+  } finally {
+    diagnosticsLoading.value = false
   }
 }
 

@@ -81,10 +81,27 @@ func (r *openAIIQRepository) Budget(ctx context.Context, limit float64) (service
 	if err := r.ReconcileBudget(ctx); err != nil {
 		return out, err
 	}
-	err := r.db.QueryRowContext(ctx, `SELECT
-		COALESCE(SUM(actual_cost_usd), 0),
-		COALESCE(SUM(reserved_usd) FILTER (WHERE actual_cost_usd IS NULL), 0)
-		FROM openai_iq_budget_reservations WHERE budget_date=$1`, out.Date).Scan(&out.SpentUSD, &out.ReservedUSD)
+	// A pending result in a live run can still be using its allowance. Once
+	// that result or run is terminal, its unmatched hold is an unknown expense,
+	// not a request that the coordinator should wait for indefinitely.
+	err := r.db.QueryRowContext(ctx, `WITH reservations AS (
+		SELECT budget.actual_cost_usd, budget.reserved_usd,
+		       budget.actual_cost_usd IS NULL AND NOT COALESCE(
+		           runs.status = 'running' AND runs.lease_expires_at >= NOW()
+		           AND results.status = 'pending', FALSE) AS unconfirmed,
+		       COALESCE(results.checked_at, runs.finished_at,
+		           CASE WHEN runs.lease_expires_at < NOW() THEN runs.lease_expires_at END,
+		           budget.created_at) AS unconfirmed_since
+		FROM openai_iq_budget_reservations budget
+		LEFT JOIN openai_iq_runs runs ON runs.id = budget.run_id
+		LEFT JOIN openai_iq_results results
+		    ON results.run_id = budget.run_id AND results.group_id = budget.group_id
+		WHERE budget.budget_date = $1
+	) SELECT COALESCE(SUM(actual_cost_usd), 0),
+		COALESCE(SUM(reserved_usd) FILTER (WHERE actual_cost_usd IS NULL), 0),
+		COALESCE(SUM(reserved_usd) FILTER (WHERE unconfirmed), 0),
+		MAX(unconfirmed_since) FILTER (WHERE unconfirmed)
+	FROM reservations`, out.Date).Scan(&out.SpentUSD, &out.ReservedUSD, &out.UnconfirmedUSD, &out.UnconfirmedSince)
 	if err != nil {
 		return out, fmt.Errorf("read OpenAI IQ budget: %w", err)
 	}
@@ -120,7 +137,7 @@ func (r *openAIIQRepository) ClaimDue(ctx context.Context, settings service.IQSe
 			RETURNING id
 		)
 		UPDATE openai_iq_results
-		SET status = 'error', checked_at = NOW(), error = 'benchmark lease expired before dispatch'
+		SET status = 'error', checked_at = NOW(), error = '执行进程未在租约内完成，本轮已终止，费用预留继续保留'
 		WHERE status = 'pending' AND run_id IN (SELECT id FROM expired_runs)`); err != nil {
 		return nil, err
 	}

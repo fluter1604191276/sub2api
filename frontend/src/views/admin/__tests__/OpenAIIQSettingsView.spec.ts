@@ -2,8 +2,9 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpenAIIQSettingsView from '../OpenAIIQSettingsView.vue'
 
-const { getOpenAIIQSettings, updateOpenAIIQSettings, showError, showSuccess } = vi.hoisted(() => ({
+const { getOpenAIIQSettings, getOpenAIIQDiagnostics, updateOpenAIIQSettings, showError, showSuccess } = vi.hoisted(() => ({
   getOpenAIIQSettings: vi.fn(),
+  getOpenAIIQDiagnostics: vi.fn(),
   updateOpenAIIQSettings: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -11,6 +12,7 @@ const { getOpenAIIQSettings, updateOpenAIIQSettings, showError, showSuccess } = 
 vi.mock('@/api/openaiIQ', () => ({
   getOpenAIIQ: vi.fn(),
   getOpenAIIQSettings,
+  getOpenAIIQDiagnostics,
   updateOpenAIIQSettings,
 }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess }) }))
@@ -41,6 +43,8 @@ const view = {
     date: '2026-11-04',
     spent_usd: 0.018,
     reserved_usd: 0.082,
+    unconfirmed_usd: 0.05,
+    unconfirmed_since: '2026-11-04T01:00:00Z',
     remaining_usd: 0.9,
   },
 }
@@ -61,6 +65,7 @@ describe('OpenAIIQSettingsView', () => {
     vi.clearAllMocks()
     getOpenAIIQSettings.mockResolvedValue(structuredClone(view))
     updateOpenAIIQSettings.mockResolvedValue(structuredClone(view))
+    getOpenAIIQDiagnostics.mockResolvedValue({ runs: [], total: 0, page: 1, page_size: 20 })
   })
   it('saves selected groups and does not expose raw keys', async () => {
     const wrapper = mountView()
@@ -84,6 +89,7 @@ describe('OpenAIIQSettingsView', () => {
     expect(wrapper.text()).toContain('0.018')
     expect(wrapper.text()).toContain('0.082')
     expect(wrapper.text()).toContain('0.9')
+    expect(wrapper.text()).toContain('0.05')
   })
 
   it('shows a retry state after the initial load fails', async () => {
@@ -123,5 +129,32 @@ describe('OpenAIIQSettingsView', () => {
     await flushPromises()
 
     expect(updateOpenAIIQSettings).toHaveBeenCalledWith(expect.objectContaining({ group_ids: [2] }))
+  })
+
+  it('loads full diagnostic history independently from editable settings and paginates it', async () => {
+    getOpenAIIQDiagnostics.mockResolvedValueOnce({
+      runs: [{ id: 7, model: 'gpt-6-astra', question: 'Q', expected_answer: '15', status: 'complete', started_at: '2026-11-04T01:00:00Z', finished_at: null, results: [{ id: 8, group_id: 2, group_name: 'A', rate_multiplier: 1, model: 'gpt-6-astra', response_model: 'gpt-6-astra-2026', expected_answer: '15', model_answer: '16', output: 'full upstream output', status: 'error', checked_at: null, error: 'upstream interrupted', reservation: { reserved_usd: 0.1, actual_cost_usd: null, request_id: 'client:iq-long-request-id', usage_log_id: null, account_id: 29, settled_at: null } }] }],
+      total: 21, page: 1, page_size: 20,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(getOpenAIIQDiagnostics).toHaveBeenCalledWith(1, 20)
+    expect(wrapper.text()).toContain('upstream interrupted')
+    expect(wrapper.text()).toContain('full upstream output')
+    expect(wrapper.text()).toContain('client:iq-long-request-id')
+    expect(wrapper.text()).toContain('admin.openaiIQ.diagnosticsResponseModel')
+    await wrapper.findAll('button').find(button => button.text() === 'admin.openaiIQ.nextPage')?.trigger('click')
+    await flushPromises()
+    expect(getOpenAIIQDiagnostics).toHaveBeenCalledWith(2, 20)
+  })
+
+  it('keeps save enabled when diagnostics fail after settings load', async () => {
+    getOpenAIIQDiagnostics.mockRejectedValueOnce(new Error('diagnostics unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.openaiIQ.diagnosticsLoadError')
+    expect(wrapper.get('[data-testid="save-openai-iq"]').attributes('disabled')).toBeUndefined()
   })
 })

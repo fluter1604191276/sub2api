@@ -52,7 +52,7 @@ func (r *openAIIQRepository) FinishRun(ctx context.Context, runID int64) error {
 	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE openai_iq_results SET status = 'skipped', checked_at = NOW(),
-		    error = '本轮未执行，检测已关闭或执行时间已到上限'
+		    error = '本轮异常结束，未能记录该分组的具体终止原因'
 		WHERE run_id = $1 AND status = 'pending'`, runID); err != nil {
 		return err
 	}

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -35,12 +36,29 @@ func (h *OpenAIIQHandler) Get(c *gin.Context) {
 		response.Unauthorized(c, "User not found in context")
 		return
 	}
-	view, err := h.service.View(c.Request.Context(), subject.UserID)
+	view, err := h.service.PublicView(c.Request.Context(), subject.UserID)
+	if err != nil {
+		// User-facing results never disclose provider, repository, or budget
+		// diagnostics. Operators use the separately authenticated diagnostics API.
+		response.InternalError(c, "Unable to load OpenAI IQ results")
+		return
+	}
+	response.Success(c, view)
+}
+func (h *OpenAIIQHandler) GetDiagnostics(c *gin.Context) {
+	page, pageSize := 1, 20
+	if value, ok := c.GetQuery("page"); ok {
+		_, _ = fmt.Sscan(value, &page)
+	}
+	if value, ok := c.GetQuery("page_size"); ok {
+		_, _ = fmt.Sscan(value, &pageSize)
+	}
+	data, err := h.service.Diagnostics(c.Request.Context(), page, pageSize)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, data)
 }
 func (h *OpenAIIQHandler) GetSettings(c *gin.Context) {
 	settings, groups, budget, err := h.service.Admin(c.Request.Context())

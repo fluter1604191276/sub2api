@@ -85,10 +85,72 @@ type IQView struct {
 	Summary         IQSummary  `json:"summary"`
 }
 type IQBudget struct {
-	Date         string  `json:"date"`
-	SpentUSD     float64 `json:"spent_usd"`
-	ReservedUSD  float64 `json:"reserved_usd"`
-	RemainingUSD float64 `json:"remaining_usd"`
+	Date             string     `json:"date"`
+	SpentUSD         float64    `json:"spent_usd"`
+	ReservedUSD      float64    `json:"reserved_usd"`
+	RemainingUSD     float64    `json:"remaining_usd"`
+	UnconfirmedUSD   float64    `json:"unconfirmed_usd"`
+	UnconfirmedSince *time.Time `json:"unconfirmed_since"`
+}
+
+// IQPublicResult is deliberately separate from IQResult. IQResult contains
+// operator diagnostics and must never be serialized from the user endpoint.
+type IQPublicResult struct {
+	GroupID        int64      `json:"group_id"`
+	GroupName      string     `json:"group_name"`
+	RateMultiplier float64    `json:"rate_multiplier"`
+	Model          string     `json:"model"`
+	Question       string     `json:"question"`
+	ExpectedAnswer string     `json:"expected_answer"`
+	ModelAnswer    string     `json:"model_answer"`
+	Output         string     `json:"output"`
+	Status         string     `json:"status"`
+	CheckedAt      *time.Time `json:"checked_at"`
+}
+type IQPublicSummary struct {
+	Total     int `json:"total"`
+	Correct   int `json:"correct"`
+	Incorrect int `json:"incorrect"`
+	NoResults int `json:"no_results"`
+}
+type IQPublicView struct {
+	Enabled         bool             `json:"enabled"`
+	Model           string           `json:"model"`
+	Question        string           `json:"question"`
+	ExpectedAnswer  string           `json:"expected_answer"`
+	IntervalSeconds int              `json:"interval_seconds"`
+	Results         []IQPublicResult `json:"results"`
+	Summary         IQPublicSummary  `json:"summary"`
+}
+type IQDiagnosticReservation struct {
+	ReservedUSD   float64    `json:"reserved_usd"`
+	ActualCostUSD *float64   `json:"actual_cost_usd"`
+	RequestID     *string    `json:"request_id"`
+	UsageLogID    *int64     `json:"usage_log_id"`
+	AccountID     *int64     `json:"account_id"`
+	SettledAt     *time.Time `json:"settled_at"`
+}
+type IQDiagnosticResult struct {
+	ID    int64 `json:"id"`
+	RunID int64 `json:"run_id"`
+	IQResult
+	Reservation *IQDiagnosticReservation `json:"reservation"`
+}
+type IQDiagnosticRun struct {
+	ID             int64                `json:"id"`
+	StartedAt      time.Time            `json:"started_at"`
+	FinishedAt     *time.Time           `json:"finished_at"`
+	Question       string               `json:"question"`
+	ExpectedAnswer string               `json:"expected_answer"`
+	Model          string               `json:"model"`
+	Status         string               `json:"status"`
+	Results        []IQDiagnosticResult `json:"results"`
+}
+type IQDiagnosticsPage struct {
+	Runs     []IQDiagnosticRun `json:"runs"`
+	Total    int               `json:"total"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
 }
 
 type IQRun struct {
@@ -106,6 +168,8 @@ type IQIdentity struct {
 
 type OpenAIIQRepository interface {
 	Latest(context.Context, []int64) (*IQView, error)
+	LatestValid(context.Context, []int64, []int64, string, string, string) ([]IQPublicResult, error)
+	Diagnostics(context.Context, int, int) (*IQDiagnosticsPage, error)
 	Budget(context.Context, float64) (IQBudget, error)
 	ClaimDue(context.Context, IQSettings) (*IQRun, error)
 	ReserveBudget(context.Context, int64, int64, time.Time, float64, float64) (bool, error)
@@ -288,6 +352,69 @@ func (s *OpenAIIQService) View(ctx context.Context, userID int64) (*IQView, erro
 	}
 	view.Summary = summarizeIQResults(view.Results)
 	return view, nil
+}
+
+func (s *OpenAIIQService) PublicView(ctx context.Context, userID int64) (*IQPublicView, error) {
+	settings, err := s.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, ErrUserNotFound
+	}
+	var available []Group
+	if user.Role == RoleAdmin {
+		available, err = s.groups.ListActiveByPlatform(ctx, PlatformOpenAI)
+	} else if s.apiKeys != nil {
+		available, err = s.apiKeys.GetAvailableGroups(ctx, user.ID)
+	} else {
+		return nil, errors.New("OpenAI IQ group access service is unavailable")
+	}
+	if err != nil {
+		return nil, err
+	}
+	allowed := make([]int64, 0, len(available))
+	for _, group := range available {
+		if group.Platform == PlatformOpenAI {
+			allowed = append(allowed, group.ID)
+		}
+	}
+	out := &IQPublicView{Enabled: settings.Enabled, Model: settings.Model, Question: settings.Question, ExpectedAnswer: settings.ExpectedAnswer, IntervalSeconds: settings.IntervalSeconds, Results: []IQPublicResult{}}
+	out.Results, err = s.repo.LatestValid(ctx, allowed, settings.GroupIDs, settings.Model, settings.Question, settings.ExpectedAnswer)
+	if err != nil {
+		return nil, err
+	}
+	if out.Results == nil {
+		out.Results = []IQPublicResult{}
+	}
+	for _, result := range out.Results {
+		out.Summary.Total++
+		switch result.Status {
+		case "correct":
+			out.Summary.Correct++
+		case "incorrect":
+			out.Summary.Incorrect++
+		default:
+			out.Summary.NoResults++
+		}
+	}
+	return out, nil
+}
+func (s *OpenAIIQService) Diagnostics(ctx context.Context, page, pageSize int) (*IQDiagnosticsPage, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 50 {
+		pageSize = 50
+	}
+	return s.repo.Diagnostics(ctx, page, pageSize)
 }
 
 func summarizeIQResults(results []IQResult) IQSummary {

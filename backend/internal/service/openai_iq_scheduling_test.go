@@ -362,7 +362,7 @@ func TestOpenAIIQCancelWhileBudgetWaitingJoinsWritesBeforeFinish(t *testing.T) {
 	require.Zero(t, repo.finishCalls)
 	require.Equal(t, 10, repo.reserveCalls)
 	repo.iqRunnerRepoStub.mu.Unlock()
-	for range OpenAIIQConcurrency - 6 {
+	for range len(settings.GroupIDs) {
 		writeRelease <- struct{}{}
 	}
 	select {
@@ -374,7 +374,7 @@ func TestOpenAIIQCancelWhileBudgetWaitingJoinsWritesBeforeFinish(t *testing.T) {
 	repo.iqRunnerRepoStub.mu.Lock()
 	defer repo.iqRunnerRepoStub.mu.Unlock()
 	require.Equal(t, 1, repo.finishCalls)
-	require.Len(t, repo.completed, 10)
+	require.Len(t, repo.completed, 12, "queued groups also receive an explicit cancellation reason")
 }
 
 func TestOpenAIIQSchedulingConcurrencyCaps64GroupsAt16(t *testing.T) {
