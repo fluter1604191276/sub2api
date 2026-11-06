@@ -167,3 +167,12 @@ func TestOpenAIIQDiagnosticsPostgresRetainsHistoricalStatesAndReservation(t *tes
 	require.Empty(t, page.Runs)
 	require.Equal(t, 4, page.Total)
 }
+
+func TestOpenAIIQDiagnosticsPostgresMaximumPageDoesNotOverflow(t *testing.T) {
+	repo := NewOpenAIIQRepository(integrationDB)
+	page, err := repo.Diagnostics(context.Background(), 1000000, 50)
+	require.NoError(t, err)
+	require.Empty(t, page.Runs)
+	require.Equal(t, 1000000, page.Page)
+	require.Equal(t, 50, page.PageSize)
+}

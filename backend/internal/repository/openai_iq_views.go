@@ -56,6 +56,9 @@ func (r *openAIIQRepository) LatestValid(ctx context.Context, allowed, configure
 }
 
 func (r *openAIIQRepository) Diagnostics(ctx context.Context, page, pageSize int) (*service.IQDiagnosticsPage, error) {
+	if page < 1 || page > service.MaxIQDiagnosticsPage || pageSize < 1 || pageSize > service.MaxIQDiagnosticsPageSize {
+		return nil, fmt.Errorf("invalid OpenAI IQ diagnostics pagination")
+	}
 	out := &service.IQDiagnosticsPage{Runs: []service.IQDiagnosticRun{}, Page: page, PageSize: pageSize}
 	if r == nil || r.db == nil {
 		return out, nil

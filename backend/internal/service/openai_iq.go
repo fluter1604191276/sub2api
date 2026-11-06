@@ -22,6 +22,10 @@ const SettingKeyOpenAIIQ = "openai_iq"
 // OpenAIIQConcurrency bounds the runner and its dedicated gateway identity.
 const OpenAIIQConcurrency = 16
 
+// Keep the diagnostic offset bounded even on 32-bit integer platforms.
+const MaxIQDiagnosticsPage = 1_000_000
+const MaxIQDiagnosticsPageSize = 50
+
 const defaultOpenAIIQQuestion = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。已知不同口味的糖果和不同形状的数量如下：
 
 圆形：苹果味 6 颗，桃子味 6 颗，西瓜味 5 颗。
@@ -405,14 +409,17 @@ func (s *OpenAIIQService) PublicView(ctx context.Context, userID int64) (*IQPubl
 	return out, nil
 }
 func (s *OpenAIIQService) Diagnostics(ctx context.Context, page, pageSize int) (*IQDiagnosticsPage, error) {
+	if page > MaxIQDiagnosticsPage {
+		return nil, infraerrors.BadRequest("OPENAI_IQ_PAGE_INVALID", fmt.Sprintf("page must not exceed %d", MaxIQDiagnosticsPage))
+	}
 	if page < 1 {
 		page = 1
 	}
 	if pageSize < 1 {
 		pageSize = 20
 	}
-	if pageSize > 50 {
-		pageSize = 50
+	if pageSize > MaxIQDiagnosticsPageSize {
+		pageSize = MaxIQDiagnosticsPageSize
 	}
 	return s.repo.Diagnostics(ctx, page, pageSize)
 }

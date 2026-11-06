@@ -131,4 +131,26 @@ describe('ModelIQView', () => {
     expect(failureWrapper.text()).toContain('modelIQ.loadError')
     expect(failureWrapper.text()).not.toContain('sentinel-internal-request-id-42')
   })
+
+  it('hides the detection time for neutral cards even if a stale timestamp is supplied', async () => {
+    getOpenAIIQ.mockResolvedValueOnce({
+      ...structuredClone(response),
+      results: [null, '2026-11-04T01:00:01Z'].map((checked_at, index) => ({
+        ...response.results[0],
+        group_id: index + 1,
+        status: 'no_results',
+        checked_at,
+        output: '',
+        model_answer: '',
+      })),
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findAll('article')).toHaveLength(2)
+    expect(wrapper.text()).toContain('modelIQ.noResultsForGroup')
+    expect(wrapper.findAll('article footer')).toHaveLength(0)
+    expect(wrapper.text()).not.toContain('modelIQ.checkedAt')
+    expect(wrapper.text()).not.toContain('common.notAvailable')
+  })
 })

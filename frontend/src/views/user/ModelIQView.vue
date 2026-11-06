@@ -168,10 +168,11 @@
             </details>
           </div>
           <footer
+            v-if="result.status !== 'no_results' && result.checked_at"
             class="border-t border-gray-100 bg-gray-50 px-5 py-3 text-xs text-gray-500 dark:border-dark-700 dark:bg-dark-900/30 dark:text-gray-400"
           >
             {{ t('modelIQ.checkedAt') }}
-            {{ result.checked_at ? formatDate(result.checked_at) : t('common.notAvailable') }}
+            {{ formatDate(result.checked_at) }}
           </footer>
         </article>
       </section>

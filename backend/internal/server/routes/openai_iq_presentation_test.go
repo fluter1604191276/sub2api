@@ -186,3 +186,24 @@ func TestOpenAIIQHTTPDiagnosticsRequiresAdministrator(t *testing.T) {
 	require.Contains(t, w.Body.String(), "operator diagnostic")
 	require.Contains(t, w.Body.String(), "client:iq-admin-only")
 }
+
+func TestOpenAIIQHTTPDiagnosticsRejectsOversizedOrMalformedPagination(t *testing.T) {
+	for _, query := range []string{
+		"page=1000001", "page=9223372036854775807", "page=18446744073709551615",
+		"page=not-a-number", "page=2junk", "page_size=18446744073709551615", "page_size=bad",
+	} {
+		t.Run(query, func(t *testing.T) {
+			repo := &iqPresentationRepo{}
+			router, _, adminToken := iqPresentationRouter(t, repo)
+			w := iqPresentationGET(router, "/api/v1/admin/openai-iq/diagnostics?"+query, adminToken)
+			require.Equal(t, http.StatusBadRequest, w.Code)
+			require.Zero(t, repo.diagnosticsCalls, "invalid pagination must not reach the repository")
+		})
+	}
+	repo := &iqPresentationRepo{}
+	router, _, adminToken := iqPresentationRouter(t, repo)
+	w := iqPresentationGET(router, "/api/v1/admin/openai-iq/diagnostics?page=1000000&page_size=500", adminToken)
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1000000, repo.page)
+	require.Equal(t, 50, repo.pageSize)
+}

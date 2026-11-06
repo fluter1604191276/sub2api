@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -46,12 +46,15 @@ func (h *OpenAIIQHandler) Get(c *gin.Context) {
 	response.Success(c, view)
 }
 func (h *OpenAIIQHandler) GetDiagnostics(c *gin.Context) {
-	page, pageSize := 1, 20
-	if value, ok := c.GetQuery("page"); ok {
-		_, _ = fmt.Sscan(value, &page)
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil {
+		response.BadRequest(c, "page must be an integer")
+		return
 	}
-	if value, ok := c.GetQuery("page_size"); ok {
-		_, _ = fmt.Sscan(value, &pageSize)
+	pageSize, err := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if err != nil {
+		response.BadRequest(c, "page_size must be an integer")
+		return
 	}
 	data, err := h.service.Diagnostics(c.Request.Context(), page, pageSize)
 	if err != nil {
