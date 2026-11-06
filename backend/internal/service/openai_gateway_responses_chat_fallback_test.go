@@ -22,7 +22,7 @@ import (
 func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false,"service_tier":"priority"}`)
+	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false,"max_output_tokens":64,"service_tier":"priority"}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -30,7 +30,7 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_chat_json"}},
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"rid_resp_chat_json"}},
 		Body: io.NopCloser(strings.NewReader(
 			`{"id":"chatcmpl_json","object":"chat.completion","model":"gpt-5.4","service_tier":"default","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":1}}}`,
 		)),
@@ -58,6 +58,23 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.Equal(t, "priority", *result.ServiceTier)
 	require.Equal(t, "default", result.UpstreamResponseServiceTier)
 	require.False(t, result.Stream)
+
+	// The normal Responses ingress must retain the final converted Chat
+	// Completions attempt, rather than the original request body or a future
+	// failover candidate.
+	diagnostics, ok := OpenAIResponseDiagnosticSnapshotFromContext(c)
+	require.True(t, ok)
+	require.True(t, diagnostics.Active)
+	require.EqualValues(t, forceChatResponsesFallbackAccount().ID, diagnostics.AccountID)
+	require.Equal(t, "rid_resp_chat_json", diagnostics.UpstreamRequestID)
+	require.NotNil(t, diagnostics.ForwardedMaxOutputTokens)
+	require.EqualValues(t, 64, *diagnostics.ForwardedMaxOutputTokens)
+	require.True(t, diagnostics.Terminal)
+	require.Equal(t, "completed", diagnostics.Status)
+	require.NotNil(t, diagnostics.InputTokens)
+	require.EqualValues(t, 3, *diagnostics.InputTokens)
+	require.NotNil(t, diagnostics.OutputTokens)
+	require.EqualValues(t, 2, *diagnostics.OutputTokens)
 }
 
 // Scenario: 第三方无推理模型不收到兼容档位。
@@ -159,7 +176,7 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	}, "\n")
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_resp_chat_stream"}},
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid_resp_chat_stream"}},
 		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
 	}}
 	svc := &OpenAIGatewayService{
@@ -181,6 +198,18 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
 	require.NotNil(t, result.FirstTokenMs)
+
+	diagnostics, ok := OpenAIResponseDiagnosticSnapshotFromContext(c)
+	require.True(t, ok)
+	require.True(t, diagnostics.Active)
+	require.EqualValues(t, forceChatResponsesFallbackAccount().ID, diagnostics.AccountID)
+	require.Equal(t, "rid_resp_chat_stream", diagnostics.UpstreamRequestID)
+	require.True(t, diagnostics.Terminal)
+	require.Equal(t, "completed", diagnostics.Status)
+	require.NotNil(t, diagnostics.InputTokens)
+	require.EqualValues(t, 4, *diagnostics.InputTokens)
+	require.NotNil(t, diagnostics.OutputTokens)
+	require.EqualValues(t, 3, *diagnostics.OutputTokens)
 }
 
 func TestForwardResponses_ChatFallbackRejectsInvalidToolArgumentsAtOutputLimit(t *testing.T) {

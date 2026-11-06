@@ -151,15 +151,29 @@ func TestResponsesToNativeAnthropicTrimsBillingModel(t *testing.T) {
 		{"kimi pinned anthropic", nativeAnthropicTestAccount(), "kimi-k2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := []byte(`{"model":" ` + tc.model + ` ","input":"hello","stream":false}`)
+			body := []byte(`{"model":" ` + tc.model + ` ","input":"hello","stream":false,"max_output_tokens":64}`)
 			upstream := &httpUpstreamRecorder{resp: nativeAnthropicStreamResponse()}
 			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			c := adaptiveProtocolTestContext("/v1/responses", body)
 
-			result, err := svc.Forward(context.Background(), adaptiveProtocolTestContext("/v1/responses", body), tc.account, body)
+			result, err := svc.Forward(context.Background(), c, tc.account, body)
 			require.NoError(t, err)
 			require.True(t, strings.HasSuffix(upstream.lastReq.URL.Path, "/v1/messages"), upstream.lastReq.URL.String())
 			require.Equal(t, tc.model, gjson.GetBytes(upstream.lastBody, "model").String())
 			require.Equal(t, tc.model, result.BillingModel)
+
+			diagnostics, ok := OpenAIResponseDiagnosticSnapshotFromContext(c)
+			require.True(t, ok)
+			require.True(t, diagnostics.Active)
+			require.EqualValues(t, tc.account.ID, diagnostics.AccountID)
+			require.NotNil(t, diagnostics.ForwardedMaxOutputTokens)
+			require.EqualValues(t, 64, *diagnostics.ForwardedMaxOutputTokens)
+			require.True(t, diagnostics.Terminal)
+			require.Equal(t, "completed", diagnostics.Status)
+			require.NotNil(t, diagnostics.InputTokens)
+			require.EqualValues(t, 93, *diagnostics.InputTokens)
+			require.NotNil(t, diagnostics.OutputTokens)
+			require.EqualValues(t, 16, *diagnostics.OutputTokens)
 		})
 	}
 }

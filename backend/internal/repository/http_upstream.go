@@ -306,17 +306,22 @@ func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, 
 		return resp, err
 	}
 	decompressResponseBody(resp)
-	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	var beforeCancel func()
+	if tail, ok := resp.Body.(interface{ ObserveUpstreamAttemptErrorTail() }); ok {
+		beforeCancel = tail.ObserveUpstreamAttemptErrorTail
+	}
+	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel, beforeCancel: beforeCancel}
 	return resp, nil
 }
 
 type cancelOnCloseBody struct {
 	io.ReadCloser
-	cancel context.CancelFunc
-	once   sync.Once
-	err    error
-	readMu sync.Mutex
-	closed bool
+	cancel       context.CancelFunc
+	beforeCancel func()
+	once         sync.Once
+	err          error
+	readMu       sync.Mutex
+	closed       bool
 }
 
 func (b *cancelOnCloseBody) Read(p []byte) (int, error) {
@@ -335,6 +340,9 @@ func (b *cancelOnCloseBody) Close() error {
 		// EOF waiter on a reused connection and stall subsequent responses.
 		// Fully consumed responses have already released their transport request,
 		// so cancelling here preserves normal keep-alive reuse.
+		if b.beforeCancel != nil {
+			b.beforeCancel()
+		}
 		b.cancel()
 		// Wait for an active read to observe cancellation before touching the
 		// body or decompressor. Do not hold readMu while cancelling the request.
@@ -393,7 +401,7 @@ func httpClientWithGrokAccessDeniedFallback(client *http.Client) *http.Client {
 }
 
 func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.base.RoundTrip(req)
+	resp, err := service.ObserveHTTPUpstreamRoundTrip(req, t.base, decompressResponseBody)
 	if err != nil || !isGrokCLIAccessDeniedFallbackCandidate(req, resp) {
 		return resp, err
 	}
@@ -407,7 +415,7 @@ func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.
 	if err != nil {
 		return resp, nil
 	}
-	fallbackResp, fallbackErr := t.base.RoundTrip(fallbackReq)
+	fallbackResp, fallbackErr := service.ObserveHTTPUpstreamRoundTrip(fallbackReq, t.base, decompressResponseBody)
 	if fallbackErr != nil {
 		slog.Debug("grok_cli_access_denied_api_fallback_failed", "path", req.URL.EscapedPath(), "error", fallbackErr)
 		return resp, nil

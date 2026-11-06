@@ -1088,6 +1088,17 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			releaseOpsCaptureWriter(w)
 		}()
 		c.Writer = w
+		// Formal Responses terminals can arrive multiple times on a WebSocket
+		// connection. Bind before c.Next so each completed turn enters the
+		// existing bounded diagnostic queue immediately; c.Next fallback only
+		// records snapshots that were never published.
+		if ops != nil && c.Request != nil && ops.IsMonitoringEnabled(c.Request.Context()) {
+			service.BindOpenAIResponseDiagnosticSink(c, func(snapshot service.OpenAIResponseDiagnosticSnapshot) {
+				if entry := buildOpsResponseDiagnostic(c, snapshot); entry != nil {
+					enqueueOpsResponseDiagnostic(ops, entry)
+				}
+			})
+		}
 		c.Next()
 		w.finalizeCapture()
 
@@ -1101,6 +1112,9 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		if !ops.IsMonitoringEnabled(c.Request.Context()) {
 			return
 		}
+		// Responses terminal diagnostics are independent from HTTP error logging:
+		// response.incomplete is often a 200 and would otherwise be invisible.
+		recordOpsResponseDiagnostic(c, ops)
 		if c.GetBool(opsDedicatedErrorRecordedKey) {
 			return
 		}
