@@ -81,6 +81,30 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertEqual(set(verify.REQUIRED_CAPABILITIES) - {"ops-baseline", "upstream-ledger"},
                          set(verify.IMAGE_CAPABILITY_MARKERS))
 
+    def test_openai_group_iq_stays_fail_closed(self):
+        capability = "openai-group-iq"
+        self.assertIn(capability, verify.REQUIRED_CAPABILITIES)
+        self.assertIn(capability, manifest_generator.CAPABILITY_IDS)
+        markers = verify.IMAGE_CAPABILITY_MARKERS[capability]
+        self.assertGreaterEqual(len(markers), 1)
+        repo_root = SCRIPT_DIR.parents[1]
+        for relative in verify.CAPABILITY_FILES[capability]:
+            self.assertTrue((repo_root / relative).is_file(), relative)
+
+        missing = valid_manifest()
+        del missing["capabilities"][capability]
+        self.assertIn(
+            f"capability {capability} is missing",
+            verify.validate_manifest_structure(missing),
+        )
+
+        unverified = valid_manifest()
+        unverified["capabilities"][capability]["status"] = "unverified"
+        unverified["capabilities"][capability]["evidence"] = []
+        errors = verify.validate_manifest_structure(unverified)
+        self.assertIn(f"capability {capability} status is 'unverified'", errors)
+        self.assertIn(f"capability {capability} has no evidence", errors)
+
     def test_official_0213_compatibility_requires_authentic_version_evidence(self):
         self.assertIn("official-0215-compatibility", verify.REQUIRED_CAPABILITIES)
         self.assertIn("official-0215-compatibility", manifest_generator.CAPABILITY_IDS)

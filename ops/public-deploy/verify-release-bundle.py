@@ -46,6 +46,7 @@ REQUIRED_CAPABILITIES = (
     "official-0215-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
+    "openai-group-iq",
 )
 
 OFFICIAL_VERSION = "0.2.15"
@@ -298,6 +299,19 @@ CAPABILITY_FILES = {
         "frontend/src/views/admin/AccountsView.vue",
         "ops/public-deploy/docs/extensions/20260922-passive-capability-observation.md",
     ),
+    "openai-group-iq": (
+        "backend/internal/service/openai_iq.go",
+        "backend/internal/service/openai_iq_runner.go",
+        "backend/internal/repository/openai_iq_repo.go",
+        "backend/internal/repository/openai_iq_views.go",
+        "backend/internal/handler/openai_iq_handler.go",
+        "backend/migrations/310_openai_iq.sql",
+        "frontend/src/views/user/ModelIQView.vue",
+        "frontend/src/views/user/__tests__/ModelIQView.spec.ts",
+        "frontend/src/views/admin/OpenAIIQSettingsView.vue",
+        "ops/public-deploy/docs/extensions/20261104-openai-iq.md",
+        "ops/public-deploy/docs/extensions/20261106-openai-iq-result-recovery.md",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -371,6 +385,13 @@ IMAGE_CAPABILITY_MARKERS = {
         "capability-stats/batch",
         "tool_roundtrip_observed",
         "terminal_not_supported",
+    ),
+    # Stable handler and billing-correlation strings. A candidate that drops the
+    # IQ user boundary or the diagnostic page guard will fail image smoke.
+    "openai-group-iq": (
+        "OPENAI_IQ_PAGE_INVALID",
+        "Unable to load OpenAI IQ results",
+        "sub2api-openai-iq",
     ),
 }
 
