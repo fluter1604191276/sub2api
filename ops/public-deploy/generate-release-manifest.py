@@ -40,6 +40,7 @@ CAPABILITY_IDS = (
     "official-0215-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
+    "openai-group-iq",
 )
 
 
