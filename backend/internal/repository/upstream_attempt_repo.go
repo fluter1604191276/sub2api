@@ -42,6 +42,9 @@ func (r *upstreamAttemptRepository) List(ctx context.Context, filter *service.Up
 	if page < 1 {
 		page = 1
 	}
+	if page > service.AdminListMaxPage {
+		page = service.AdminListMaxPage
+	}
 	if size < 1 {
 		size = 50
 	}
@@ -78,7 +81,7 @@ func (r *upstreamAttemptRepository) List(ctx context.Context, filter *service.Up
 		return nil, err
 	}
 	query := `SELECT id,attempt_id,request_id,client_request_id,upstream_request_id,created_at,user_id,group_id,account_id,model,protocol,source,service_tier,reasoning_effort,long_context_pricing_enabled,http_status,outcome,usage_present,input_tokens,cache_creation_tokens,cache_read_tokens,cache_creation_5m_tokens,cache_creation_1h_tokens,output_tokens,reasoning_tokens,account_rate_multiplier,cost_usd,cost_status FROM upstream_attempts` + where + fmt.Sprintf(" ORDER BY created_at DESC,id DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
-	args = append(args, size, (page-1)*size)
+	args = append(args, size, int64(page-1)*int64(size))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

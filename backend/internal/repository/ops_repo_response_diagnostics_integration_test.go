@@ -52,3 +52,18 @@ func TestResponseDiagnosticsPersistsWebSocketTurnsIndependently(t *testing.T) {
 }
 
 func diagnosticTimePtr(v time.Time) *time.Time { return &v }
+
+func TestAdminListHugePageDoesNotReachNegativeOffsetOnRealPostgres(t *testing.T) {
+	ctx := context.Background()
+	start, end := time.Now().Add(-time.Minute), time.Now().Add(time.Minute)
+	diagnostics, err := (&opsRepository{db: integrationDB}).ListResponseDiagnostics(ctx, &service.OpsResponseDiagnosticFilter{
+		StartTime: &start, EndTime: &end, Page: int(^uint(0) >> 1), PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, service.AdminListMaxPage, diagnostics.Page)
+	attempts, err := NewUpstreamAttemptRepository(integrationDB).List(ctx, &service.UpstreamAttemptFilter{
+		StartTime: &start, EndTime: &end, Page: int(^uint(0) >> 1), PageSize: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, service.AdminListMaxPage, attempts.Page)
+}

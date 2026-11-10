@@ -44,7 +44,11 @@ func (h *UpstreamAttemptHandler) List(c *gin.Context) {
 		response.BadRequest(c, "Invalid source")
 		return
 	}
-	page, size := response.ParsePagination(c)
+	page, size, err := response.ParsePaginationStrict(c, service.AdminListMaxPage, service.AdminListMaxPageSize)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	result, err := h.repository.List(c.Request.Context(), &service.UpstreamAttemptFilter{
 		StartTime: &start,
 		EndTime:   &end,

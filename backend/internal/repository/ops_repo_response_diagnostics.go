@@ -32,6 +32,9 @@ func (r *opsRepository) ListResponseDiagnostics(ctx context.Context, f *service.
 	if page < 1 {
 		page = 1
 	}
+	if page > service.AdminListMaxPage {
+		page = service.AdminListMaxPage
+	}
 	if size < 1 {
 		size = 50
 	}
@@ -81,7 +84,7 @@ func (r *opsRepository) ListResponseDiagnostics(ctx context.Context, f *service.
 		return nil, err
 	}
 	query := "SELECT " + responseDiagnosticColumns + " FROM ops_response_diagnostics" + where + fmt.Sprintf(" ORDER BY created_at DESC,id DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
-	args = append(args, size, (page-1)*size)
+	args = append(args, size, int64(page-1)*int64(size))
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

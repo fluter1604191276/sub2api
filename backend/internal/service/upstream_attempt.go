@@ -49,6 +49,13 @@ type UpstreamAttempt struct {
 	CostStatus                string           `json:"cost_status"`
 }
 
+// Admin list paging bounds shared by the diagnostics and upstream-attempt
+// endpoints and their repositories, so (page-1)*size can never overflow.
+const (
+	AdminListMaxPage     = 10000
+	AdminListMaxPageSize = 1000
+)
+
 type UpstreamAttemptFilter struct {
 	StartTime, EndTime *time.Time
 	AccountID          *int64

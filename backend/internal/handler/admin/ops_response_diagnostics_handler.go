@@ -24,7 +24,11 @@ func (h *OpsHandler) ListResponseDiagnostics(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	page, size := response.ParsePagination(c)
+	page, size, err := response.ParsePaginationStrict(c, service.AdminListMaxPage, service.AdminListMaxPageSize)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	f := &service.OpsResponseDiagnosticFilter{StartTime: &start, EndTime: &end, Page: page, PageSize: size, Status: strings.TrimSpace(c.Query("status")), Reason: strings.TrimSpace(c.Query("reason")), RequestID: strings.TrimSpace(c.Query("request_id"))}
 	if f.Status != "" && !service.ValidResponseDiagnosticStatus(f.Status) {
 		response.BadRequest(c, "Invalid status")

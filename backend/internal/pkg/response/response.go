@@ -2,6 +2,8 @@
 package response
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -197,7 +199,47 @@ func parseInt(s string) (int, error) {
 		if c < '0' || c > '9' {
 			return 0, nil
 		}
-		result = result*10 + int(c-'0')
+		digit := int(c - '0')
+		if result > (math.MaxInt-digit)/10 {
+			return 0, errors.New("integer overflow")
+		}
+		result = result*10 + digit
 	}
 	return result, nil
+}
+
+// ParsePaginationStrict parses page and page_size/limit for endpoints that
+// must reject bad input instead of silently falling back to defaults.
+// Absent parameters use the same defaults as ParsePagination; present ones
+// must be plain positive integers within maxPage and maxPageSize.
+func ParsePaginationStrict(c *gin.Context, maxPage, maxPageSize int) (page, pageSize int, err error) {
+	page, pageSize = 1, 20
+	if p := c.Query("page"); p != "" {
+		if page, err = parseStrictPositive("page", p, maxPage); err != nil {
+			return 0, 0, err
+		}
+	}
+	name, raw := "page_size", c.Query("page_size")
+	if raw == "" {
+		name, raw = "limit", c.Query("limit")
+	}
+	if raw != "" {
+		if pageSize, err = parseStrictPositive(name, raw, maxPageSize); err != nil {
+			return 0, 0, err
+		}
+	}
+	return page, pageSize, nil
+}
+
+func parseStrictPositive(name, raw string, max int) (int, error) {
+	for _, r := range raw {
+		if r < '0' || r > '9' {
+			return 0, fmt.Errorf("invalid %s", name)
+		}
+	}
+	val, err := parseInt(raw)
+	if err != nil || val < 1 || val > max {
+		return 0, fmt.Errorf("invalid %s", name)
+	}
+	return val, nil
 }

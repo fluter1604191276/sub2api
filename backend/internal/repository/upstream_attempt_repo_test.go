@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"math"
 	"regexp"
 	"testing"
 	"time"
@@ -69,4 +70,30 @@ func TestUpstreamAttemptRepositoryDailyCostsUsesShanghaiDay(t *testing.T) {
 	require.Equal(t, 0.5, items[0].KnownCostUSD)
 	require.Equal(t, int64(1), items[0].UnknownCount)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpstreamAttemptRepositoryHugePageIsClampedAndOffsetNeverNegative(t *testing.T) {
+	for _, page := range []int{math.MaxInt, math.MaxInt64, service.AdminListMaxPage + 1, -5, 0} {
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		start := time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+		end := start.Add(time.Hour)
+		wantPage := page
+		if wantPage < 1 {
+			wantPage = 1
+		}
+		if wantPage > service.AdminListMaxPage {
+			wantPage = service.AdminListMaxPage
+		}
+		wantOffset := int64(wantPage-1) * 100
+		require.GreaterOrEqual(t, wantOffset, int64(0))
+		mock.ExpectQuery(`SELECT COUNT\(\*\) FROM upstream_attempts`).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+		mock.ExpectQuery(`LIMIT \$3 OFFSET \$4`).WithArgs(start, end, 100, wantOffset).WillReturnRows(sqlmock.NewRows([]string{"id"}))
+		out, err := NewUpstreamAttemptRepository(db).List(context.Background(), &service.UpstreamAttemptFilter{StartTime: &start, EndTime: &end, Page: page, PageSize: math.MaxInt})
+		require.NoError(t, err, page)
+		require.Equal(t, wantPage, out.Page)
+		require.Equal(t, 100, out.PageSize)
+		require.NoError(t, mock.ExpectationsWereMet())
+		db.Close()
+	}
 }

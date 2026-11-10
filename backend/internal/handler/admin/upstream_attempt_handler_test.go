@@ -66,3 +66,49 @@ func TestUpstreamAttemptHandlerListsAndSummarizes(t *testing.T) {
 	require.False(t, repo.dailyStart.IsZero())
 	require.False(t, repo.dailyEnd.IsZero())
 }
+
+func TestUpstreamAttemptHandlerRejectsBadPaging(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, query := range []string{
+		"page=9223372036854775807&page_size=20",
+		"page=9223372036854775808",
+		"page=10001",
+		"page=0",
+		"page=-1",
+		"page=abc",
+		"page_size=0",
+		"page_size=-1",
+		"page_size=1001",
+		"page_size=9223372036854775807",
+		"limit=abc",
+	} {
+		t.Run(query, func(t *testing.T) {
+			repo := &upstreamAttemptHandlerRepo{}
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/admin/ops/upstream-attempts?"+query, nil)
+			NewUpstreamAttemptHandler(repo).List(c)
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.Nil(t, repo.listFilter, "repository must not be reached")
+		})
+	}
+}
+
+func TestUpstreamAttemptHandlerNormalPagingUnchanged(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for query, want := range map[string][2]int{
+		"":                          {1, 20},
+		"page=2&page_size=20":       {2, 20},
+		"page=10000&page_size=1000": {10000, 1000},
+		"page=3&limit=5":            {3, 5},
+	} {
+		repo := &upstreamAttemptHandlerRepo{}
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/admin/ops/upstream-attempts?"+query, nil)
+		NewUpstreamAttemptHandler(repo).List(c)
+		require.Equal(t, http.StatusOK, recorder.Code, query)
+		require.Equal(t, want[0], repo.listFilter.Page, query)
+		require.Equal(t, want[1], repo.listFilter.PageSize, query)
+	}
+}
