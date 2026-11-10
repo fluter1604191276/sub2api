@@ -47,6 +47,8 @@ REQUIRED_CAPABILITIES = (
     "public-catalog-contract",
     "passive-capability-observation",
     "openai-group-iq",
+    "responses-completion-diagnostics",
+    "upstream-attempt-ledger",
 )
 
 OFFICIAL_VERSION = "0.2.15"
@@ -312,6 +314,31 @@ CAPABILITY_FILES = {
         "ops/public-deploy/docs/extensions/20261104-openai-iq.md",
         "ops/public-deploy/docs/extensions/20261106-openai-iq-result-recovery.md",
     ),
+    "responses-completion-diagnostics": (
+        "backend/internal/service/openai_response_diagnostics.go",
+        "backend/internal/service/ops_response_diagnostics.go",
+        "backend/internal/service/openai_ws_http_bridge.go",
+        "backend/internal/handler/ops_response_diagnostics.go",
+        "backend/internal/handler/admin/ops_response_diagnostics_handler.go",
+        "backend/internal/repository/ops_repo_response_diagnostics.go",
+        "backend/migrations/313_ops_response_diagnostics.sql",
+        "frontend/src/views/admin/ops/components/OpsResponseDiagnosticsTable.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsResponseDiagnosticsTable.spec.ts",
+        "ops/public-deploy/docs/extensions/20261018-responses-diagnostics.md",
+    ),
+    "upstream-attempt-ledger": (
+        "backend/internal/service/upstream_attempt.go",
+        "backend/internal/service/upstream_attempt_http.go",
+        "backend/internal/service/upstream_attempt_queue.go",
+        "backend/internal/service/upstream_attempt_ws.go",
+        "backend/internal/service/group_recovery_probe_protocol.go",
+        "backend/internal/handler/admin/upstream_attempt_handler.go",
+        "backend/internal/repository/upstream_attempt_repo.go",
+        "backend/migrations/312_upstream_attempts.sql",
+        "frontend/src/views/admin/ops/components/OpsUpstreamAttemptLedger.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsUpstreamAttemptLedger.spec.ts",
+        "ops/public-deploy/docs/extensions/20261105-attempt-ledger-and-probe-policy.md",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -392,6 +419,19 @@ IMAGE_CAPABILITY_MARKERS = {
         "OPENAI_IQ_PAGE_INVALID",
         "Unable to load OpenAI IQ results",
         "sub2api-openai-iq",
+    ),
+    # Stable admin route, SQL dedupe and protocol-policy strings. A candidate that
+    # drops the diagnostics/ledger persistence or the permanent-refusal marker
+    # will fail image smoke.
+    "responses-completion-diagnostics": (
+        "/response-diagnostics",
+        "FROM ops_response_diagnostics",
+        "ON CONFLICT (request_id,turn_id) DO NOTHING",
+    ),
+    "upstream-attempt-ledger": (
+        "/upstream-attempts/queue-status",
+        "ON CONFLICT (attempt_id) DO NOTHING",
+        "cross_protocol_conversion_disabled",
     ),
 }
 

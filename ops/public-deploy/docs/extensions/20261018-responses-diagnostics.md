@@ -9,7 +9,7 @@ SLA error counters, retries and account scheduling.
 
 Owner: Codex, task https://tasks.fluterlab.top/tasks/74.
 Base: rebased with tasks/141 onto production revision `a5382a523b77ce5a8fd565e0c6cf176bb39e537c`.
-Status: development candidate; not deployed.
+Status: release candidate registered in the release gate; not deployed until a separately approved production switch.
 
 ## Contract
 

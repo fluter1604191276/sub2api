@@ -41,6 +41,8 @@ CAPABILITY_IDS = (
     "public-catalog-contract",
     "passive-capability-observation",
     "openai-group-iq",
+    "responses-completion-diagnostics",
+    "upstream-attempt-ledger",
 )
 
 

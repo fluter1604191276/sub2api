@@ -23,8 +23,8 @@ Every release manifest must record the status and evidence for each capability b
 | public-catalog-contract | Public catalog metadata contract across available channels and model plaza | catalog_metadata.go, available_channel_handler.go, model_plaza_handler.go and their contract tests | Public response consistency; no changes to billing or routing | Required |
 | model-sync-filter | Sync upstream-supported models, model filtering, page-size behavior | account model sync service, account routes/UI/tests | Availability and mapping | Required |
 | error-passthrough | Configurable error rewriting without leaking upstream URLs | error passthrough handler/service/routes/tests | Security and client retry behavior | Required |
-| responses-completion-diagnostics | Admin-only Responses terminal metadata across native HTTP/WS and client-WS HTTP bridges, with per-turn dedupe and root request correlation | response diagnostics and real WS HTTP bridge tests, PostgreSQL multi-turn persistence, handler/repository/UI tests, migration 313; extensions/20261018-responses-diagnostics.md | Diagnostic visibility and retention; no billing, SLA or routing effect | Development candidate; not deployed |
-| upstream-attempt-ledger | Independent upstream-attempt token and cost ledger, admin daily account reconciliation, and conversion-disabled probe suppression | upstream_attempt service/repository/HTTP/WS tests, group recovery protocol tests, admin routes/UI, migrations 312/313; extensions/20261105-attempt-ledger-and-probe-policy.md | Internal cost visibility and reduced probe calls; no customer billing or ordinary account-selection changes | Development candidate; not deployed |
+| responses-completion-diagnostics | Admin-only Responses terminal metadata across native HTTP/WS and client-WS HTTP bridges, with per-turn dedupe and root request correlation | response diagnostics and real WS HTTP bridge tests, PostgreSQL multi-turn persistence, handler/repository/UI tests, migration 313; extensions/20261018-responses-diagnostics.md | Diagnostic visibility and retention; no billing, SLA or routing effect | Required |
+| upstream-attempt-ledger | Independent upstream-attempt token and cost ledger, admin daily account reconciliation, and conversion-disabled probe suppression | upstream_attempt service/repository/HTTP/WS tests, group recovery protocol tests, admin routes/UI, migrations 312/313; extensions/20261105-attempt-ledger-and-probe-policy.md | Internal cost visibility and reduced probe calls; no customer billing or ordinary account-selection changes | Required |
 | model-capability-failover | Deterministic upstream model-capability rejection isolation and account failover | model_not_found_error.go, ratelimit_service.go, OpenAI failover handlers, classifier/rate-limit tests | Routing, model availability, sticky-session escape | Required |
 | generic-400-failover | Account-scoped failover for the narrow `HTTP 400 Upstream request failed` gateway response | openai_gateway_upstream_errors.go, openai_account_runtime_block_fastpath.go, OpenAI gateway handlers/forwarders, failover and sticky tests | Routing, retry budget, sticky-session escape | Required |
 | v1-streaming-probe | V1 probes use streaming protocol and narrowly retry explicit stream-only 400 responses | channel_monitor_checker.go, channel monitor checker tests | Monitoring accuracy, internal probe cost | Required |
@@ -39,10 +39,10 @@ Every release manifest must record the status and evidence for each capability b
 
 ## Status Semantics
 
-Development candidate: `responses-completion-diagnostics` adds administrator-only
-Responses terminal metadata and filters without changing billing or SLA metrics.
-See `extensions/20261018-responses-diagnostics.md`. It is not evidence of a
-deployed capability; a future release must include its migration and verification.
+Release gate: `responses-completion-diagnostics` and `upstream-attempt-ledger` are
+registered in the manifest generator and verifier (source files plus image
+markers). Registration is not evidence of deployment; a release must include
+migrations 312/313 and the verifier result for the candidate image.
 
 - Required: must be present and tested for a production image.
 - Partial: the feature has a known protocol or upstream limitation. The release must state the supported route and reject or report unsupported requests; it cannot silently claim end-to-end support.
