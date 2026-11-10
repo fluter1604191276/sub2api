@@ -122,10 +122,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	observeOpenAIResponseDiagnosticForwarded(c, chatBody, account.ID)
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
 		return nil, err
 	}
+	observeOpenAIResponseDiagnosticHeaders(c, resp.Header.Get("x-request-id"))
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
@@ -163,6 +165,9 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	}
 	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, functionTools, toolSearch, namespaceTools)
 	s.cacheReasoningItemsFromOutput(responsesResp.Output)
+	if diagnosticBody, err := json.Marshal(responsesResp); err == nil {
+		observeOpenAIResponseDiagnosticPayload(c, diagnosticBody)
+	}
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -214,6 +219,9 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		}
 		writeStreamHeaders()
 		for _, event := range events {
+			if diagnosticBody, err := json.Marshal(event); err == nil {
+				observeOpenAIResponseDiagnosticPayload(c, diagnosticBody)
+			}
 			sse, err := apicompat.ResponsesEventToSSE(event)
 			if err != nil {
 				logger.L().Warn("openai responses chat fallback: failed to marshal stream event",

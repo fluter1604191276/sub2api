@@ -79,15 +79,27 @@ type RelayOptions struct {
 	FirstMessageType                coderws.MessageType
 	FirstMessageSent                bool
 	StartClientAfterFirstDownstream bool
-	OnUsageParseFailure             func(eventType string, usageRaw string)
-	OnTurnComplete                  func(turn RelayTurnResult)
-	BeforeWriteClient               func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
-	BeforeClientWrite               func(msgType coderws.MessageType, payload []byte)
-	AfterClientWrite                func(msgType coderws.MessageType, payload []byte, writeErr error)
-	BeforeRelayCancel               func(exit RelayExit)
-	ReadClientFrame                 func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
-	OnTrace                         func(event RelayTraceEvent)
-	Now                             func() time.Time
+	// BeforeWriteUpstream runs immediately before a client frame is offered to
+	// the upstream transport. It is intentionally invoked even when the write
+	// later fails because callers may need to retain a possible-write attempt.
+	BeforeWriteUpstream func(msgType coderws.MessageType, payload []byte)
+	// AfterWriteUpstream runs only after a frame has reached the upstream
+	// transport. Callers use it for observation that must not include locally
+	// rejected or failed-to-write response.create frames.
+	AfterWriteUpstream func(msgType coderws.MessageType, payload []byte)
+	// AfterReadUpstream receives the unmodified upstream frame immediately after
+	// it is read. It is intentionally earlier than relay observation and client
+	// hooks so callers can retain protocol fields that normalization may remove.
+	AfterReadUpstream   func(msgType coderws.MessageType, payload []byte)
+	OnUsageParseFailure func(eventType string, usageRaw string)
+	OnTurnComplete      func(turn RelayTurnResult)
+	BeforeWriteClient   func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error
+	BeforeClientWrite   func(msgType coderws.MessageType, payload []byte)
+	AfterClientWrite    func(msgType coderws.MessageType, payload []byte, writeErr error)
+	BeforeRelayCancel   func(exit RelayExit)
+	ReadClientFrame     func(ctx context.Context, clientConn FrameConn) (coderws.MessageType, []byte, error)
+	OnTrace             func(event RelayTraceEvent)
+	Now                 func() time.Time
 }
 
 type RelayTraceEvent struct {
@@ -201,9 +213,16 @@ func Relay(
 	}
 
 	writeUpstream := func(msgType coderws.MessageType, payload []byte) error {
+		if options.BeforeWriteUpstream != nil {
+			options.BeforeWriteUpstream(msgType, payload)
+		}
 		writeCtx, cancel := context.WithTimeout(relayCtx, writeTimeout)
 		defer cancel()
-		return upstreamConn.WriteFrame(writeCtx, msgType, payload)
+		err := upstreamConn.WriteFrame(writeCtx, msgType, payload)
+		if err == nil && options.AfterWriteUpstream != nil {
+			options.AfterWriteUpstream(msgType, payload)
+		}
+		return err
 	}
 	writeClientFrameUpstream := func(msgType coderws.MessageType, payload []byte) error {
 		isResponseCreate := isClientResponseCreateFrame(msgType, payload)
@@ -304,6 +323,7 @@ func Relay(
 			state,
 			options.OnUsageParseFailure,
 			options.OnTurnComplete,
+			options.AfterReadUpstream,
 			options.BeforeWriteClient,
 			options.BeforeClientWrite,
 			options.AfterClientWrite,
@@ -530,6 +550,7 @@ func runUpstreamToClient(
 	state *relayState,
 	onUsageParseFailure func(eventType string, usageRaw string),
 	onTurnComplete func(turn RelayTurnResult),
+	afterReadUpstream func(msgType coderws.MessageType, payload []byte),
 	beforeWriteClient func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) error,
 	beforeClientWrite func(msgType coderws.MessageType, payload []byte),
 	afterClientWrite func(msgType coderws.MessageType, payload []byte, writeErr error),
@@ -571,6 +592,9 @@ func runUpstreamToClient(
 			return
 		}
 		markActivity()
+		if afterReadUpstream != nil {
+			afterReadUpstream(msgType, payload)
+		}
 		if beforeWriteClient != nil {
 			wroteDownstreamInTurn := wroteDownstream
 			if state != nil {

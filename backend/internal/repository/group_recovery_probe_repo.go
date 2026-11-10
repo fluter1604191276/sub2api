@@ -50,6 +50,58 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 	// These idempotent steps may touch projection rows, while Complete and
 	// ReconcileRealUsage lock physical rows first. Releasing each maintenance
 	// lock before claiming prevents a projection -> physical lock inversion.
+	// A cross-protocol conversion rejection is permanent only for the current
+	// group configuration. Recovery-probe physical state is shared by account
+	// and model, so remove only that stale protocol result when any participating
+	// adaptive group was changed after it was written; other protocol evidence
+	// remains usable for the shared account/model.
+	if _, err := r.db.ExecContext(ctx, `
+		WITH reset AS (
+			UPDATE group_recovery_probe_physical_states p
+			SET status = 'pending',
+				last_error_class = '',
+				last_error = '',
+				protocol_eligibility = p.protocol_eligibility - (
+					SELECT array_agg(entry.key)
+					FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
+					WHERE entry.value->>'status' = 'paused'
+						AND entry.value->>'last_error_class' = 'permanent'
+						AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+				),
+				next_probe_at = $1::timestamptz,
+				updated_at = $1::timestamptz
+			WHERE p.status <> 'probing'
+				AND EXISTS (
+				SELECT 1
+				FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
+				WHERE entry.value->>'status' = 'paused'
+					AND entry.value->>'last_error_class' = 'permanent'
+					AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+			)
+				AND EXISTS (
+				SELECT 1
+				FROM group_recovery_probe_states s
+				JOIN groups g ON g.id = s.group_id
+				JOIN accounts a ON a.id = s.account_id
+				WHERE s.physical_state_id = p.id
+					AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
+					AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
+					AND g.updated_at > p.updated_at
+			)
+			RETURNING p.id, p.protocol_eligibility
+		)
+		UPDATE group_recovery_probe_states s
+		SET status = 'pending',
+			last_error_class = '',
+			last_error = '',
+			protocol_eligibility = reset.protocol_eligibility,
+			next_probe_at = $1::timestamptz,
+			updated_at = $1::timestamptz
+		FROM reset
+		WHERE s.physical_state_id = reset.id
+	`, now.UTC()); err != nil {
+		return nil, fmt.Errorf("reset recovery protocol eligibility after group configuration change: %w", err)
+	}
 	if _, err := r.db.ExecContext(ctx, `
 		DELETE FROM group_recovery_probe_states s
 		USING group_recovery_probe_states target
@@ -265,6 +317,25 @@ func (r *groupRecoveryProbeRepository) ClaimDue(ctx context.Context, now time.Ti
 			JOIN accounts a ON a.id = p.account_id
 			WHERE a.status = 'active' AND a.schedulable = TRUE AND a.deleted_at IS NULL
 				AND membership.due_at <= $1::timestamptz
+				-- A complete cross-protocol conversion rejection is cleared only by
+				-- the configuration-change maintenance above, never by elapsed time.
+				AND NOT (
+					p.status = 'paused'
+					AND EXISTS (
+						SELECT 1 FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
+						WHERE entry.value->>'status' = 'paused'
+							AND entry.value->>'last_error_class' = 'permanent'
+							AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+					)
+					AND NOT EXISTS (
+						SELECT 1 FROM jsonb_each(COALESCE(p.protocol_eligibility, '{}'::jsonb)) entry
+						WHERE NOT (
+							entry.value->>'status' = 'paused'
+							AND entry.value->>'last_error_class' = 'permanent'
+							AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+						)
+					)
+				)
 				AND (p.status <> 'probing' OR p.updated_at <= $1::timestamptz - INTERVAL '`+groupRecoveryProbeStaleClaimInterval+`')
 				AND (membership.high_frequency OR NOT EXISTS (
 					SELECT 1 FROM usage_logs ul
@@ -345,16 +416,56 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 	var rescheduled int64
 	err := r.db.QueryRowContext(ctx, `
 		WITH target AS (
-			SELECT p.*
+			SELECT p.*, EXISTS (
+				SELECT 1
+				FROM group_recovery_probe_states s
+				JOIN groups g ON g.id = s.group_id
+				JOIN accounts a ON a.id = s.account_id
+				WHERE s.physical_state_id = p.id
+					AND a.platform IN ('kimi', 'zhipu', 'deepseek', 'minimax')
+					AND COALESCE(a.credentials->>'api_protocol', '') = 'adaptive'
+					AND g.updated_at > $2
+					AND EXISTS (
+						SELECT 1
+						FROM jsonb_each(COALESCE($14::jsonb, '{}'::jsonb)) entry
+						WHERE entry.value->>'status' = 'paused'
+							AND entry.value->>'last_error_class' = 'permanent'
+							AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+					)
+			) AS protocol_policy_changed
 			FROM group_recovery_probe_physical_states p
 			WHERE p.id = $1 AND p.status = 'probing' AND p.last_probe_at = $2
 			FOR UPDATE OF p
+		), normalized AS (
+			SELECT t.*,
+				CASE
+					WHEN t.protocol_policy_changed THEN 'pending'
+					-- A generic permanent upstream error (for example a revoked key,
+					-- unavailable model, or exhausted balance) is retryable after the
+					-- normal per-group backoff. Only this explicit adaptive protocol
+					-- compatibility rejection may stop probing until configuration changes.
+					WHEN $3 = 'paused'
+						AND LOWER(COALESCE($10, '')) LIKE '%cross_protocol_conversion_disabled%'
+						THEN 'paused'
+					WHEN $3 = 'paused' THEN 'failed'
+					ELSE $3
+				END AS completion_status,
+				CASE WHEN t.protocol_policy_changed THEN NOW() ELSE $8 END AS completion_next_probe_at,
+				CASE WHEN t.protocol_policy_changed THEN (
+					SELECT COALESCE(jsonb_object_agg(entry.key, entry.value), '{}'::jsonb)
+					FROM jsonb_each(COALESCE($14::jsonb, '{}'::jsonb)) entry
+					WHERE NOT (
+						entry.value->>'status' = 'paused'
+						AND entry.value->>'last_error_class' = 'permanent'
+						AND LOWER(COALESCE(entry.value->>'last_error', '')) LIKE '%cross_protocol_conversion_disabled%'
+					)
+				) ELSE $14::jsonb END AS completion_protocol_eligibility
+			FROM target t
 		), projected AS (
 			UPDATE group_recovery_probe_states s
 			SET status = CASE
-					WHEN $9 = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
-					WHEN $9 = 'permanent' THEN 'failed'
-					ELSE $3
+					WHEN t.protocol_policy_changed THEN 'pending'
+					ELSE t.completion_status
 				END,
 			consecutive_successes = $4,
 			consecutive_failures = $5,
@@ -362,21 +473,14 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			last_success_at = COALESCE($6, t.last_success_at),
 			last_failure_at = COALESCE($7, t.last_failure_at),
 			next_probe_at = CASE
-				WHEN g.id = t.owner_group_id THEN $8
-				WHEN $9 = 'permanent' AND g.recovery_probe_mode = 'smart'
-					THEN NOW() + INTERVAL '6 hours'
-				WHEN $3 = 'paused' AND g.recovery_probe_mode = 'smart'
-					THEN NOW() + INTERVAL '6 hours'
-				WHEN g.recovery_probe_mode = 'smart' AND $3 = 'eligible'
-					THEN NOW() + make_interval(secs => GREATEST(
-						g.recovery_probe_interval_seconds,
-						CASE
-							WHEN $4 >= 4 THEN 14400
-							WHEN $4 >= 3 THEN 7200
-							ELSE $13
-						END
-					))
-				WHEN g.recovery_probe_mode = 'smart' AND $3 = 'failed'
+				WHEN t.protocol_policy_changed THEN NOW()
+				WHEN t.completion_status = 'paused' THEN NOW() + INTERVAL '100 years'
+				-- Defend persisted state from older callers that still submit a
+				-- generic permanent error as paused. Do not retain their long pause:
+				-- calculate the same normal retry cadence used for a failed result.
+				WHEN g.id = t.owner_group_id AND $3 = 'paused'
+					AND LOWER(COALESCE($10, '')) NOT LIKE '%cross_protocol_conversion_disabled%'
+					AND g.recovery_probe_mode = 'smart'
 					THEN NOW() + LEAST(
 						make_interval(secs => g.recovery_probe_backoff_cap_seconds),
 						CASE
@@ -388,16 +492,41 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 							ELSE INTERVAL '30 minutes'
 						END
 					)
-				WHEN g.recovery_probe_mode = 'smart' AND $3 = 'warm' THEN NOW() + INTERVAL '5 minutes'
+				WHEN g.id = t.owner_group_id AND $3 = 'paused'
+					AND LOWER(COALESCE($10, '')) NOT LIKE '%cross_protocol_conversion_disabled%'
+					THEN NOW() + make_interval(secs => g.recovery_probe_interval_seconds)
+				WHEN g.id = t.owner_group_id THEN t.completion_next_probe_at
+				WHEN g.recovery_probe_mode = 'smart' AND t.completion_status = 'eligible'
+					THEN NOW() + make_interval(secs => GREATEST(
+						g.recovery_probe_interval_seconds,
+						CASE
+							WHEN $4 >= 4 THEN 14400
+							WHEN $4 >= 3 THEN 7200
+							ELSE $13
+						END
+					))
+				WHEN g.recovery_probe_mode = 'smart' AND t.completion_status = 'failed'
+					THEN NOW() + LEAST(
+						make_interval(secs => g.recovery_probe_backoff_cap_seconds),
+						CASE
+							WHEN $5 <= 1 THEN INTERVAL '1 minute'
+							WHEN $5 = 2 THEN INTERVAL '2 minutes'
+							WHEN $5 = 3 THEN INTERVAL '5 minutes'
+							WHEN $5 = 4 THEN INTERVAL '10 minutes'
+							WHEN $5 = 5 THEN INTERVAL '15 minutes'
+							ELSE INTERVAL '30 minutes'
+						END
+					)
+				WHEN g.recovery_probe_mode = 'smart' AND t.completion_status = 'warm' THEN NOW() + INTERVAL '5 minutes'
 				ELSE NOW() + make_interval(secs => g.recovery_probe_interval_seconds)
 			END,
-			last_error_class = $9,
-			last_error = $10,
+			last_error_class = CASE WHEN t.protocol_policy_changed THEN '' ELSE $9 END,
+			last_error = CASE WHEN t.protocol_policy_changed THEN '' ELSE $10 END,
 			latency_ms = $11,
 			probe_count = t.probe_count + $12,
-			protocol_eligibility = CASE WHEN $14::jsonb IS NULL THEN s.protocol_eligibility ELSE $14::jsonb END,
+			protocol_eligibility = CASE WHEN t.completion_protocol_eligibility IS NULL THEN s.protocol_eligibility ELSE t.completion_protocol_eligibility END,
 			updated_at = NOW()
-			FROM target t, groups g
+			FROM normalized t, groups g
 			WHERE s.physical_state_id = t.id
 				AND g.id = s.group_id
 			RETURNING s.physical_state_id, s.next_probe_at
@@ -407,19 +536,19 @@ func (r *groupRecoveryProbeRepository) Complete(ctx context.Context, completion 
 			GROUP BY physical_state_id
 		), completed AS (
 			UPDATE group_recovery_probe_physical_states p
-			SET status = $3,
+			SET status = t.completion_status,
 				consecutive_successes = $4,
 				consecutive_failures = $5,
 				last_success_at = COALESCE($6, p.last_success_at),
 				last_failure_at = COALESCE($7, p.last_failure_at),
-				next_probe_at = COALESCE(due.next_probe_at, $8),
-				last_error_class = $9,
-				last_error = $10,
+				next_probe_at = COALESCE(due.next_probe_at, t.completion_next_probe_at),
+				last_error_class = CASE WHEN t.protocol_policy_changed THEN '' ELSE $9 END,
+				last_error = CASE WHEN t.protocol_policy_changed THEN '' ELSE $10 END,
 				latency_ms = $11,
 				probe_count = p.probe_count + $12,
-				protocol_eligibility = CASE WHEN $14::jsonb IS NULL THEN p.protocol_eligibility ELSE $14::jsonb END,
+				protocol_eligibility = CASE WHEN t.completion_protocol_eligibility IS NULL THEN p.protocol_eligibility ELSE t.completion_protocol_eligibility END,
 				updated_at = NOW()
-			FROM target t
+			FROM normalized t
 			LEFT JOIN projection_due due ON due.physical_state_id = t.id
 			WHERE p.id = t.id
 			RETURNING p.id
@@ -613,7 +742,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 							(
 								p.status <> 'probing'
 								AND s.status IS DISTINCT FROM CASE
-									WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+									WHEN p.status = 'paused'
+										AND p.last_error_class = 'permanent'
+										AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+										THEN 'paused'
 									WHEN p.last_error_class = 'permanent' THEN 'failed'
 									ELSE p.status
 								END
@@ -636,7 +768,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 			UPDATE group_recovery_probe_states s
 			SET status = CASE
 					WHEN p.status = 'probing' THEN s.status
-					WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+					WHEN p.status = 'paused'
+						AND p.last_error_class = 'permanent'
+						AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+						THEN 'paused'
 					WHEN p.last_error_class = 'permanent' THEN 'failed'
 					ELSE p.status
 				END,
@@ -657,7 +792,10 @@ func (r *groupRecoveryProbeRepository) ReconcileRealUsage(ctx context.Context, n
 					(
 						p.status <> 'probing'
 						AND s.status IS DISTINCT FROM CASE
-							WHEN p.last_error_class = 'permanent' AND g.recovery_probe_mode = 'smart' THEN 'paused'
+							WHEN p.status = 'paused'
+								AND p.last_error_class = 'permanent'
+								AND LOWER(COALESCE(p.last_error, '')) LIKE '%cross_protocol_conversion_disabled%'
+								THEN 'paused'
 							WHEN p.last_error_class = 'permanent' THEN 'failed'
 							ELSE p.status
 						END

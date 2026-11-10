@@ -647,6 +647,55 @@ func TestRelay_OnTurnComplete_PerTerminalEvent(t *testing.T) {
 	require.Equal(t, 5, result.Usage.OutputTokens)
 }
 
+func TestRelay_AfterWriteUpstreamObservesOnlySuccessfulResponseCreate(t *testing.T) {
+	t.Parallel()
+
+	clientConn := newPassthroughTestFrameConn(nil, false)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+		{msgType: coderws.MessageText, payload: []byte(`{"type":"response.failed","response":{"id":"resp_failed","usage":{"input_tokens":3,"output_tokens":2}}}`)},
+	}, true)
+	firstPayload := []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`)
+	var observed [][]byte
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
+		AfterWriteUpstream: func(msgType coderws.MessageType, payload []byte) {
+			if msgType == coderws.MessageText {
+				observed = append(observed, append([]byte(nil), payload...))
+			}
+		},
+	})
+
+	require.Nil(t, relayExit)
+	require.Equal(t, [][]byte{firstPayload}, observed)
+}
+
+func TestRelay_AfterReadUpstreamObservesRawFailureUsage(t *testing.T) {
+	t.Parallel()
+
+	clientConn := newPassthroughTestFrameConn(nil, false)
+	rawFailure := []byte(`{"type":"response.failed","response":{"id":"resp_failed","usage":{"input_tokens":40,"output_tokens":0,"input_tokens_details":{"cached_tokens":40}}}}`)
+	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
+		{msgType: coderws.MessageText, payload: rawFailure},
+	}, true)
+	var observed [][]byte
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	_, relayExit := Relay(ctx, clientConn, upstreamConn, []byte(`{"type":"response.create","model":"gpt-5.5","input":[]}`), RelayOptions{
+		AfterReadUpstream: func(msgType coderws.MessageType, payload []byte) {
+			require.Equal(t, coderws.MessageText, msgType)
+			observed = append(observed, append([]byte(nil), payload...))
+		},
+	})
+
+	require.Nil(t, relayExit)
+	// The callback sees the upstream frame before relay processing or any later
+	// response normalization can change usage details.
+	require.Equal(t, [][]byte{rawFailure}, observed)
+}
+
 func TestRelay_OnTurnComplete_BareErrorWithoutIDBeforeLaterCompleted(t *testing.T) {
 	t.Parallel()
 
