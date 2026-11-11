@@ -56,10 +56,14 @@ func (s *OpenAIIQService) Start() {
 }
 
 func (s *OpenAIIQService) Stop() {
+	s.lifecycleMu.Lock()
+	s.stopped = true
 	s.cancel()
+	s.lifecycleMu.Unlock()
 	// A service constructed for a test can also be stopped before Start.
 	s.startOnce.Do(func() { close(s.done) })
 	<-s.done
+	s.manualWG.Wait()
 }
 
 func (s *OpenAIIQService) runIQRound(parent context.Context) error {
@@ -83,13 +87,21 @@ func (s *OpenAIIQService) runIQRound(parent context.Context) error {
 	if identity == nil || !finitePositive(identity.Balance) {
 		return nil
 	}
+	// The worker's time budget starts before claiming the database lease. Lock,
+	// commit, or connection delays therefore cannot extend execution beyond the
+	// durable lease that starts during the claim.
+	deadline := time.Now().Add(iqRoundTimeout)
 	run, err := s.repo.ClaimDue(parent, settings)
 	if err != nil || run == nil {
 		return err
 	}
+	return s.executeIQRun(parent, run, settings, identity.UserID, deadline)
+}
+
+func (s *OpenAIIQService) executeIQRun(parent context.Context, run *IQRun, settings IQSettings, userID int64, deadline time.Time) error {
 	// The durable lease is ten minutes. Cancellation ends all local requests
 	// before it can expire, and a crashed process is never allowed to replay it.
-	ctx, cancel := context.WithTimeout(parent, iqRoundTimeout)
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	defer func() {
 		finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -104,9 +116,9 @@ func (s *OpenAIIQService) runIQRound(parent context.Context) error {
 	}
 	if s.apiKeys != nil {
 		// The dedicated identity may have been upgraded from the serial runner.
-		s.apiKeys.InvalidateAuthCacheByUserID(ctx, identity.UserID)
+		s.apiKeys.InvalidateAuthCacheByUserID(ctx, userID)
 	}
-	return s.runIQGroups(ctx, run, settings, identity.UserID, results)
+	return s.runIQGroups(ctx, run, settings, userID, results)
 }
 
 // runIQGroups coordinates admission and reconciliation in one goroutine. Only
@@ -181,7 +193,7 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 			slog.Warn("OpenAI IQ settings refresh deferred")
 			continue
 		}
-		if !current.Enabled {
+		if !current.Enabled && run.Trigger != IQTriggerManual {
 			s.skipIQResults(run.ID, append(pending, waiting...), "检测已关闭，停止本轮未发起的请求")
 			pending, waiting = nil, nil
 			continue
@@ -282,7 +294,7 @@ func (s *OpenAIIQService) prepareIQGroup(ctx context.Context, run *IQRun, settin
 		result.Error = reason
 		return job
 	}
-	if !current.Enabled {
+	if !current.Enabled && run.Trigger != IQTriggerManual {
 		result.Error = "检测已关闭，停止本轮未发起的请求"
 		return job
 	}

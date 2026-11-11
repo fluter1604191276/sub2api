@@ -147,6 +147,7 @@ func registerOpenAIIQRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	endpoint.GET("/settings", h.OpenAIIQ.GetSettings)
 	endpoint.PUT("/settings", h.OpenAIIQ.UpdateSettings)
 	endpoint.GET("/diagnostics", h.OpenAIIQ.GetDiagnostics)
+	endpoint.POST("/groups/:id/recheck", h.OpenAIIQ.Recheck)
 }
 
 func registerPublicCatalogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {

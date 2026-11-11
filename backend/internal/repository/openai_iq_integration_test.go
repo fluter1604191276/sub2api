@@ -99,6 +99,290 @@ func TestOpenAIIQClaimDuePostgresDoesNotOverlapActiveRunOrReplayExpiredRun(t *te
 	require.Equal(t, 1, staleReservations, "a stale run's reservation remains charged rather than making a replay free")
 }
 
+func TestOpenAIIQManualClaimPostgresIsSingleGroupAndDoesNotDelaySchedule(t *testing.T) {
+	ctx := context.Background()
+	groupIDs := openAIIQGroups(t, 2)
+	repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+	settings := openAIIQSettings(groupIDs)
+	openAIIQCleanupRunsByQuestion(t, settings.Question)
+	requester := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("iq-manual-%d@example.invalid", time.Now().UnixNano()), Concurrency: 1})
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_budget_reservations WHERE run_id IN (SELECT id FROM openai_iq_runs WHERE question = $1)`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_runs WHERE question = $1`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, requester.ID)
+		require.NoError(t, err)
+	})
+
+	run, err := repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	require.Equal(t, service.IQTriggerManual, run.Trigger)
+	var trigger string
+	var requestedBy int64
+	var resultCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT trigger, requested_by FROM openai_iq_runs WHERE id = $1`, run.ID).Scan(&trigger, &requestedBy))
+	require.Equal(t, service.IQTriggerManual, trigger)
+	require.Equal(t, requester.ID, requestedBy)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_iq_results WHERE run_id = $1`, run.ID).Scan(&resultCount))
+	require.Equal(t, 1, resultCount)
+	diagnostics, err := repo.Diagnostics(ctx, 1, 20)
+	require.NoError(t, err)
+	require.NotEmpty(t, diagnostics.Runs)
+	require.Equal(t, service.IQTriggerManual, diagnostics.Runs[0].Trigger)
+	require.NotNil(t, diagnostics.Runs[0].RequestedBy)
+	require.Equal(t, requester.ID, *diagnostics.Runs[0].RequestedBy)
+
+	blocked, err := repo.ClaimDue(ctx, settings)
+	require.NoError(t, err)
+	require.Nil(t, blocked, "a running manual request must block the scheduler")
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `UPDATE openai_iq_runs SET status = 'complete', finished_at = NOW() WHERE id = $1`, run.ID).Err())
+
+	scheduled, err := repo.ClaimDue(ctx, settings)
+	require.NoError(t, err)
+	require.NotNil(t, scheduled, "a completed manual run must not shift the scheduled interval")
+	require.Equal(t, service.IQTriggerScheduled, scheduled.Trigger)
+
+	_, err = repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+	require.ErrorIs(t, err, service.ErrIQRunActive, "the new scheduled run remains globally exclusive")
+}
+
+func TestOpenAIIQManualClaimPostgresAppliesCooldownAfterTerminalRun(t *testing.T) {
+	ctx := context.Background()
+	groupIDs := openAIIQGroups(t, 1)
+	repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+	settings := openAIIQSettings(groupIDs)
+	openAIIQCleanupRunsByQuestion(t, settings.Question)
+	requester := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("iq-cooldown-%d@example.invalid", time.Now().UnixNano()), Concurrency: 1})
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_budget_reservations WHERE run_id IN (SELECT id FROM openai_iq_runs WHERE question = $1)`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_runs WHERE question = $1`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, requester.ID)
+		require.NoError(t, err)
+	})
+
+	run, err := repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+	require.NoError(t, err)
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `UPDATE openai_iq_runs SET status = 'complete', finished_at = NOW() WHERE id = $1`, run.ID).Err())
+	second, err := repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+	require.Nil(t, second)
+	require.ErrorIs(t, err, service.ErrIQManualCooldown)
+}
+
+func TestOpenAIIQManualClaimPostgresAllowsOnlyOneConcurrentRun(t *testing.T) {
+	ctx := context.Background()
+	groupIDs := openAIIQGroups(t, 1)
+	repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+	settings := openAIIQSettings(groupIDs)
+	openAIIQCleanupRunsByQuestion(t, settings.Question)
+	requester := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("iq-manual-lock-%d@example.invalid", time.Now().UnixNano()), Concurrency: 1})
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_budget_reservations WHERE run_id IN (SELECT id FROM openai_iq_runs WHERE question = $1)`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_runs WHERE question = $1`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, requester.ID)
+		require.NoError(t, err)
+	})
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var claimed atomic.Int64
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			run, err := repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+			if run != nil {
+				claimed.Add(1)
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	var activeErrors int
+	for err := range errs {
+		if err != nil {
+			require.ErrorIs(t, err, service.ErrIQRunActive)
+			activeErrors++
+		}
+	}
+	require.EqualValues(t, 1, claimed.Load())
+	require.Equal(t, 1, activeErrors)
+}
+
+func TestOpenAIIQManualAndScheduledClaimsPostgresShareOneLease(t *testing.T) {
+	ctx := context.Background()
+	groupIDs := openAIIQGroups(t, 1)
+	repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+	settings := openAIIQSettings(groupIDs)
+	openAIIQCleanupRunsByQuestion(t, settings.Question)
+	requester := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("iq-manual-scheduled-lock-%d@example.invalid", time.Now().UnixNano()), Concurrency: 1})
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_budget_reservations WHERE run_id IN (SELECT id FROM openai_iq_runs WHERE question = $1)`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_runs WHERE question = $1`, settings.Question)
+		require.NoError(t, err)
+		_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, requester.ID)
+		require.NoError(t, err)
+	})
+
+	type claimResult struct {
+		run *service.IQRun
+		err error
+	}
+	start := make(chan struct{})
+	manualResult := make(chan claimResult, 1)
+	scheduledResult := make(chan claimResult, 1)
+	go func() {
+		<-start
+		run, err := repo.ClaimManual(ctx, settings, groupIDs[0], requester.ID)
+		manualResult <- claimResult{run: run, err: err}
+	}()
+	go func() {
+		<-start
+		run, err := repo.ClaimDue(ctx, settings)
+		scheduledResult <- claimResult{run: run, err: err}
+	}()
+	close(start)
+	manual := <-manualResult
+	scheduled := <-scheduledResult
+	if manual.err != nil {
+		require.ErrorIs(t, manual.err, service.ErrIQRunActive)
+	}
+	require.NoError(t, scheduled.err)
+	var runCount int
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_iq_runs WHERE question = $1`, settings.Question).Scan(&runCount))
+	require.Equal(t, 1, runCount)
+	if manual.run != nil {
+		require.Nil(t, scheduled.run)
+		require.Equal(t, service.IQTriggerManual, manual.run.Trigger)
+	} else {
+		require.NotNil(t, scheduled.run)
+		require.Equal(t, service.IQTriggerScheduled, scheduled.run.Trigger)
+	}
+}
+
+func TestOpenAIIQClaimsPostgresStartLeaseAfterAdvisoryLockAcquisition(t *testing.T) {
+	ctx := context.Background()
+	for _, manual := range []bool{false, true} {
+		name := "scheduled"
+		if manual {
+			name = "manual"
+		}
+		t.Run(name, func(t *testing.T) {
+			groupIDs := openAIIQGroups(t, 1)
+			repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+			settings := openAIIQSettings(groupIDs)
+			openAIIQCleanupRunsByQuestion(t, settings.Question)
+			var requestedBy int64
+			if manual {
+				requester := mustCreateUser(t, integrationEntClient, &service.User{Email: fmt.Sprintf("iq-lock-time-%d@example.invalid", time.Now().UnixNano()), Concurrency: 1})
+				requestedBy = requester.ID
+				t.Cleanup(func() {
+					_, err := integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_budget_reservations WHERE run_id IN (SELECT id FROM openai_iq_runs WHERE question = $1)`, settings.Question)
+					require.NoError(t, err)
+					_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM openai_iq_runs WHERE question = $1`, settings.Question)
+					require.NoError(t, err)
+					_, err = integrationDB.ExecContext(context.Background(), `DELETE FROM users WHERE id = $1`, requester.ID)
+					require.NoError(t, err)
+				})
+			}
+
+			holder, err := integrationDB.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = holder.Rollback() })
+			require.NoError(t, holder.QueryRowContext(ctx, `SELECT pg_advisory_xact_lock(14020261104)`).Err())
+			type result struct {
+				run *service.IQRun
+				err error
+			}
+			claimed := make(chan result, 1)
+			go func() {
+				if manual {
+					run, err := repo.ClaimManual(ctx, settings, groupIDs[0], requestedBy)
+					claimed <- result{run: run, err: err}
+					return
+				}
+				run, err := repo.ClaimDue(ctx, settings)
+				claimed <- result{run: run, err: err}
+			}()
+
+			time.Sleep(150 * time.Millisecond)
+			releasedAt := time.Now().UTC()
+			require.NoError(t, holder.Commit())
+			out := <-claimed
+			require.NoError(t, out.err)
+			require.NotNil(t, out.run)
+			var startedAt, leaseExpiresAt time.Time
+			require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT started_at, lease_expires_at FROM openai_iq_runs WHERE id=$1`, out.run.ID).Scan(&startedAt, &leaseExpiresAt))
+			require.False(t, startedAt.Before(releasedAt.Add(-50*time.Millisecond)), "started_at must be captured after waiting for the advisory lock")
+			require.WithinDuration(t, startedAt.Add(10*time.Minute), leaseExpiresAt, time.Millisecond)
+		})
+	}
+}
+
+func TestOpenAIIQManualResultLatestValidUpdatesOnlyItsGroup(t *testing.T) {
+	ctx := context.Background()
+	groupIDs := openAIIQGroups(t, 2)
+	repo := NewOpenAIIQRepository(integrationDB).(*openAIIQRepository)
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Microsecond)
+	scheduledRun := openAIIQRun(t, "scheduled fixture", base, base.Add(time.Hour))
+	iqInsertHistoricalResult(t, scheduledRun, groupIDs[0], "gpt-6-astra", "correct", "15", &base)
+	iqInsertHistoricalResult(t, scheduledRun, groupIDs[1], "gpt-6-astra", "correct", "15", &base)
+	manualCorrectAt := base.Add(10 * time.Minute)
+	manualCorrectRun := openAIIQRun(t, "manual correct fixture", manualCorrectAt, manualCorrectAt.Add(time.Hour))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `UPDATE openai_iq_runs SET trigger=$2 WHERE id=$1`, manualCorrectRun, service.IQTriggerManual).Err())
+	iqInsertHistoricalResult(t, manualCorrectRun, groupIDs[0], "gpt-6-astra", "correct", "15", &manualCorrectAt)
+
+	items, err := repo.LatestValid(ctx, groupIDs, groupIDs, "gpt-6-astra", "current", "15")
+	require.NoError(t, err)
+	require.Len(t, items, 2)
+	byGroup := map[int64]service.IQPublicResult{}
+	for _, item := range items {
+		byGroup[item.GroupID] = item
+	}
+	require.Equal(t, "manual correct fixture", byGroup[groupIDs[0]].Question)
+	require.Equal(t, "correct", byGroup[groupIDs[0]].Status)
+	require.Equal(t, "15", byGroup[groupIDs[0]].ModelAnswer)
+	require.Equal(t, "scheduled fixture", byGroup[groupIDs[1]].Question)
+	require.Equal(t, "correct", byGroup[groupIDs[1]].Status)
+
+	manualIncorrectAt := manualCorrectAt.Add(10 * time.Minute)
+	manualIncorrectRun := openAIIQRun(t, "manual incorrect fixture", manualIncorrectAt, manualIncorrectAt.Add(time.Hour))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `UPDATE openai_iq_runs SET trigger=$2 WHERE id=$1`, manualIncorrectRun, service.IQTriggerManual).Err())
+	iqInsertHistoricalResult(t, manualIncorrectRun, groupIDs[0], "gpt-6-astra", "incorrect", "14", &manualIncorrectAt)
+	items, err = repo.LatestValid(ctx, groupIDs, groupIDs, "gpt-6-astra", "current", "15")
+	require.NoError(t, err)
+	for _, item := range items {
+		if item.GroupID == groupIDs[0] {
+			require.Equal(t, "manual incorrect fixture", item.Question)
+			require.Equal(t, "incorrect", item.Status)
+			require.Equal(t, "14", item.ModelAnswer)
+		}
+	}
+
+	failedAt := manualIncorrectAt.Add(10 * time.Minute)
+	failedManualRun := openAIIQRun(t, "failed manual fixture", failedAt, failedAt.Add(time.Hour))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `UPDATE openai_iq_runs SET trigger=$2 WHERE id=$1`, failedManualRun, service.IQTriggerManual).Err())
+	iqInsertHistoricalResult(t, failedManualRun, groupIDs[0], "gpt-6-astra", "error", "", &failedAt)
+	items, err = repo.LatestValid(ctx, groupIDs, groupIDs, "gpt-6-astra", "current", "15")
+	require.NoError(t, err)
+	for _, item := range items {
+		if item.GroupID == groupIDs[0] {
+			require.Equal(t, "manual incorrect fixture", item.Question, "a failed manual result must not hide the prior valid manual result")
+			require.Equal(t, "incorrect", item.Status)
+		}
+	}
+}
+
 func TestOpenAIIQReserveBudgetPostgresCapsConcurrentDistinctGroups(t *testing.T) {
 	ctx := context.Background()
 	groupIDs := openAIIQGroups(t, 6)

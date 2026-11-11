@@ -168,6 +168,35 @@ func TestOpenAIIQDiagnosticsPostgresRetainsHistoricalStatesAndReservation(t *tes
 	require.Equal(t, 4, page.Total)
 }
 
+func TestOpenAIIQDiagnosticsPostgresComputesLeaseActiveWithoutMutatingRuns(t *testing.T) {
+	ctx := context.Background()
+	repo := NewOpenAIIQRepository(integrationDB)
+	now := time.Now().UTC()
+	activeRun := openAIIQRun(t, "diagnostics lease active", now.Add(3*time.Minute), now.Add(5*time.Minute))
+	expiredRun := openAIIQRun(t, "diagnostics lease expired", now.Add(2*time.Minute), now.Add(-5*time.Minute))
+	terminalRun := openAIIQRun(t, "diagnostics lease terminal", now.Add(time.Minute), now.Add(5*time.Minute))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `
+		UPDATE openai_iq_runs SET status='complete', finished_at=NOW() WHERE id=$1`, terminalRun).Err())
+
+	page, err := repo.Diagnostics(ctx, 1, 50)
+	require.NoError(t, err)
+	leaseActive := map[int64]bool{}
+	for _, run := range page.Runs {
+		leaseActive[run.ID] = run.LeaseActive
+	}
+	require.True(t, leaseActive[activeRun])
+	require.False(t, leaseActive[expiredRun])
+	require.False(t, leaseActive[terminalRun])
+
+	var activeStatus, expiredStatus, terminalStatus string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT status FROM openai_iq_runs WHERE id=$1`, activeRun).Scan(&activeStatus))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT status FROM openai_iq_runs WHERE id=$1`, expiredRun).Scan(&expiredStatus))
+	require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT status FROM openai_iq_runs WHERE id=$1`, terminalRun).Scan(&terminalStatus))
+	require.Equal(t, "running", activeStatus)
+	require.Equal(t, "running", expiredStatus, "diagnostics must not clean up expired runs")
+	require.Equal(t, "complete", terminalStatus)
+}
+
 func TestOpenAIIQDiagnosticsPostgresMaximumPageDoesNotOverflow(t *testing.T) {
 	repo := NewOpenAIIQRepository(integrationDB)
 	page, err := repo.Diagnostics(context.Background(), 1000000, 50)

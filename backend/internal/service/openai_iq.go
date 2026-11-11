@@ -26,6 +26,15 @@ const OpenAIIQConcurrency = 16
 const MaxIQDiagnosticsPage = 1_000_000
 const MaxIQDiagnosticsPageSize = 50
 
+const IQTriggerScheduled = "scheduled"
+const IQTriggerManual = "manual"
+
+var (
+	ErrIQRunActive      = errors.New("an OpenAI IQ run is already active")
+	ErrIQManualCooldown = errors.New("this group was manually rechecked within five minutes")
+	ErrIQGroupInvalid   = errors.New("the OpenAI IQ group is not active or configured")
+)
+
 const defaultOpenAIIQQuestion = `在一个黑色的袋子里放有三种口味的糖果，每种糖果有两种不同的形状（圆形和五角星形，不同的形状靠手感可以分辨）。已知不同口味的糖果和不同形状的数量如下：
 
 圆形：苹果味 6 颗，桃子味 6 颗，西瓜味 5 颗。
@@ -142,6 +151,9 @@ type IQDiagnosticResult struct {
 }
 type IQDiagnosticRun struct {
 	ID             int64                `json:"id"`
+	Trigger        string               `json:"trigger"`
+	RequestedBy    *int64               `json:"requested_by"`
+	LeaseActive    bool                 `json:"lease_active"`
 	StartedAt      time.Time            `json:"started_at"`
 	FinishedAt     *time.Time           `json:"finished_at"`
 	Question       string               `json:"question"`
@@ -159,6 +171,7 @@ type IQDiagnosticsPage struct {
 
 type IQRun struct {
 	ID        int64
+	Trigger   string
 	StartedAt time.Time
 	Question  string
 	Answer    string
@@ -188,6 +201,13 @@ type OpenAIIQRepository interface {
 	SaveSettings(context.Context, IQSettings) error
 }
 
+// IQManualRunRepository claims manual and scheduled runs under the same
+// cross-instance lock. It is separate so existing read-only adapters can
+// continue to implement OpenAIIQRepository without supporting manual runs.
+type IQManualRunRepository interface {
+	ClaimManual(context.Context, IQSettings, int64, int64) (*IQRun, error)
+}
+
 type OpenAIIQService struct {
 	settings     SettingRepository
 	groups       GroupRepository
@@ -206,6 +226,9 @@ type OpenAIIQService struct {
 	cancel       context.CancelFunc
 	ctx          context.Context
 	done         chan struct{}
+	lifecycleMu  sync.Mutex
+	stopped      bool
+	manualWG     sync.WaitGroup
 }
 
 func NewOpenAIIQService(settings SettingRepository, groups GroupRepository, users UserRepository, apiKeys *APIKeyService, repo OpenAIIQRepository, billing *BillingService, channels *ChannelService, accounts AccountRepository, cfg *config.Config) *OpenAIIQService {

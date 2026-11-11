@@ -125,6 +125,7 @@
                 <input
                 v-model.number="settings.per_request_limit_usd"
                 class="input"
+                data-testid="openai-iq-request-limit"
                 type="number"
                 min="0.01"
                 :max="settings.daily_budget_usd"
@@ -187,30 +188,55 @@
               v-if="groups.length"
               class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2"
             >
-              <label
+              <div
                 v-for="group in groups"
                 :key="group.id"
-                class="flex min-w-0 cursor-pointer items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-dark-700"
+                class="flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 p-3 dark:border-dark-700"
               >
-                <input
-                  v-model="settings.group_ids"
-                  type="checkbox"
-                  :value="group.id"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                >
-                <span
-                  class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100"
-                >
-                  {{ group.name }}
-                </span>
+                <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                  <input
+                    v-model="settings.group_ids"
+                    type="checkbox"
+                    :value="group.id"
+                    class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  >
+                  <span
+                    class="min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-gray-100"
+                  >
+                    {{ group.name }}
+                  </span>
+                </label>
                 <span class="text-xs text-gray-500">×{{ group.rate_multiplier }}</span>
-              </label>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm shrink-0"
+                  :data-testid="`openai-iq-recheck-${group.id}`"
+                  :disabled="recheckBusy || !isSavedRecheckGroup(group.id)"
+                  :title="isSavedRecheckGroup(group.id) ? undefined : t('admin.openaiIQ.recheckRequiresSavedGroup')"
+                  @click="openRecheckConfirmation(group)"
+                >
+                  {{ t('admin.openaiIQ.recheck') }}
+                </button>
+                <span
+                  v-if="!isSavedRecheckGroup(group.id)"
+                  :data-testid="`openai-iq-recheck-requires-save-${group.id}`"
+                  class="basis-full text-xs text-amber-700 dark:text-amber-300"
+                >
+                  {{ t('admin.openaiIQ.recheckRequiresSavedGroup') }}
+                </span>
+              </div>
             </div>
             <p
               v-else
               class="mt-4 text-sm text-gray-500"
             >
               {{ t('common.noData') }}
+            </p>
+            <p
+              v-if="recheckStatus"
+              class="mt-4 rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950/30 dark:text-blue-200"
+            >
+              {{ recheckStatus }}
             </p>
             <div
               v-if="unavailableGroupIDs.length"
@@ -331,7 +357,7 @@
             <div v-else-if="diagnostics.runs.length" class="mt-4 space-y-3">
               <details v-for="run in diagnostics.runs" :key="run.id" class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
                 <summary class="cursor-pointer break-words font-medium text-gray-900 dark:text-white">
-                  {{ run.model }} · {{ formatDate(run.started_at) }} · {{ run.status }}
+                  {{ run.model }} · {{ formatDate(run.started_at) }} · {{ triggerLabel(run.trigger) }} · {{ run.status }}
                 </summary>
                 <p class="mt-3 whitespace-pre-wrap text-sm text-gray-600 dark:text-gray-300">
                   {{ run.question }}
@@ -416,15 +442,24 @@
       </form>
     </div>
   </AppLayout>
+  <ConfirmDialog
+    :show="recheckGroup !== null"
+    :title="t('admin.openaiIQ.recheckConfirmTitle')"
+    :message="recheckConfirmationMessage"
+    :confirm-text="t('admin.openaiIQ.recheck')"
+    @confirm="confirmRecheck"
+    @cancel="closeRecheckConfirmation"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
   getOpenAIIQSettings,
   getOpenAIIQDiagnostics,
+  recheckOpenAIIQGroup,
   updateOpenAIIQSettings,
   type IQBudget,
   type IQGroupOption,
@@ -432,8 +467,9 @@ import {
   type OpenAIIQDiagnostics,
 } from '@/api/openaiIQ'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -455,6 +491,16 @@ const budget = ref<IQBudget>({
 const diagnosticsLoading = ref(false)
 const diagnosticsError = ref(false)
 const diagnostics = ref<OpenAIIQDiagnostics>({ runs: [], total: 0, page: 1, page_size: 20 })
+const savedSettings = ref<IQSettings | null>(null)
+const recheckGroup = ref<IQGroupOption | null>(null)
+const recheckSubmitting = ref(false)
+const manualRunID = ref<number | null>(null)
+const manualRunGroupID = ref<number | null>(null)
+const recheckStatus = ref('')
+let diagnosticsPollTimer: ReturnType<typeof setTimeout> | null = null
+let diagnosticsRequestVersion = 0
+let diagnosticsPollingRequested = false
+let unmounted = false
 const settings = ref<IQSettings>({
   enabled: false,
   question: '',
@@ -471,9 +517,24 @@ const unavailableGroupIDs = computed(() => {
   const activeIDs = new Set(groups.value.map(group => group.id))
   return settings.value.group_ids.filter(id => !activeIDs.has(id))
 })
+const recheckBusy = computed(() => recheckSubmitting.value || manualRunID.value !== null || diagnostics.value.runs.some(isActiveRun))
+const recheckConfirmationMessage = computed(() => {
+  if (!recheckGroup.value || !savedSettings.value) return ''
+  return t('admin.openaiIQ.recheckConfirm', {
+    group: recheckGroup.value.name,
+    amount: savedSettings.value.per_request_limit_usd,
+  })
+})
+function isSavedRecheckGroup(groupID: number): boolean {
+  return savedSettings.value?.group_ids.includes(groupID) ?? false
+}
 
 function applyView(view: Awaited<ReturnType<typeof getOpenAIIQSettings>>): void {
   settings.value = {
+    ...view.settings,
+    group_ids: [...view.settings.group_ids],
+  }
+  savedSettings.value = {
     ...view.settings,
     group_ids: [...view.settings.group_ids],
   }
@@ -531,15 +592,102 @@ async function load(): Promise<void> {
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' }).format(new Date(value))
 }
+function triggerLabel(trigger: 'scheduled' | 'manual' | undefined): string {
+  return t(trigger === 'manual' ? 'admin.openaiIQ.triggerManual' : 'admin.openaiIQ.triggerScheduled')
+}
+function isActiveRun(run: OpenAIIQDiagnostics['runs'][number]): boolean {
+  if (run.status === 'pending') return true
+  return run.status === 'running' && run.lease_active !== false
+}
+function stopDiagnosticsPolling(): void {
+  diagnosticsPollingRequested = false
+  if (diagnosticsPollTimer !== null) {
+    clearTimeout(diagnosticsPollTimer)
+    diagnosticsPollTimer = null
+  }
+}
+function startDiagnosticsPolling(): void {
+  diagnosticsPollingRequested = true
+  if (unmounted || diagnosticsPollTimer !== null) return
+  diagnosticsPollTimer = setTimeout(() => {
+    diagnosticsPollTimer = null
+    void loadDiagnostics(1)
+  }, 2000)
+}
 async function loadDiagnostics(page: number): Promise<void> {
+  const requestVersion = ++diagnosticsRequestVersion
   diagnosticsLoading.value = true
   diagnosticsError.value = false
   try {
-    diagnostics.value = await getOpenAIIQDiagnostics(page, diagnostics.value.page_size)
+    const nextDiagnostics = await getOpenAIIQDiagnostics(page, diagnostics.value.page_size)
+    if (unmounted || requestVersion !== diagnosticsRequestVersion) return
+    diagnostics.value = nextDiagnostics
+    if (manualRunID.value !== null) {
+      const run = diagnostics.value.runs.find(item => item.id === manualRunID.value)
+      if (run && !isActiveRun(run)) {
+        manualRunID.value = null
+        stopDiagnosticsPolling()
+        const result = run.results.find(item => item.group_id === manualRunGroupID.value)
+        manualRunGroupID.value = null
+        if (run.status === 'running') {
+          recheckStatus.value = t('admin.openaiIQ.recheckExpired')
+          appStore.showError(recheckStatus.value)
+        } else if (result && (result.status === 'correct' || result.status === 'incorrect')) {
+          recheckStatus.value = t('admin.openaiIQ.recheckComplete')
+          appStore.showSuccess(recheckStatus.value)
+        } else {
+          recheckStatus.value = result?.error || t('admin.openaiIQ.recheckResultUnavailable')
+          appStore.showError(recheckStatus.value)
+        }
+      }
+    }
+    const hasActiveRun = diagnostics.value.runs.some(isActiveRun)
+    if (hasActiveRun || manualRunID.value !== null) startDiagnosticsPolling()
+    else stopDiagnosticsPolling()
   } catch {
+    if (unmounted || requestVersion !== diagnosticsRequestVersion) return
     diagnosticsError.value = true
   } finally {
-    diagnosticsLoading.value = false
+    if (!unmounted && requestVersion === diagnosticsRequestVersion) {
+      diagnosticsLoading.value = false
+      if (diagnosticsPollingRequested) startDiagnosticsPolling()
+    }
+  }
+}
+
+function openRecheckConfirmation(group: IQGroupOption): void {
+  if (recheckBusy.value || !isSavedRecheckGroup(group.id)) return
+  recheckGroup.value = group
+}
+function closeRecheckConfirmation(): void {
+  if (!recheckSubmitting.value) recheckGroup.value = null
+}
+async function confirmRecheck(): Promise<void> {
+  const group = recheckGroup.value
+  const confirmedLimitUSD = savedSettings.value?.per_request_limit_usd
+  if (!group || confirmedLimitUSD === undefined || recheckSubmitting.value) return
+  recheckSubmitting.value = true
+  try {
+    const run = await recheckOpenAIIQGroup(group.id, confirmedLimitUSD)
+    if (unmounted) return
+    manualRunID.value = run.run_id
+    manualRunGroupID.value = group.id
+    recheckGroup.value = null
+    recheckStatus.value = t('admin.openaiIQ.recheckRunning')
+    appStore.showSuccess(t('admin.openaiIQ.recheckStarted'))
+    await loadDiagnostics(1)
+    if (manualRunID.value !== null) startDiagnosticsPolling()
+  } catch (error: unknown) {
+    if (unmounted) return
+    recheckStatus.value = extractI18nErrorMessage(
+      error,
+      t,
+      'admin.openaiIQ.recheckErrors',
+      extractApiErrorMessage(error, t('admin.openaiIQ.recheckFailed')),
+    )
+    appStore.showError(recheckStatus.value)
+  } finally {
+    if (!unmounted) recheckSubmitting.value = false
   }
 }
 
@@ -565,5 +713,10 @@ async function save(): Promise<void> {
 
 onMounted(() => {
   void load()
+})
+onBeforeUnmount(stopDiagnosticsPolling)
+onBeforeUnmount(() => {
+  unmounted = true
+  diagnosticsRequestVersion += 1
 })
 </script>

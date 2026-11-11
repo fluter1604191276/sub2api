@@ -129,20 +129,24 @@ func (r *openAIIQRepository) ClaimDue(ctx context.Context, settings service.IQSe
 	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(14020261104)`); err != nil {
 		return nil, err
 	}
+	claimNow, err := iqClaimTimestamp(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		WITH expired_runs AS (
 			UPDATE openai_iq_runs
-			SET status = 'error', finished_at = NOW()
-			WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < NOW()
+			SET status = 'error', finished_at = $1
+			WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < $1
 			RETURNING id
 		)
 		UPDATE openai_iq_results
-		SET status = 'error', checked_at = NOW(), error = '执行进程未在租约内完成，本轮已终止，费用预留继续保留'
-		WHERE status = 'pending' AND run_id IN (SELECT id FROM expired_runs)`); err != nil {
+		SET status = 'error', checked_at = $1, error = '执行进程未在租约内完成，本轮已终止，费用预留继续保留'
+		WHERE status = 'pending' AND run_id IN (SELECT id FROM expired_runs)`, claimNow); err != nil {
 		return nil, err
 	}
 	var activeRunID int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM openai_iq_runs WHERE status = 'running' AND lease_expires_at >= NOW() ORDER BY started_at DESC LIMIT 1`).Scan(&activeRunID)
+	err = tx.QueryRowContext(ctx, `SELECT id FROM openai_iq_runs WHERE status = 'running' AND lease_expires_at >= $1 ORDER BY started_at DESC LIMIT 1`, claimNow).Scan(&activeRunID)
 	if err == nil {
 		return nil, tx.Commit()
 	}
@@ -152,8 +156,8 @@ func (r *openAIIQRepository) ClaimDue(ctx context.Context, settings service.IQSe
 
 	var due bool
 	err = tx.QueryRowContext(ctx, `
-		SELECT started_at <= NOW() - ($1::double precision * INTERVAL '1 second')
-		FROM openai_iq_runs ORDER BY started_at DESC LIMIT 1`, settings.IntervalSeconds).Scan(&due)
+		SELECT started_at <= $1::timestamptz - ($2::double precision * INTERVAL '1 second')
+		FROM openai_iq_runs WHERE trigger = $3 ORDER BY started_at DESC LIMIT 1`, claimNow, settings.IntervalSeconds, service.IQTriggerScheduled).Scan(&due)
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
 	}
@@ -165,15 +169,16 @@ func (r *openAIIQRepository) ClaimDue(ctx context.Context, settings service.IQSe
 		Question: settings.Question,
 		Answer:   settings.ExpectedAnswer,
 		Model:    settings.Model,
+		Trigger:  service.IQTriggerScheduled,
 	}
 	snapshot, err := json.Marshal(settings)
 	if err != nil {
 		return nil, err
 	}
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO openai_iq_runs (started_at, question, expected_answer, model, settings_snapshot, lease_expires_at)
-		VALUES (NOW(), $1, $2, $3, $4::jsonb, NOW() + INTERVAL '10 minutes')
-		RETURNING id, started_at`, run.Question, run.Answer, run.Model, string(snapshot)).Scan(&run.ID, &run.StartedAt)
+		INSERT INTO openai_iq_runs (started_at, question, expected_answer, model, settings_snapshot, lease_expires_at, trigger)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $1::timestamptz + INTERVAL '10 minutes', $6)
+		RETURNING id, started_at`, claimNow, run.Question, run.Answer, run.Model, string(snapshot), run.Trigger).Scan(&run.ID, &run.StartedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -193,10 +198,139 @@ func (r *openAIIQRepository) ClaimDue(ctx context.Context, settings service.IQSe
 	if count != int64(len(settings.GroupIDs)) {
 		return nil, fmt.Errorf("OpenAI IQ group snapshot changed while claiming run")
 	}
+	if err := refreshIQRunLease(ctx, tx, run); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return run, nil
+}
+
+// ClaimManual creates one administrator-requested, single-group run. The
+// transaction uses the same advisory lock as ClaimDue so it cannot overlap a
+// scheduled run or another manual request on a different server instance.
+func (r *openAIIQRepository) ClaimManual(ctx context.Context, settings service.IQSettings, groupID, requestedBy int64) (*service.IQRun, error) {
+	if r == nil || r.db == nil || groupID <= 0 || requestedBy <= 0 || !containsIQGroup(settings.GroupIDs, groupID) {
+		return nil, service.ErrIQGroupInvalid
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(14020261104)`); err != nil {
+		return nil, err
+	}
+	claimNow, err := iqClaimTimestamp(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		WITH expired_runs AS (
+			UPDATE openai_iq_runs
+			SET status = 'error', finished_at = $1
+			WHERE status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at < $1
+			RETURNING id
+		)
+		UPDATE openai_iq_results
+		SET status = 'error', checked_at = $1, error = '执行进程未在租约内完成，本轮已终止，费用预留继续保留'
+		WHERE status = 'pending' AND run_id IN (SELECT id FROM expired_runs)`, claimNow); err != nil {
+		return nil, err
+	}
+	var activeRunID int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT id FROM openai_iq_runs
+		WHERE status = 'running' AND lease_expires_at >= $1
+		ORDER BY started_at DESC LIMIT 1`, claimNow).Scan(&activeRunID)
+	if err == nil {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrIQRunActive
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	var cooling bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM openai_iq_runs runs
+			JOIN openai_iq_results results ON results.run_id = runs.id
+			WHERE runs.trigger = $1 AND results.group_id = $2
+			  AND runs.started_at > $3::timestamptz - INTERVAL '5 minutes'
+		)`, service.IQTriggerManual, groupID, claimNow).Scan(&cooling); err != nil {
+		return nil, err
+	}
+	if cooling {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		return nil, service.ErrIQManualCooldown
+	}
+	run := &service.IQRun{Question: settings.Question, Answer: settings.ExpectedAnswer, Model: settings.Model, Trigger: service.IQTriggerManual}
+	snapshot, err := json.Marshal(settings)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.QueryRowContext(ctx, `
+		INSERT INTO openai_iq_runs (started_at, question, expected_answer, model, settings_snapshot, lease_expires_at, trigger, requested_by)
+		VALUES ($1, $2, $3, $4, $5::jsonb, $1::timestamptz + INTERVAL '10 minutes', $6, $7)
+		RETURNING id, started_at`, claimNow, run.Question, run.Answer, run.Model, string(snapshot), run.Trigger, requestedBy).Scan(&run.ID, &run.StartedAt); err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO openai_iq_results (run_id, group_id, group_name, rate_multiplier, model, expected_answer, status)
+		SELECT $1, id, name, rate_multiplier, $2, $3, 'pending'
+		FROM groups
+		WHERE id = $4 AND platform = $5 AND status = 'active' AND deleted_at IS NULL`,
+		run.ID, run.Model, run.Answer, groupID, service.PlatformOpenAI)
+	if err != nil {
+		return nil, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if count != 1 {
+		return nil, service.ErrIQGroupInvalid
+	}
+	if err := refreshIQRunLease(ctx, tx, run); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+func iqClaimTimestamp(ctx context.Context, tx *sql.Tx) (time.Time, error) {
+	var now time.Time
+	err := tx.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&now)
+	return now, err
+}
+
+// refreshIQRunLease makes the persistent lease start immediately before the
+// claim commits, so lock waits and snapshot writes do not consume it.
+func refreshIQRunLease(ctx context.Context, tx *sql.Tx, run *service.IQRun) error {
+	now, err := iqClaimTimestamp(ctx, tx)
+	if err != nil {
+		return err
+	}
+	return tx.QueryRowContext(ctx, `
+		UPDATE openai_iq_runs
+		SET started_at = $2, lease_expires_at = $2::timestamptz + INTERVAL '10 minutes'
+		WHERE id = $1
+		RETURNING started_at`, run.ID, now).Scan(&run.StartedAt)
+}
+
+func containsIQGroup(groupIDs []int64, target int64) bool {
+	for _, groupID := range groupIDs {
+		if groupID == target {
+			return true
+		}
+	}
+	return false
 }
 
 // ReserveBudget records the worst-case request cost before dispatch. The

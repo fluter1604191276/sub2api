@@ -66,14 +66,18 @@ func (r *openAIIQRepository) Diagnostics(ctx context.Context, page, pageSize int
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM openai_iq_runs`).Scan(&out.Total); err != nil {
 		return nil, err
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, started_at, finished_at, question, expected_answer, model, status FROM openai_iq_runs ORDER BY started_at DESC, id DESC LIMIT $1 OFFSET $2`, pageSize, (page-1)*pageSize)
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, started_at, finished_at, question, expected_answer, model, status, trigger, requested_by,
+		       status = 'running' AND lease_expires_at IS NOT NULL AND lease_expires_at >= NOW() AS lease_active
+		FROM openai_iq_runs
+		ORDER BY started_at DESC, id DESC LIMIT $1 OFFSET $2`, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var run service.IQDiagnosticRun
-		if err := rows.Scan(&run.ID, &run.StartedAt, &run.FinishedAt, &run.Question, &run.ExpectedAnswer, &run.Model, &run.Status); err != nil {
+		if err := rows.Scan(&run.ID, &run.StartedAt, &run.FinishedAt, &run.Question, &run.ExpectedAnswer, &run.Model, &run.Status, &run.Trigger, &run.RequestedBy, &run.LeaseActive); err != nil {
 			return nil, err
 		}
 		run.Results = []service.IQDiagnosticResult{}

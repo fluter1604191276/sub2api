@@ -95,3 +95,30 @@ func (h *OpenAIIQHandler) UpdateSettings(c *gin.Context) {
 	}
 	h.GetSettings(c)
 }
+
+func (h *OpenAIIQHandler) Recheck(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var in struct {
+		ConfirmCost       *bool    `json:"confirm_cost"`
+		ConfirmedLimitUSD *float64 `json:"confirmed_limit_usd"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.ConfirmCost == nil || !*in.ConfirmCost || in.ConfirmedLimitUSD == nil {
+		response.BadRequest(c, "Cost and allowance confirmation are required")
+		return
+	}
+	runID, err := h.service.Recheck(c.Request.Context(), groupID, subject.UserID, *in.ConfirmedLimitUSD)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, gin.H{"run_id": runID})
+}

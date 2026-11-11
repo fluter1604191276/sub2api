@@ -94,6 +94,11 @@ export interface IQDiagnosticResult {
 }
 export interface IQDiagnosticRun {
   id: number
+  trigger?: 'scheduled' | 'manual'
+  group_ids?: number[]
+  // Older diagnostic responses omit this. Treat an omitted value conservatively
+  // as active while a run still reports status=running.
+  lease_active?: boolean
   model: string
   question: string
   expected_answer: string
@@ -103,6 +108,7 @@ export interface IQDiagnosticRun {
   results: IQDiagnosticResult[]
 }
 export interface OpenAIIQDiagnostics { runs: IQDiagnosticRun[]; total: number; page: number; page_size: number }
+export interface OpenAIIQManualRecheck { run_id: number }
 
 export async function getOpenAIIQ(): Promise<OpenAIIQView> {
   const { data } = await apiClient.get<OpenAIIQView>('/openai-iq')
@@ -121,5 +127,13 @@ export async function updateOpenAIIQSettings(settings: IQSettings): Promise<Open
 
 export async function getOpenAIIQDiagnostics(page = 1, pageSize = 20): Promise<OpenAIIQDiagnostics> {
   const { data } = await apiClient.get<OpenAIIQDiagnostics>('/admin/openai-iq/diagnostics', { params: { page, page_size: pageSize } })
+  return data
+}
+
+export async function recheckOpenAIIQGroup(groupID: number, confirmedLimitUSD: number): Promise<OpenAIIQManualRecheck> {
+  const { data } = await apiClient.post<OpenAIIQManualRecheck>(`/admin/openai-iq/groups/${groupID}/recheck`, {
+    confirm_cost: true,
+    confirmed_limit_usd: confirmedLimitUSD,
+  })
   return data
 }

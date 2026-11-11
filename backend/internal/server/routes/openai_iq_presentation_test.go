@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,6 +50,18 @@ func (*iqPresentationGroups) ListActive(context.Context) ([]service.Group, error
 func (r *iqPresentationGroups) ListActiveByPlatform(ctx context.Context, _ string) ([]service.Group, error) {
 	return r.ListActive(ctx)
 }
+func (*iqPresentationGroups) GetByID(_ context.Context, id int64) (*service.Group, error) {
+	return &service.Group{ID: id, Platform: service.PlatformOpenAI, Status: service.StatusActive}, nil
+}
+
+type iqPresentationSettings struct{ service.SettingRepository }
+
+func (*iqPresentationSettings) GetValue(context.Context, string) (string, error) {
+	settings := service.DefaultIQSettings()
+	settings.GroupIDs = []int64{1}
+	raw, err := json.Marshal(settings)
+	return string(raw), err
+}
 
 type iqPresentationSubscriptions struct {
 	service.UserSubscriptionRepository
@@ -64,7 +77,21 @@ type iqPresentationRepo struct {
 	diagnosticsCalls int
 	allowed          []int64
 	page, pageSize   int
+	claimedGroup     int64
+	requestedBy      int64
 }
+
+func (*iqPresentationRepo) Identity(context.Context) (*service.IQIdentity, error) {
+	return &service.IQIdentity{UserID: 123, Balance: 1}, nil
+}
+func (r *iqPresentationRepo) ClaimManual(_ context.Context, _ service.IQSettings, groupID, requestedBy int64) (*service.IQRun, error) {
+	r.claimedGroup, r.requestedBy = groupID, requestedBy
+	return &service.IQRun{ID: 501, Trigger: service.IQTriggerManual}, nil
+}
+func (*iqPresentationRepo) RunResults(context.Context, int64) ([]service.IQResult, error) {
+	return nil, nil
+}
+func (*iqPresentationRepo) FinishRun(context.Context, int64) error { return nil }
 
 func (r *iqPresentationRepo) LatestValid(_ context.Context, allowed, _ []int64, _, _, _ string) ([]service.IQPublicResult, error) {
 	r.allowed = slices.Clone(allowed)
@@ -92,6 +119,10 @@ func (r *iqPresentationRepo) Diagnostics(_ context.Context, page, pageSize int) 
 }
 
 func iqPresentationRouter(t *testing.T, repo *iqPresentationRepo) (*gin.Engine, string, string) {
+	return iqPresentationRouterWithSettings(t, repo, nil)
+}
+
+func iqPresentationRouterWithSettings(t *testing.T, repo *iqPresentationRepo, settings service.SettingRepository) (*gin.Engine, string, string) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	users := &iqPresentationUsers{users: map[int64]*service.User{
@@ -103,7 +134,13 @@ func iqPresentationRouter(t *testing.T, repo *iqPresentationRepo) (*gin.Engine, 
 	auth := service.NewAuthService(nil, users, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	userService := service.NewUserService(users, nil, nil, nil)
 	keys := service.NewAPIKeyService(nil, users, groups, &iqPresentationSubscriptions{}, nil, nil, cfg)
-	iq := handler.NewOpenAIIQHandler(service.NewOpenAIIQService(nil, groups, users, keys, repo, nil, nil, nil, cfg))
+	if settings != nil {
+		// The manual fixture has no gateway/cache dependencies or HTTP work.
+		keys = nil
+	}
+	iqService := service.NewOpenAIIQService(settings, groups, users, keys, repo, nil, nil, nil, cfg)
+	t.Cleanup(iqService.Stop)
+	iq := handler.NewOpenAIIQHandler(iqService)
 	router := gin.New()
 	v1 := router.Group("/api/v1")
 	userRoutes := v1.Group("", gin.HandlerFunc(middleware.NewJWTAuthMiddleware(auth, userService, nil, nil)))
@@ -185,6 +222,50 @@ func TestOpenAIIQHTTPDiagnosticsRequiresAdministrator(t *testing.T) {
 	}
 	require.Contains(t, w.Body.String(), "operator diagnostic")
 	require.Contains(t, w.Body.String(), "client:iq-admin-only")
+}
+
+func TestOpenAIIQHTTPRecheckRequiresAdminAndCostConfirmation(t *testing.T) {
+	router, userToken, adminToken := iqPresentationRouter(t, &iqPresentationRepo{})
+	post := func(path, token, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	path := "/api/v1/admin/openai-iq/groups/1/recheck"
+	valid := `{"confirm_cost":true,"confirmed_limit_usd":0.1}`
+	require.Equal(t, http.StatusUnauthorized, post(path, "", valid).Code)
+	require.Equal(t, http.StatusForbidden, post(path, userToken, valid).Code)
+	for _, body := range []string{`{}`, `{"confirm_cost":false,"confirmed_limit_usd":0.1}`, `{"confirm_cost":true}`, `not-json`} {
+		require.Equal(t, http.StatusBadRequest, post(path, adminToken, body).Code, body)
+	}
+	for _, id := range []string{"0", "-1", "abc"} {
+		require.Equal(t, http.StatusBadRequest, post("/api/v1/admin/openai-iq/groups/"+id+"/recheck", adminToken, valid).Code)
+	}
+}
+
+func TestOpenAIIQHTTPRecheckAcceptsConfirmedAdministrator(t *testing.T) {
+	repo := &iqPresentationRepo{}
+	router, _, adminToken := iqPresentationRouterWithSettings(t, repo, &iqPresentationSettings{})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/openai-iq/groups/1/recheck", strings.NewReader(`{"confirm_cost":true,"confirmed_limit_usd":0.1}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusAccepted, w.Code)
+	var body struct {
+		Data struct {
+			RunID int64 `json:"run_id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, int64(501), body.Data.RunID)
+	require.Equal(t, int64(1), repo.claimedGroup)
+	require.Equal(t, int64(2), repo.requestedBy)
 }
 
 func TestOpenAIIQHTTPDiagnosticsRejectsOversizedOrMalformedPagination(t *testing.T) {

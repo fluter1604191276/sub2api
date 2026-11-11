@@ -81,3 +81,22 @@ func TestChannelMonitorV3ProfitControlDoesNotReattachAtTurnOrSelectionBoundary(t
 	selection := &AccountSelectionResult{profitGate: &openAIProfitControlGate{groupID: groupID}}
 	require.Nil(t, profitGate(ContextWithSelectionProfitGate(turnCtx, selection)))
 }
+
+func TestChannelMonitorV3SelectionRestoresStickyTraceWhileClearingProfitGate(t *testing.T) {
+	group := channelMonitorV3ProfitGroup(74, PlatformOpenAI)
+	groupID := group.ID
+	trace := &smartStickySwitchTrace{pending: &smartStickySwitchPending{}}
+	selection := &AccountSelectionResult{
+		Account:           &Account{ID: 901},
+		profitGate:        &openAIProfitControlGate{groupID: groupID},
+		stickySwitchTrace: trace,
+	}
+
+	ctx := ContextWithSelectionProfitGate(trustedChannelMonitorV3Context(group), selection)
+	require.Nil(t, profitGate(ctx), "trusted V3 monitor requests must not regain a profit gate")
+	require.Same(t, trace, ctx.Value(smartStickySwitchTraceContextKey{}), "the selection trace must survive the V3 gate bypass")
+
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	require.Equal(t, int64(901), trace.pending.selectedAccountID, "the restored trace must bind to the selected account")
+}
