@@ -39,6 +39,19 @@ func newOpenAITransportErrTestContext() (*gin.Context, *httptest.ResponseRecorde
 	return c, rec
 }
 
+func TestChannelMonitorV3TransportErrorDoesNotUnschedule(t *testing.T) {
+	ctx := context.WithValue(context.Background(), channelMonitorV3RequestContextKey{}, true)
+	repo := &openaiTransportAccountRepoStub{}
+	svc := &OpenAIGatewayService{accountRepo: repo}
+	c, _ := newOpenAITransportErrTestContext()
+	account := &Account{ID: 77, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	err := svc.handleOpenAIUpstreamTransportError(ctx, c, account, errors.New("connection refused"), false)
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Empty(t, repo.tempUnschedCalls)
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+}
+
 type failingOpenAIHTTPUpstream struct {
 	err       error
 	calls     int

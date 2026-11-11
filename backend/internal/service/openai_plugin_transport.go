@@ -51,6 +51,11 @@ func observeOpenAIPluginRoundTrip(upstream HTTPUpstream, manager *PluginManager,
 	observed, enabled := upstream.(*observedHTTPUpstream)
 	var attempt *UpstreamAttempt
 	response, handled, err := manager.roundTripOpenAIOAuth(request.Context(), request, proxyURL, account, func() error {
+		// Check after the manager has captured and admitted the actual route.
+		// A preflight ShouldRoute check could race with a route replacement.
+		if IsChannelMonitorV3Request(request.Context()) {
+			return errors.New("channel monitor v3 does not admit OAuth plugin transport")
+		}
 		if enabled {
 			attempt = observed.start(request, account.ID)
 		}

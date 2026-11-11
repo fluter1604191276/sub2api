@@ -63,6 +63,20 @@ func TestHandleOpenAITransientError_529RemainsOverloadOnly(t *testing.T) {
 	require.False(t, shouldCooldownOpenAITransientUpstreamError(529, []byte(`{"error":{"message":"overloaded"}}`)))
 }
 
+func TestChannelMonitorV3OpenAIErrorFastpathDoesNotCooldownFor401429Or5xx(t *testing.T) {
+	ctx := context.WithValue(context.Background(), channelMonitorV3RequestContextKey{}, true)
+	for _, statusCode := range []int{http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusBadGateway} {
+		t.Run(http.StatusText(statusCode), func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
+			account := &Account{ID: int64(6100 + statusCode), Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+			require.False(t, svc.handleOpenAIAccountUpstreamError(ctx, account, statusCode, http.Header{}, []byte(`{"error":{"message":"upstream failed"}}`), "gpt-5.5"))
+			require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			require.False(t, svc.isOpenAIAccountModelRuntimeBlocked(account, "gpt-5.5"))
+		})
+	}
+}
+
 func TestHandleOpenAITransientError_CanonicalModelIsNotMappedTwice(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)

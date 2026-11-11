@@ -300,6 +300,9 @@ const (
 // CheckErrorPolicy 检查自定义错误码和临时不可调度规则。
 // 自定义错误码开启时覆盖后续所有逻辑（包括临时不可调度）。
 func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) ErrorPolicyResult {
+	if IsChannelMonitorV3Request(ctx) {
+		return ErrorPolicyNone
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	if account.IsCustomErrorCodesEnabled() {
 		if account.ShouldHandleErrorCode(statusCode) {
@@ -330,6 +333,11 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	// V3 probes diagnose a group; their synthetic failures must never mutate
+	// production account/model cooldown state.
+	if IsChannelMonitorV3Request(ctx) {
+		return false
+	}
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
@@ -2298,7 +2306,7 @@ func (s *RateLimitService) GetTempUnschedStatus(ctx context.Context, accountID i
 }
 
 func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {
-	if account == nil {
+	if IsChannelMonitorV3Request(ctx) || account == nil {
 		return false
 	}
 	if account.IsPoolMode() && !account.IsCustomErrorCodesEnabled() {
@@ -2508,7 +2516,7 @@ const tempUnschedMessageMaxBytes = 2048
 // cooldown expires, instead of re-selecting an account that can never serve
 // the model.
 func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, account *Account, requestedModel string, statusCode int, responseBody []byte) bool {
-	if s == nil || account == nil || s.accountRepo == nil {
+	if IsChannelMonitorV3Request(ctx) || s == nil || account == nil || s.accountRepo == nil {
 		return false
 	}
 	if !account.ShouldHandleErrorCode(statusCode) {

@@ -122,6 +122,11 @@ func RegisterAdminRoutes(
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
+		if h.ChannelMonitorV3 != nil {
+			admin.GET("/channel-monitor-v3", h.ChannelMonitorV3.Config)
+			admin.PUT("/channel-monitor-v3/settings", h.ChannelMonitorV3.SaveSettings)
+			admin.PUT("/channel-monitor-v3/groups/:id", h.ChannelMonitorV3.SaveGroup)
+		}
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)

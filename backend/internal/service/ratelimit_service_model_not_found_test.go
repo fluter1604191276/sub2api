@@ -69,6 +69,15 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
 }
 
+func TestChannelMonitorV3ModelNotFoundDoesNotWriteModelCooldown(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := &Account{ID: 73, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	handled := svc.HandleUpstreamModelNotFound(context.WithValue(context.Background(), channelMonitorV3RequestContextKey{}, true), account, "gpt-5.5", http.StatusNotFound, []byte(`{"error":{"code":"model_not_found"}}`))
+	require.False(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
 func TestRateLimitService_HandleUpstreamError_APIKeyModel401UsesModelRateLimit(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}

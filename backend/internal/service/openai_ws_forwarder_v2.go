@@ -35,6 +35,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	lastFailureReason string,
 	agentTaskRecoveryTried *bool,
 ) (*OpenAIForwardResult, error) {
+	if IsChannelMonitorV3Request(ctx) {
+		return nil, errors.New("channel monitor v3 requires native HTTP upstream transport")
+	}
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}

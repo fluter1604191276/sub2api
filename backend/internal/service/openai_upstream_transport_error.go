@@ -115,6 +115,9 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	if IsChannelMonitorV3Request(ctx) {
+		return &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: openAITransportFailoverBody}
+	}
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}
@@ -172,7 +175,7 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 //   - "openai.account_temp_unscheduled_transport_failed" — DB write attempted
 //     but returned an error.
 func (s *OpenAIGatewayService) tempUnscheduleOpenAITransportError(ctx context.Context, account *Account, safeErr string) {
-	if s == nil || account == nil {
+	if IsChannelMonitorV3Request(ctx) || s == nil || account == nil {
 		return
 	}
 	until := time.Now().Add(openAITransportErrorTempUnschedDuration)

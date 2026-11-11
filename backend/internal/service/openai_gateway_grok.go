@@ -2016,7 +2016,7 @@ func persistGrokTransientModelCooldown(account *Account, decision GrokUpstreamFa
 }
 
 func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) {
-	if s == nil || account == nil {
+	if IsChannelMonitorV3Request(ctx) || s == nil || account == nil {
 		return
 	}
 	if isGrokContentPolicyRejection(statusCode, responseBody) {
