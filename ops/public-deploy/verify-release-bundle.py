@@ -450,10 +450,12 @@ IMAGE_CAPABILITY_MARKERS = {
         "channel_monitor_v3_probe_cost_exceeds_reservation",
         "sub2api-channel-monitor/",
     ),
-    # Stable handler and billing-correlation strings. A candidate that drops the
-    # IQ user boundary or the diagnostic page guard will fail image smoke.
+    # Stable handler, billing-correlation and manual-recheck admission strings.
+    # A candidate that drops the IQ user boundary, page guard, or the manual
+    # cooldown gate will fail image smoke.
     "openai-group-iq": (
         "OPENAI_IQ_PAGE_INVALID",
+        "OPENAI_IQ_MANUAL_COOLDOWN",
         "Unable to load OpenAI IQ results",
         "sub2api-openai-iq",
     ),

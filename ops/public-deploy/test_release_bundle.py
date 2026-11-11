@@ -105,6 +105,16 @@ class ReleaseManifestStructureTests(unittest.TestCase):
         self.assertIn(f"capability {capability} status is 'unverified'", errors)
         self.assertIn(f"capability {capability} has no evidence", errors)
 
+        self.assertEqual(
+            "present",
+            verify.inspect_binary_capabilities(" ".join(markers).encode())[capability]["status"],
+        )
+        incomplete = tuple(marker for marker in markers if marker != "OPENAI_IQ_MANUAL_COOLDOWN")
+        self.assertEqual(
+            "missing",
+            verify.inspect_binary_capabilities(" ".join(incomplete).encode())[capability]["status"],
+        )
+
     def test_channel_monitor_v3_stays_fail_closed(self):
         capability = "channel-monitor-v3"
         self.assertIn(capability, verify.REQUIRED_CAPABILITIES)
