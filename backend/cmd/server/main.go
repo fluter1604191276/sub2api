@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
 
@@ -190,6 +191,10 @@ func runMainServer() {
 	if err := app.Server.Shutdown(ctx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
+	// The HTTP server has stopped accepting requests; drain the independent
+	// bounded Response diagnostics queue before process exit.
+	handler.StopOpsResponseDiagnosticWorkers()
+	service.StopUpstreamAttemptWorkers()
 
 	log.Println("Server exited")
 }

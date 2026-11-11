@@ -229,6 +229,13 @@ func TestClassifyGroupRecoveryProbeError(t *testing.T) {
 	require.Equal(t, GroupRecoveryProbeErrorTransient, classifyGroupRecoveryProbeError("context deadline exceeded"))
 }
 
+func TestBusinessProtocolOnlyCrossProtocolPolicyPauses(t *testing.T) {
+	require.Equal(t, GroupRecoveryProbeStatusFailed, mergeBusinessProtocolProbe(GroupRecoveryProbeProtocolStatus{}, false, "401 invalid api key").Status)
+	require.Equal(t, GroupRecoveryProbeStatusFailed, mergeBusinessProtocolProbe(GroupRecoveryProbeProtocolStatus{}, false, "model not found").Status)
+	require.Equal(t, GroupRecoveryProbeStatusFailed, mergeBusinessProtocolProbe(GroupRecoveryProbeProtocolStatus{}, false, "insufficient balance").Status)
+	require.Equal(t, GroupRecoveryProbeStatusPaused, mergeBusinessProtocolProbe(GroupRecoveryProbeProtocolStatus{}, false, "cross_protocol_conversion_disabled").Status)
+}
+
 func TestBuildGroupRecoveryProbeCompletion_ManualFailureUsesFixedInterval(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	job := GroupRecoveryProbeJob{
@@ -289,7 +296,7 @@ func TestBuildGroupRecoveryProbeCompletion_SmartRecoveryProgression(t *testing.T
 	require.Equal(t, now.Add(4*time.Hour), fourthSuccess.NextProbeAt)
 }
 
-func TestBuildGroupRecoveryProbeCompletion_PermanentFailurePausesAtLowFrequency(t *testing.T) {
+func TestBuildGroupRecoveryProbeCompletion_GenericPermanentFailureUsesSmartBackoff(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	completion := buildGroupRecoveryProbeCompletion(GroupRecoveryProbeJob{
 		Mode:              GroupRecoveryProbeModeSmart,
@@ -298,6 +305,21 @@ func TestBuildGroupRecoveryProbeCompletion_PermanentFailurePausesAtLowFrequency(
 		Attempts:     1,
 		FailureCount: 1,
 		LastError:    "permission denied: model access unavailable",
+	}, now)
+	require.Equal(t, GroupRecoveryProbeStatusFailed, completion.Status)
+	require.Equal(t, GroupRecoveryProbeErrorPermanent, completion.LastErrorClass)
+	require.Equal(t, now.Add(time.Minute), completion.NextProbeAt)
+}
+
+func TestBuildGroupRecoveryProbeCompletion_CrossProtocolConversionPauseIsPermanent(t *testing.T) {
+	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	completion := buildGroupRecoveryProbeCompletion(GroupRecoveryProbeJob{
+		Mode:              GroupRecoveryProbeModeSmart,
+		BackoffCapSeconds: 1800,
+	}, GroupRecoveryProbeRoundResult{
+		Attempts:     1,
+		FailureCount: 1,
+		LastError:    "cross_protocol_conversion_disabled",
 	}, now)
 	require.Equal(t, GroupRecoveryProbeStatusPaused, completion.Status)
 	require.Equal(t, GroupRecoveryProbeErrorPermanent, completion.LastErrorClass)

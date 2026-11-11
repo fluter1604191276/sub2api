@@ -46,6 +46,10 @@ REQUIRED_CAPABILITIES = (
     "official-0215-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
+    "channel-monitor-v3",
+    "openai-group-iq",
+    "responses-completion-diagnostics",
+    "upstream-attempt-ledger",
 )
 
 OFFICIAL_VERSION = "0.2.15"
@@ -298,6 +302,73 @@ CAPABILITY_FILES = {
         "frontend/src/views/admin/AccountsView.vue",
         "ops/public-deploy/docs/extensions/20260922-passive-capability-observation.md",
     ),
+    "channel-monitor-v3": (
+        "backend/internal/service/channel_monitor_v3.go",
+        "backend/internal/service/channel_monitor_v3_probe.go",
+        "backend/internal/service/channel_monitor_v3_price_bound.go",
+        "backend/internal/service/channel_monitor_v3_public.go",
+        "backend/internal/service/channel_monitor_v3_profit_control_test.go",
+        "backend/internal/repository/channel_monitor_v3_repo.go",
+        "backend/internal/repository/channel_monitor_v3_probe_repo.go",
+        "backend/internal/repository/channel_monitor_v3_quality.go",
+        "backend/internal/handler/channel_monitor_v3_handler.go",
+        "backend/internal/handler/channel_monitor_v3_public_handler.go",
+        "backend/internal/server/routes/channel_monitor_v3.go",
+        "backend/internal/server/routes/channel_monitor_v3_test.go",
+        "backend/migrations/314_channel_monitor_v3_config.sql",
+        "backend/migrations/315_channel_monitor_v3_probes.sql",
+        "backend/migrations/316_channel_monitor_v3_identity.sql",
+        "frontend/src/api/admin/channelMonitorV3.ts",
+        "frontend/src/api/channelMonitorV3.ts",
+        "frontend/src/views/admin/ChannelMonitorV3View.vue",
+        "frontend/src/views/user/ChannelStatusV3View.vue",
+        "frontend/src/views/admin/__tests__/ChannelMonitorV3View.spec.ts",
+        "frontend/src/views/user/__tests__/ChannelStatusV3View.spec.ts",
+        "ops/public-deploy/docs/extensions/20261105-channel-status-v3.md",
+    ),
+    "openai-group-iq": (
+        "backend/internal/service/openai_iq.go",
+        "backend/internal/service/openai_iq_runner.go",
+        "backend/internal/service/openai_iq_manual.go",
+        "backend/internal/repository/openai_iq_repo.go",
+        "backend/internal/repository/openai_iq_views.go",
+        "backend/internal/handler/openai_iq_handler.go",
+        "backend/migrations/310_openai_iq.sql",
+        "backend/migrations/317_openai_iq_manual_runs.sql",
+        "frontend/src/api/openaiIQ.ts",
+        "frontend/src/views/user/ModelIQView.vue",
+        "frontend/src/views/user/__tests__/ModelIQView.spec.ts",
+        "frontend/src/views/admin/OpenAIIQSettingsView.vue",
+        "frontend/src/views/admin/__tests__/OpenAIIQSettingsView.spec.ts",
+        "ops/public-deploy/docs/extensions/20261104-openai-iq.md",
+        "ops/public-deploy/docs/extensions/20261106-openai-iq-result-recovery.md",
+        "ops/public-deploy/docs/extensions/20261111-openai-iq-manual-recheck.md",
+    ),
+    "responses-completion-diagnostics": (
+        "backend/internal/service/openai_response_diagnostics.go",
+        "backend/internal/service/ops_response_diagnostics.go",
+        "backend/internal/service/openai_ws_http_bridge.go",
+        "backend/internal/handler/ops_response_diagnostics.go",
+        "backend/internal/handler/admin/ops_response_diagnostics_handler.go",
+        "backend/internal/repository/ops_repo_response_diagnostics.go",
+        "backend/migrations/313_ops_response_diagnostics.sql",
+        "frontend/src/views/admin/ops/components/OpsResponseDiagnosticsTable.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsResponseDiagnosticsTable.spec.ts",
+        "ops/public-deploy/docs/extensions/20261018-responses-diagnostics.md",
+    ),
+    "upstream-attempt-ledger": (
+        "backend/internal/service/upstream_attempt.go",
+        "backend/internal/service/upstream_attempt_http.go",
+        "backend/internal/service/upstream_attempt_queue.go",
+        "backend/internal/service/upstream_attempt_ws.go",
+        "backend/internal/service/group_recovery_probe_protocol.go",
+        "backend/internal/handler/admin/upstream_attempt_handler.go",
+        "backend/internal/repository/upstream_attempt_repo.go",
+        "backend/migrations/312_upstream_attempts.sql",
+        "frontend/src/views/admin/ops/components/OpsUpstreamAttemptLedger.vue",
+        "frontend/src/views/admin/ops/components/__tests__/OpsUpstreamAttemptLedger.spec.ts",
+        "ops/public-deploy/docs/extensions/20261105-attempt-ledger-and-probe-policy.md",
+    ),
 }
 
 REQUIRED_ROUTES = (
@@ -371,6 +442,35 @@ IMAGE_CAPABILITY_MARKERS = {
         "capability-stats/batch",
         "tool_roundtrip_observed",
         "terminal_not_supported",
+    ),
+    # Stable public/admin route and durable settlement alert strings. A stale
+    # image missing V3's separate monitoring path cannot pass image smoke.
+    "channel-monitor-v3": (
+        "/channel-monitor-v3",
+        "channel_monitor_v3_probe_cost_exceeds_reservation",
+        "sub2api-channel-monitor/",
+    ),
+    # Stable handler, billing-correlation and manual-recheck admission strings.
+    # A candidate that drops the IQ user boundary, page guard, or the manual
+    # cooldown gate will fail image smoke.
+    "openai-group-iq": (
+        "OPENAI_IQ_PAGE_INVALID",
+        "OPENAI_IQ_MANUAL_COOLDOWN",
+        "Unable to load OpenAI IQ results",
+        "sub2api-openai-iq",
+    ),
+    # Stable admin route, SQL dedupe and protocol-policy strings. A candidate that
+    # drops the diagnostics/ledger persistence or the permanent-refusal marker
+    # will fail image smoke.
+    "responses-completion-diagnostics": (
+        "/response-diagnostics",
+        "FROM ops_response_diagnostics",
+        "ON CONFLICT (request_id,turn_id) DO NOTHING",
+    ),
+    "upstream-attempt-ledger": (
+        "/upstream-attempts/queue-status",
+        "ON CONFLICT (attempt_id) DO NOTHING",
+        "cross_protocol_conversion_disabled",
     ),
 }
 

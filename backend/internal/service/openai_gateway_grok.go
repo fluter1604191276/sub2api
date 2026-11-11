@@ -114,6 +114,7 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 		if buildErr != nil {
 			return nil, buildErr
 		}
+		observeOpenAIResponseDiagnosticForwarded(c, patchedBody, account.ID)
 
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
@@ -161,6 +162,9 @@ func (s *OpenAIGatewayService) forwardGrokResponses(
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	// xAI returns Xai-Request-Id on normal Responses traffic; preserve the
+	// same request identity in diagnostics as the final gateway result.
+	observeOpenAIResponseDiagnosticHeaders(c, firstNonEmpty(resp.Header.Get("x-request-id"), resp.Header.Get("xai-request-id")))
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
@@ -2012,7 +2016,7 @@ func persistGrokTransientModelCooldown(account *Account, decision GrokUpstreamFa
 }
 
 func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) {
-	if s == nil || account == nil {
+	if IsChannelMonitorV3Request(ctx) || s == nil || account == nil {
 		return
 	}
 	if isGrokContentPolicyRejection(statusCode, responseBody) {

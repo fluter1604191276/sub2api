@@ -673,6 +673,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	hooks *OpenAIWSIngressHooks,
 	wsDecision OpenAIWSProtocolDecision,
 ) error {
+	if IsChannelMonitorV3Request(ctx) {
+		return errors.New("channel monitor v3 requires native HTTP upstream transport")
+	}
 	// The same request context survives scheduler failover attempts. Clear any
 	// reverse mapping installed by the prior account before processing frames.
 	setCodexToolNameReverse(c, nil)
@@ -1135,6 +1138,66 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		},
 	}
 	upstreamFirstMessageSent := false
+	var upstreamAttemptMu sync.Mutex
+	var upstreamAttempt *upstreamAttemptWebSocketObserver
+	beginUpstreamAttempt := func(payload []byte) {
+		if strings.TrimSpace(gjson.GetBytes(payload, "type").String()) != "response.create" {
+			return
+		}
+		requestModel, mappedModel := usageMeta.turnModels(strings.TrimSpace(gjson.GetBytes(payload, "model").String()))
+		if mappedModel == "" {
+			mappedModel = requestModel
+		}
+		observer := s.startUpstreamAttemptWebSocket(
+			ctx,
+			c,
+			account,
+			mappedModel,
+			optionalStringValue(extractOpenAIServiceTierFromBody(payload)),
+			"",
+		)
+		observer.setUpstreamRequestID(handshakeHeaders)
+		beginOpenAIResponseDiagnosticsForTurn(c, payload, true)
+		observeOpenAIResponseDiagnosticForwarded(c, payload, account.ID)
+		observeOpenAIResponseDiagnosticHeaders(c, handshakeHeaders.Get("x-request-id"))
+		upstreamAttemptMu.Lock()
+		previous := upstreamAttempt
+		upstreamAttempt = observer
+		upstreamAttemptMu.Unlock()
+		// A later response.create is only accepted after the prior turn is
+		// terminal. Keep an incomplete prior observation rather than dropping it
+		// if a peer violates that sequencing.
+		previous.finish()
+	}
+	finishUpstreamAttempt := func(_ openaiwsv2.RelayTurnResult) {
+		upstreamAttemptMu.Lock()
+		observer := upstreamAttempt
+		upstreamAttempt = nil
+		upstreamAttemptMu.Unlock()
+		if observer == nil {
+			return
+		}
+		observer.finish()
+	}
+	observeRawUpstreamFrame := func(_ coderws.MessageType, payload []byte) {
+		upstreamAttemptMu.Lock()
+		observer := upstreamAttempt
+		upstreamAttemptMu.Unlock()
+		observer.observe(payload)
+		observeOpenAIResponseDiagnosticUsage(c, payload)
+		eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+		if isOpenAIWSTerminalEvent(eventType) {
+			observeOpenAIResponseDiagnosticTerminal(c, payload, eventType, nil)
+		}
+	}
+	defer func() {
+		upstreamAttemptMu.Lock()
+		observer := upstreamAttempt
+		upstreamAttempt = nil
+		upstreamAttemptMu.Unlock()
+		observer.finish()
+	}()
+	beginUpstreamAttempt(firstClientMessage)
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()
@@ -1190,6 +1253,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			FirstMessageSent:                upstreamFirstMessageSent,
 			StartClientAfterFirstDownstream: true,
 			ReadClientFrame:                 readNextClientFrame,
+			BeforeWriteUpstream:             func(msgType coderws.MessageType, payload []byte) { beginUpstreamAttempt(payload) },
+			AfterReadUpstream:               observeRawUpstreamFrame,
 			OnUsageParseFailure: func(eventType string, usageRaw string) {
 				logOpenAIWSV2Passthrough(
 					"usage_parse_failed event_type=%s usage_raw=%s",
@@ -1198,6 +1263,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				)
 			},
 			OnTurnComplete: func(turn openaiwsv2.RelayTurnResult) {
+				finishUpstreamAttempt(turn)
 				turnNo := int(completedTurns.Add(1))
 				if hooks != nil && hooks.TurnStarted != nil && !turn.StartedAt.IsZero() {
 					hooks.TurnStarted(turnNo, turn.StartedAt)

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -35,12 +36,32 @@ func (h *OpenAIIQHandler) Get(c *gin.Context) {
 		response.Unauthorized(c, "User not found in context")
 		return
 	}
-	view, err := h.service.View(c.Request.Context(), subject.UserID)
+	view, err := h.service.PublicView(c.Request.Context(), subject.UserID)
+	if err != nil {
+		// User-facing results never disclose provider, repository, or budget
+		// diagnostics. Operators use the separately authenticated diagnostics API.
+		response.InternalError(c, "Unable to load OpenAI IQ results")
+		return
+	}
+	response.Success(c, view)
+}
+func (h *OpenAIIQHandler) GetDiagnostics(c *gin.Context) {
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil {
+		response.BadRequest(c, "page must be an integer")
+		return
+	}
+	pageSize, err := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if err != nil {
+		response.BadRequest(c, "page_size must be an integer")
+		return
+	}
+	data, err := h.service.Diagnostics(c.Request.Context(), page, pageSize)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, view)
+	response.Success(c, data)
 }
 func (h *OpenAIIQHandler) GetSettings(c *gin.Context) {
 	settings, groups, budget, err := h.service.Admin(c.Request.Context())
@@ -73,4 +94,31 @@ func (h *OpenAIIQHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	h.GetSettings(c)
+}
+
+func (h *OpenAIIQHandler) Recheck(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not found in context")
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || groupID <= 0 {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	var in struct {
+		ConfirmCost       *bool    `json:"confirm_cost"`
+		ConfirmedLimitUSD *float64 `json:"confirmed_limit_usd"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.ConfirmCost == nil || !*in.ConfirmCost || in.ConfirmedLimitUSD == nil {
+		response.BadRequest(c, "Cost and allowance confirmation are required")
+		return
+	}
+	runID, err := h.service.Recheck(c.Request.Context(), groupID, subject.UserID, *in.ConfirmedLimitUSD)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Accepted(c, gin.H{"run_id": runID})
 }

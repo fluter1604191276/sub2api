@@ -209,6 +209,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	if req != nil {
 		profile = service.HTTPUpstreamProfileFromContext(req.Context())
 	}
+	isChannelMonitorV3 := req != nil && service.IsChannelMonitorV3Request(req.Context())
 
 	// 获取或创建对应的客户端，并标记请求占用
 	entry, err := s.acquireClientWithProfile(proxyURL, accountID, accountConcurrency, profile)
@@ -218,16 +219,22 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 
 	// 执行请求
 	client := s.httpClientForUpstreamRequest(entry.client, req)
-	client = httpClientWithGrokAccessDeniedFallback(client)
+	if !isChannelMonitorV3 {
+		client = httpClientWithGrokAccessDeniedFallback(client)
+	}
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
-		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		if !isChannelMonitorV3 {
+			s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		}
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		return nil, err
 	}
-	s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	if !isChannelMonitorV3 {
+		s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	}
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -279,7 +286,9 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	}
 
 	client := s.httpClientForUpstreamRequest(entry.client, req)
-	client = httpClientWithGrokAccessDeniedFallback(client)
+	if !service.IsChannelMonitorV3Request(req.Context()) {
+		client = httpClientWithGrokAccessDeniedFallback(client)
+	}
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
 		atomic.AddInt64(&entry.inFlight, -1)
@@ -306,17 +315,22 @@ func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, 
 		return resp, err
 	}
 	decompressResponseBody(resp)
-	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel}
+	var beforeCancel func()
+	if tail, ok := resp.Body.(interface{ ObserveUpstreamAttemptErrorTail() }); ok {
+		beforeCancel = tail.ObserveUpstreamAttemptErrorTail
+	}
+	resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancel, beforeCancel: beforeCancel}
 	return resp, nil
 }
 
 type cancelOnCloseBody struct {
 	io.ReadCloser
-	cancel context.CancelFunc
-	once   sync.Once
-	err    error
-	readMu sync.Mutex
-	closed bool
+	cancel       context.CancelFunc
+	beforeCancel func()
+	once         sync.Once
+	err          error
+	readMu       sync.Mutex
+	closed       bool
 }
 
 func (b *cancelOnCloseBody) Read(p []byte) (int, error) {
@@ -335,6 +349,9 @@ func (b *cancelOnCloseBody) Close() error {
 		// EOF waiter on a reused connection and stall subsequent responses.
 		// Fully consumed responses have already released their transport request,
 		// so cancelling here preserves normal keep-alive reuse.
+		if b.beforeCancel != nil {
+			b.beforeCancel()
+		}
 		b.cancel()
 		// Wait for an active read to observe cancellation before touching the
 		// body or decompressor. Do not hold readMu while cancelling the request.
@@ -354,7 +371,7 @@ func (s *httpUpstreamService) httpClientForUpstreamRequest(client *http.Client, 
 	}
 	ctx := req.Context()
 	switch {
-	case service.HTTPUpstreamRedirectsDisabled(ctx):
+	case service.IsChannelMonitorV3Request(ctx), service.HTTPUpstreamRedirectsDisabled(ctx):
 		clone := *client
 		clone.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -393,7 +410,7 @@ func httpClientWithGrokAccessDeniedFallback(client *http.Client) *http.Client {
 }
 
 func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.base.RoundTrip(req)
+	resp, err := service.ObserveHTTPUpstreamRoundTrip(req, t.base, decompressResponseBody)
 	if err != nil || !isGrokCLIAccessDeniedFallbackCandidate(req, resp) {
 		return resp, err
 	}
@@ -407,7 +424,7 @@ func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.
 	if err != nil {
 		return resp, nil
 	}
-	fallbackResp, fallbackErr := t.base.RoundTrip(fallbackReq)
+	fallbackResp, fallbackErr := service.ObserveHTTPUpstreamRoundTrip(fallbackReq, t.base, decompressResponseBody)
 	if fallbackErr != nil {
 		slog.Debug("grok_cli_access_denied_api_fallback_failed", "path", req.URL.EscapedPath(), "error", fallbackErr)
 		return resp, nil

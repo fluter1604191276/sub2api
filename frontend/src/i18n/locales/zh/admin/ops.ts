@@ -126,6 +126,24 @@ export default {
       errorsSla: '错误（SLA范围）',
       upstreamExcl429529: '上游（排除429/529）',
       failedToLoadData: '加载运维数据失败',
+      responseDiagnostics: {
+        title: 'Responses 响应诊断',
+        description: '记录 Responses 请求的终止状态；页面不展示请求内容。',
+        incompleteHint: '不完整响应也可能是 HTTP 200，请结合终止原因与输出上限判断。',
+        startTime: '开始时间', endTime: '结束时间', status: '状态', upstreamStatus: '上游完成状态', allStatuses: '全部状态', clientDisconnected: '客户端已断开',
+        reason: '终止原因', accountId: '账号 ID', userId: '用户 ID', groupId: '分组 ID', requestId: '请求 ID',
+        serverRequestId: '服务端请求 ID', clientRequestId: '客户端请求 ID', upstreamRequestId: '上游请求 ID', responseId: '响应 ID',
+        search: '查询', time: '时间', route: '链路', limits: '输出上限', tokens: 'Token 分桶',
+        requestedLimit: '请求值', forwardedLimit: '转发值', upstreamLimit: '上游值',
+        inputTokens: '输入', cacheReadTokens: '缓存读取', cacheCreationTokens: '缓存创建', outputTokens: '输出', reasoningTokens: '推理',
+        unknown: '未知', empty: '暂无响应诊断记录', total: '共 {count} 条', loadFailed: '加载响应诊断失败。',
+        invalidId: '账号 ID 和用户 ID 必须为正整数。', invalidTimeRange: '开始时间必须早于结束时间。',
+        statuses: { completed: '已完成', incomplete: '未完成', failed: '失败', client_disconnected: '客户端已断开', missing_terminal: '缺少终止事件' }
+      },
+      upstreamAttempts: {
+        title: '上游尝试影子账本', description: '按上海日期和账号汇总的上游实际成本；仅用于对账，不参与用户计费。',
+        accountId: '账号 ID', startDate: '开始日期（上海）', endDate: '结束日期（上海）', refresh: '刷新', day: '日期', attempts: '尝试次数', knownCost: '已知成本 (USD)', unknown: '未知成本次数', empty: '暂无账本记录', loadFailed: '加载影子账本失败。', invalidAccountId: '账号 ID 必须是有效的正整数。', invalidDateRange: '结束日期不能早于开始日期，且日期范围最多 30 天。'
+      },
       failedToLoadOverview: '加载概览数据失败',
       failedToLoadThroughputTrend: '加载吞吐趋势失败',
       failedToLoadSwitchTrend: '加载平均账号切换趋势失败',

@@ -1092,6 +1092,115 @@ export async function getOpenAITokenStats(
 
 export type OpsErrorListView = 'errors' | 'excluded' | 'all'
 
+export type OpsResponseDiagnosticStatus = 'completed' | 'incomplete' | 'failed' | 'client_disconnected' | 'missing_terminal'
+
+/**
+ * A terminal Responses event. Nullable values are deliberately preserved: an
+ * absent upstream value is different from a reported zero token/limit.
+ */
+export interface OpsResponseDiagnostic {
+  id: number
+  created_at: string
+  request_id?: string | null
+  client_request_id?: string | null
+  upstream_request_id?: string | null
+  response_id?: string | null
+  user_id?: number | null
+  account_id?: number | null
+  group_id?: number | null
+  model?: string | null
+  stream?: boolean | null
+  http_status?: number | null
+  status: OpsResponseDiagnosticStatus
+  client_disconnected?: boolean | null
+  reason?: string | null
+  requested_max_output_tokens?: number | null
+  forwarded_max_output_tokens?: number | null
+  upstream_max_output_tokens?: number | null
+  input_tokens?: number | null
+  cache_read_tokens?: number | null
+  cache_creation_tokens?: number | null
+  output_tokens?: number | null
+  reasoning_tokens?: number | null
+}
+
+export interface OpsResponseDiagnosticsQuery {
+  start_time?: string
+  end_time?: string
+  status?: OpsResponseDiagnosticStatus
+  reason?: string
+  account_id?: number
+  user_id?: number
+  request_id?: string
+  page?: number
+  page_size?: number
+}
+
+export interface OpsResponseDiagnosticsResponse {
+  items: OpsResponseDiagnostic[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export async function listResponseDiagnostics(
+  params: OpsResponseDiagnosticsQuery
+): Promise<OpsResponseDiagnosticsResponse> {
+  const { data } = await apiClient.get<OpsResponseDiagnosticsResponse>(
+    '/admin/ops/response-diagnostics',
+    { params }
+  )
+  return data
+}
+
+export type UpstreamAttemptSource = 'request' | 'recovery_probe' | 'channel_monitor' | 'channel_monitor_v3' | 'openai_iq'
+
+export interface UpstreamAttemptDailyCost {
+  day: string
+  account_id: number
+  attempt_count: number
+  known_cost_usd: number
+  unknown_count: number
+}
+
+export interface UpstreamAttemptDailyCostQuery {
+  start_time?: string
+  end_time?: string
+  time_range?: string
+  account_id?: number
+}
+
+export interface UpstreamAttempt {
+  id: number
+  attempt_id: string
+  request_id: string
+  client_request_id: string
+  upstream_request_id: string
+  created_at: string
+  account_id: number
+  group_id?: number | null
+  model: string
+  protocol: string
+  source: UpstreamAttemptSource
+  outcome: string
+  http_status: number
+  usage_present: boolean
+  cost_usd?: number | null
+  cost_status: 'known' | 'unknown_pricing' | 'no_usage'
+}
+
+export async function listUpstreamAttemptDailyCosts(
+  params: UpstreamAttemptDailyCostQuery
+): Promise<UpstreamAttemptDailyCost[]> {
+  const { data } = await apiClient.get<UpstreamAttemptDailyCost[]>('/admin/ops/upstream-attempts/daily-costs', { params })
+  return data
+}
+
+export async function listUpstreamAttempts(params: UpstreamAttemptDailyCostQuery & { source?: UpstreamAttemptSource, page?: number, page_size?: number }) {
+  const { data } = await apiClient.get<{ items: UpstreamAttempt[], total: number, page: number, page_size: number }>('/admin/ops/upstream-attempts', { params })
+  return data
+}
+
 export type OpsErrorListQueryParams = {
   page?: number
   page_size?: number
@@ -1345,6 +1454,9 @@ export const opsAPI = {
   listRequestErrorUpstreamErrors,
 
   listRequestDetails,
+  listResponseDiagnostics,
+  listUpstreamAttempts,
+  listUpstreamAttemptDailyCosts,
   listAlertRules,
   createAlertRule,
   updateAlertRule,

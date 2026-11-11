@@ -122,6 +122,11 @@ func RegisterAdminRoutes(
 		// 渠道监控
 		registerChannelMonitorRoutes(admin, h, settingService)
 		registerChannelMonitorV2Routes(admin, h, settingService)
+		if h.ChannelMonitorV3 != nil {
+			admin.GET("/channel-monitor-v3", h.ChannelMonitorV3.Config)
+			admin.PUT("/channel-monitor-v3/settings", h.ChannelMonitorV3.SaveSettings)
+			admin.PUT("/channel-monitor-v3/groups/:id", h.ChannelMonitorV3.SaveGroup)
+		}
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
@@ -141,6 +146,8 @@ func registerOpenAIIQRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	endpoint := admin.Group("/openai-iq")
 	endpoint.GET("/settings", h.OpenAIIQ.GetSettings)
 	endpoint.PUT("/settings", h.OpenAIIQ.UpdateSettings)
+	endpoint.GET("/diagnostics", h.OpenAIIQ.GetDiagnostics)
+	endpoint.POST("/groups/:id/recheck", h.OpenAIIQ.Recheck)
 }
 
 func registerPublicCatalogRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
@@ -279,6 +286,12 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Request drilldown (success + error)
 		ops.GET("/requests", h.Admin.Ops.ListRequestDetails)
+		ops.GET("/response-diagnostics", h.Admin.Ops.ListResponseDiagnostics)
+		if h.Admin.UpstreamAttempts != nil {
+			ops.GET("/upstream-attempts", h.Admin.UpstreamAttempts.List)
+			ops.GET("/upstream-attempts/daily-costs", h.Admin.UpstreamAttempts.DailyCosts)
+			ops.GET("/upstream-attempts/queue-status", h.Admin.UpstreamAttempts.QueueStatus)
+		}
 
 		// Indexed system logs
 		ops.GET("/system-logs", h.Admin.Ops.ListSystemLogs)

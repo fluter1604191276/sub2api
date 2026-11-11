@@ -16,7 +16,7 @@
           <div class="flex flex-wrap items-center justify-end gap-2">
             <div
               v-if="data"
-              class="grid grid-cols-2 gap-2 sm:grid-cols-5"
+              class="grid grid-cols-2 gap-2 sm:grid-cols-4"
             >
               <div
                 v-for="item in summaryCards"
@@ -56,34 +56,6 @@
           </span>
           <span>{{ t('modelIQ.model', { model: data.model }) }}</span>
           <span>{{ t('modelIQ.interval', { seconds: data.interval_seconds }) }}</span>
-          <span v-if="data.round_started_at">
-            {{ t('modelIQ.roundStartedAt', { time: formatDate(data.round_started_at) }) }}
-          </span>
-          <button
-          type="button"
-          class="btn btn-ghost btn-sm ml-auto"
-          data-testid="show-question"
-          @click="showQuestion = !showQuestion"
-          >
-            {{ showQuestion ? t('common.collapse') : t('modelIQ.viewQuestion') }}
-          </button>
-        </div>
-        <div
-          v-if="data && showQuestion"
-          class="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-700 dark:bg-dark-900/50 dark:text-gray-200"
-        >
-          <p class="font-semibold">
-            {{ t('modelIQ.question') }}
-          </p>
-          <p class="mt-2 whitespace-pre-wrap">
-            {{ data.question }}
-          </p>
-          <p class="mt-4 font-semibold">
-            {{ t('modelIQ.expectedAnswer') }}
-          </p>
-          <p class="mt-2 whitespace-pre-wrap">
-            {{ data.expected_answer }}
-          </p>
         </div>
       </header>
       <div
@@ -117,9 +89,9 @@
       >
         <article
           v-for="result in data.results"
-          :key="result.group_id"
+          :key="`${result.model}-${result.group_id}`"
           class="overflow-hidden rounded-2xl border-t-4 bg-white shadow-sm ring-1 ring-gray-900/5 dark:bg-dark-800 dark:ring-dark-700"
-          :class="result.status === 'correct' ? 'border-emerald-500' : result.status === 'incorrect' || result.status === 'error' ? 'border-red-500' : 'border-sky-400'"
+          :class="result.status === 'correct' ? 'border-emerald-500' : result.status === 'incorrect' ? 'border-red-500' : 'border-gray-300'"
         >
           <div class="p-5">
             <div class="flex items-start justify-between gap-3">
@@ -137,13 +109,10 @@
                 ×{{ result.rate_multiplier }}
               </span>
             </div>
-            <p
-              v-if="result.response_model && result.response_model !== result.model"
-              class="mt-2 text-xs text-gray-400 dark:text-gray-500"
+            <div
+              v-if="result.status !== 'no_results'"
+              class="mt-5 grid grid-cols-[1fr_auto_1fr] items-stretch gap-2"
             >
-              {{ t('modelIQ.responseModel', { model: result.response_model }) }}
-            </p>
-            <div class="mt-5 grid grid-cols-[1fr_auto_1fr] items-stretch gap-2">
               <div class="rounded-xl bg-gray-50 p-3 dark:bg-dark-900/50">
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('modelIQ.expectedAnswer') }}
@@ -155,9 +124,9 @@
               <div class="flex min-w-16 flex-col items-center justify-center text-center">
                 <span
                   class="text-2xl"
-                  :class="result.status === 'correct' ? 'text-emerald-500' : result.status === 'incorrect' || result.status === 'error' ? 'text-red-500' : 'text-sky-500'"
+                  :class="result.status === 'correct' ? 'text-emerald-500' : 'text-red-500'"
                 >
-                  {{ statusGlyph(result.status) }}
+                  {{ result.status === 'correct' ? '✓' : '×' }}
                 </span>
                 <span
                   class="mt-1 text-xs font-semibold"
@@ -168,7 +137,7 @@
               </div>
               <div
                 class="rounded-xl p-3"
-                :class="result.status === 'correct' ? 'bg-emerald-50 dark:bg-emerald-900/20' : result.status === 'incorrect' || result.status === 'error' ? 'bg-red-50 dark:bg-red-900/20' : 'bg-sky-50 dark:bg-sky-900/20'"
+                :class="result.status === 'correct' ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-red-50 dark:bg-red-900/20'"
               >
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('modelIQ.modelAnswer') }}
@@ -178,12 +147,11 @@
                 </p>
               </div>
             </div>
-            <p
-              v-if="result.error"
-              class="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300"
-            >
-              {{ result.error }}
-            </p>
+            <p v-else class="mt-5 rounded-xl bg-gray-50 p-4 text-sm text-gray-500 dark:bg-dark-900/50 dark:text-gray-400">{{ t('modelIQ.noResultsForGroup') }}</p>
+            <details v-if="result.question" class="mt-4">
+              <summary class="cursor-pointer text-sm font-medium text-primary-600 dark:text-primary-400">{{ t('modelIQ.viewQuestion') }}</summary>
+              <p class="mt-3 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-200">{{ result.question }}</p>
+            </details>
           </div>
           <div
             v-if="result.output"
@@ -200,10 +168,11 @@
             </details>
           </div>
           <footer
+            v-if="result.status !== 'no_results' && result.checked_at"
             class="border-t border-gray-100 bg-gray-50 px-5 py-3 text-xs text-gray-500 dark:border-dark-700 dark:bg-dark-900/30 dark:text-gray-400"
           >
             {{ t('modelIQ.checkedAt') }}
-            {{ result.checked_at ? formatDate(result.checked_at) : t('common.notAvailable') }}
+            {{ formatDate(result.checked_at) }}
           </footer>
         </article>
       </section>
@@ -214,16 +183,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getOpenAIIQ, type IQResultStatus, type OpenAIIQView } from '@/api/openaiIQ'
+import { getOpenAIIQ, type IQPublicResultStatus, type OpenAIIQView } from '@/api/openaiIQ'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
 const { t } = useI18n()
-const appStore = useAppStore()
 const data = ref<OpenAIIQView | null>(null)
 const loading = ref(true)
 const loadError = ref('')
-const showQuestion = ref(false)
 const summaryCards = computed(() => {
   if (!data.value) {
     return []
@@ -249,16 +214,10 @@ const summaryCards = computed(() => {
       className: 'text-amber-600 dark:text-amber-400',
     },
     {
-      key: 'errors',
-      label: t('modelIQ.summary.errors'),
-      value: data.value.summary.errors,
-      className: 'text-red-600 dark:text-red-400',
-    },
-    {
-      key: 'pending',
-      label: t('modelIQ.summary.pending'),
-      value: data.value.summary.pending,
-      className: 'text-sky-600 dark:text-sky-400',
+      key: 'no_results',
+      label: t('modelIQ.summary.noResults'),
+      value: data.value.summary.no_results,
+      className: 'text-gray-600 dark:text-gray-300',
     },
   ]
 })
@@ -270,32 +229,20 @@ function formatDate(value: string): string {
   }).format(new Date(value))
 }
 
-function statusLabel(status: IQResultStatus): string {
+function statusLabel(status: IQPublicResultStatus): string {
   return t(`modelIQ.status.${status}`)
 }
 
-function statusGlyph(status: IQResultStatus): string {
-  if (status === 'correct') {
-    return '✓'
-  }
-
-  if (status === 'incorrect' || status === 'error') {
-    return '×'
-  }
-
-  return '•'
-}
-
-function statusTextClass(status: IQResultStatus): string {
+function statusTextClass(status: IQPublicResultStatus): string {
   if (status === 'correct') {
     return 'text-emerald-600 dark:text-emerald-400'
   }
 
-  if (status === 'incorrect' || status === 'error') {
+  if (status === 'incorrect') {
     return 'text-red-600 dark:text-red-400'
   }
 
-  return 'text-sky-600 dark:text-sky-400'
+  return 'text-gray-600 dark:text-gray-300'
 }
 
 async function load(): Promise<void> {
@@ -304,9 +251,8 @@ async function load(): Promise<void> {
 
   try {
     data.value = await getOpenAIIQ()
-  } catch (error: unknown) {
-    loadError.value = extractApiErrorMessage(error, t('modelIQ.loadError'))
-    appStore.showError(loadError.value)
+  } catch {
+    loadError.value = t('modelIQ.loadError')
   } finally {
     loading.value = false
   }

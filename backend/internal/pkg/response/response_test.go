@@ -5,6 +5,7 @@ package response
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -783,6 +784,69 @@ func Test_parseInt(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.Equal(t, tt.wantVal, val)
+		})
+	}
+}
+
+func TestParseIntRejectsOverflow(t *testing.T) {
+	val, err := parseInt("9223372036854775807")
+	require.NoError(t, err)
+	require.Equal(t, math.MaxInt, val)
+	for _, in := range []string{"9223372036854775808", "99999999999999999999", "18446744073709551617"} {
+		val, err := parseInt(in)
+		require.Error(t, err, in)
+		require.Equal(t, 0, val, in)
+	}
+}
+
+func TestParsePaginationOverflowFallsBackToDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	_, c := newContextWithQuery("page=99999999999999999999&page_size=99999999999999999999")
+	page, pageSize := ParsePagination(c)
+	require.Equal(t, 1, page)
+	require.Equal(t, 20, pageSize)
+}
+
+func TestParsePaginationStrict(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	tests := []struct {
+		name         string
+		query        string
+		wantPage     int
+		wantPageSize int
+		wantErr      bool
+	}{
+		{"defaults", "", 1, 20, false},
+		{"normal", "page=3&page_size=50", 3, 50, false},
+		{"limit alias", "page=2&limit=7", 2, 7, false},
+		{"max boundaries", "page=10000&page_size=1000", 10000, 1000, false},
+		{"page above cap", "page=10001", 0, 0, true},
+		{"page_size above cap", "page_size=1001", 0, 0, true},
+		{"limit above cap", "limit=1001", 0, 0, true},
+		{"page zero", "page=0", 0, 0, true},
+		{"page_size zero", "page_size=0", 0, 0, true},
+		{"negative page", "page=-1", 0, 0, true},
+		{"negative page_size", "page_size=-5", 0, 0, true},
+		{"malformed page", "page=12a", 0, 0, true},
+		{"malformed page_size", "page_size=abc", 0, 0, true},
+		{"decimal", "page=1.5", 0, 0, true},
+		{"plus sign", "page=%2B1", 0, 0, true},
+		{"int64 max page", "page=9223372036854775807&page_size=20", 0, 0, true},
+		{"int64 max page_size", "page=1&page_size=9223372036854775807", 0, 0, true},
+		{"overflow page", "page=9223372036854775808", 0, 0, true},
+		{"overflow page_size", "page_size=99999999999999999999", 0, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, c := newContextWithQuery(tt.query)
+			page, pageSize, err := ParsePaginationStrict(c, 10000, 1000)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantPage, page)
+			require.Equal(t, tt.wantPageSize, pageSize)
 		})
 	}
 }

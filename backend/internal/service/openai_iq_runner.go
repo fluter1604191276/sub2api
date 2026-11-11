@@ -15,6 +15,9 @@ import (
 
 const iqRoundTimeout = 9 * time.Minute
 const iqResultWriteTimeout = 5 * time.Second
+const iqUsageGracePeriod = 5 * time.Second
+
+const iqUnconfirmedBudgetReason = "费用未确认占用预算，已保留预留并结束本轮等待；迟到用量仍会按实结算"
 
 type iqGroupJob struct {
 	result        IQResult
@@ -53,10 +56,14 @@ func (s *OpenAIIQService) Start() {
 }
 
 func (s *OpenAIIQService) Stop() {
+	s.lifecycleMu.Lock()
+	s.stopped = true
 	s.cancel()
+	s.lifecycleMu.Unlock()
 	// A service constructed for a test can also be stopped before Start.
 	s.startOnce.Do(func() { close(s.done) })
 	<-s.done
+	s.manualWG.Wait()
 }
 
 func (s *OpenAIIQService) runIQRound(parent context.Context) error {
@@ -80,13 +87,21 @@ func (s *OpenAIIQService) runIQRound(parent context.Context) error {
 	if identity == nil || !finitePositive(identity.Balance) {
 		return nil
 	}
+	// The worker's time budget starts before claiming the database lease. Lock,
+	// commit, or connection delays therefore cannot extend execution beyond the
+	// durable lease that starts during the claim.
+	deadline := time.Now().Add(iqRoundTimeout)
 	run, err := s.repo.ClaimDue(parent, settings)
 	if err != nil || run == nil {
 		return err
 	}
+	return s.executeIQRun(parent, run, settings, identity.UserID, deadline)
+}
+
+func (s *OpenAIIQService) executeIQRun(parent context.Context, run *IQRun, settings IQSettings, userID int64, deadline time.Time) error {
 	// The durable lease is ten minutes. Cancellation ends all local requests
 	// before it can expire, and a crashed process is never allowed to replay it.
-	ctx, cancel := context.WithTimeout(parent, iqRoundTimeout)
+	ctx, cancel := context.WithDeadline(parent, deadline)
 	defer cancel()
 	defer func() {
 		finishCtx, finishCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -101,9 +116,9 @@ func (s *OpenAIIQService) runIQRound(parent context.Context) error {
 	}
 	if s.apiKeys != nil {
 		// The dedicated identity may have been upgraded from the serial runner.
-		s.apiKeys.InvalidateAuthCacheByUserID(ctx, identity.UserID)
+		s.apiKeys.InvalidateAuthCacheByUserID(ctx, userID)
 	}
-	return s.runIQGroups(ctx, run, settings, identity.UserID, results)
+	return s.runIQGroups(ctx, run, settings, userID, results)
 }
 
 // runIQGroups coordinates admission and reconciliation in one goroutine. Only
@@ -115,8 +130,18 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for len(pending) > 0 || len(waiting) > 0 || active > 0 {
-		if !canStartIQRequest(ctx) {
+		if reason := iqAdmissionStopReason(ctx); reason != "" {
+			if ctx.Err() != nil {
+				for active > 0 {
+					<-completed
+					active--
+				}
+			}
+			s.skipIQResults(run.ID, append(pending, waiting...), reason)
 			pending, waiting = nil, nil
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 		}
 		for len(pending) > 0 && active < OpenAIIQConcurrency && canStartIQRequest(ctx) {
 			result := pending[0]
@@ -151,6 +176,7 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 				<-completed
 				active--
 			}
+			s.skipIQResults(run.ID, append(pending, waiting...), iqAdmissionStopReason(ctx))
 			return ctx.Err()
 		case <-completed:
 			active--
@@ -167,8 +193,21 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 			slog.Warn("OpenAI IQ settings refresh deferred")
 			continue
 		}
-		if !current.Enabled {
+		if !current.Enabled && run.Trigger != IQTriggerManual {
+			s.skipIQResults(run.ID, append(pending, waiting...), "检测已关闭，停止本轮未发起的请求")
 			pending, waiting = nil, nil
+			continue
+		}
+		kept := waiting[:0]
+		for _, result := range waiting {
+			if slices.Contains(current.GroupIDs, result.GroupID) {
+				kept = append(kept, result)
+			} else {
+				s.skipIQResults(run.ID, []IQResult{result}, "分组已从检测配置中移除")
+			}
+		}
+		waiting = kept
+		if len(waiting) == 0 {
 			continue
 		}
 		dailyLimit := math.Min(settings.DailyBudgetUSD, current.DailyBudgetUSD)
@@ -184,11 +223,8 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 		if budget.RemainingUSD+roundingTolerance >= allowance {
 			pending = append(pending, waiting...)
 			waiting = nil
-		} else if budget.ReservedUSD == 0 || budget.SpentUSD+allowance > dailyLimit+roundingTolerance {
-			for _, result := range waiting {
-				result.Status, result.Error = "skipped", "今日预算已用尽"
-				s.persistIQResult(ctx, run.ID, result)
-			}
+		} else if reason := iqBudgetStopReason(budget, dailyLimit, allowance, time.Now()); reason != "" {
+			s.skipIQResults(run.ID, waiting, reason)
 			waiting = nil
 		}
 	}
@@ -196,8 +232,47 @@ func (s *OpenAIIQService) runIQGroups(ctx context.Context, run *IQRun, settings 
 }
 
 func canStartIQRequest(ctx context.Context) bool {
-	deadline, ok := ctx.Deadline()
-	return ctx.Err() == nil && (!ok || time.Until(deadline) >= iqHTTPTimeout+iqResultWriteTimeout)
+	return iqAdmissionStopReason(ctx) == ""
+}
+
+func iqAdmissionStopReason(ctx context.Context) string {
+	if ctx.Err() == context.Canceled {
+		return "本轮执行已取消，未发起该分组请求"
+	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return "本轮执行已到时间上限，未发起该分组请求"
+	}
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < iqHTTPTimeout+iqResultWriteTimeout {
+		return "本轮剩余时间不足，已停止发起新请求"
+	}
+	return ""
+}
+
+func iqBudgetStopReason(budget IQBudget, dailyLimit, allowance float64, now time.Time) string {
+	const tolerance = 0.00000000005
+	if budget.ReservedUSD <= tolerance || budget.SpentUSD+allowance > dailyLimit+tolerance {
+		return "今日实际支出已达预算准入上限"
+	}
+	// Keep waiting while active requests could still settle and free enough
+	// budget. Unconfirmed holds are never released on the strength of a timer.
+	activeHolds := math.Max(0, budget.ReservedUSD-budget.UnconfirmedUSD)
+	if budget.UnconfirmedUSD > 0 && budget.RemainingUSD+activeHolds+tolerance < allowance &&
+		(budget.UnconfirmedSince == nil || now.Sub(*budget.UnconfirmedSince) >= iqUsageGracePeriod) {
+		return iqUnconfirmedBudgetReason
+	}
+	return ""
+}
+
+func (s *OpenAIIQService) skipIQResults(runID int64, results []IQResult, reason string) {
+	if len(results) == 0 {
+		return
+	}
+	writeCtx, cancel := context.WithTimeout(context.Background(), iqResultWriteTimeout)
+	defer cancel()
+	for _, result := range results {
+		result.Status, result.Error = "skipped", reason
+		s.persistIQResult(writeCtx, runID, result)
+	}
 }
 
 func (s *OpenAIIQService) persistIQResult(ctx context.Context, runID int64, result IQResult) {
@@ -211,8 +286,20 @@ func (s *OpenAIIQService) prepareIQGroup(ctx context.Context, run *IQRun, settin
 	result := &job.result
 	result.Status = "skipped"
 	current, err := s.Settings(ctx)
-	if err != nil || !current.Enabled || !slices.Contains(current.GroupIDs, result.GroupID) || ctx.Err() != nil {
-		result.Error = "检测已关闭、分组已移除或本轮执行已取消"
+	if err != nil {
+		result.Error = "无法读取检测设置，未发起该分组请求"
+		return job
+	}
+	if reason := iqAdmissionStopReason(ctx); reason != "" {
+		result.Error = reason
+		return job
+	}
+	if !current.Enabled && run.Trigger != IQTriggerManual {
+		result.Error = "检测已关闭，停止本轮未发起的请求"
+		return job
+	}
+	if !slices.Contains(current.GroupIDs, result.GroupID) {
+		result.Error = "分组已从检测配置中移除"
 		return job
 	}
 	group, err := s.groups.GetByID(ctx, result.GroupID)
@@ -239,15 +326,18 @@ func (s *OpenAIIQService) prepareIQGroup(ctx context.Context, run *IQRun, settin
 		return job
 	}
 	if !canStartIQRequest(ctx) {
-		result.Error = "本轮剩余时间不足，停止本次请求"
+		result.Error = iqAdmissionStopReason(ctx)
 		return job
 	}
 	// Hold the full allowance until a matching gateway usage snapshot confirms
 	// upstream expenditure. Unknown usage keeps its reservation across restarts.
 	reserved, err := s.repo.ReserveBudget(ctx, run.ID, group.ID, IQBudgetDate(), limit, math.Min(settings.DailyBudgetUSD, current.DailyBudgetUSD))
 	if err != nil || !reserved {
-		result.Error = "今日预算已用尽，或本次检测已被预留执行"
+		result.Error = "预算暂不可准入，等待费用结算"
 		job.waitForBudget = err == nil
+		if err != nil {
+			result.Error = "检测预算预留失败，未发起该分组请求"
+		}
 		return job
 	}
 	dispatchID := uuid.NewString()

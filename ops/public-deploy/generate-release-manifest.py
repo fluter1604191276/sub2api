@@ -40,6 +40,10 @@ CAPABILITY_IDS = (
     "official-0215-compatibility",
     "public-catalog-contract",
     "passive-capability-observation",
+    "channel-monitor-v3",
+    "openai-group-iq",
+    "responses-completion-diagnostics",
+    "upstream-attempt-ledger",
 )
 
 

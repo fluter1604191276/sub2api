@@ -73,7 +73,13 @@ type iqRunnerRepoStub struct {
 	completed                                       []IQResult
 }
 
-func (r *iqRunnerRepoStub) Latest(context.Context, []int64) (*IQView, error)  { return nil, nil }
+func (r *iqRunnerRepoStub) Latest(context.Context, []int64) (*IQView, error) { return nil, nil }
+func (r *iqRunnerRepoStub) LatestValid(context.Context, []int64, []int64, string, string, string) ([]IQPublicResult, error) {
+	return []IQPublicResult{}, nil
+}
+func (r *iqRunnerRepoStub) Diagnostics(context.Context, int, int) (*IQDiagnosticsPage, error) {
+	return &IQDiagnosticsPage{Runs: []IQDiagnosticRun{}}, nil
+}
 func (r *iqRunnerRepoStub) Budget(context.Context, float64) (IQBudget, error) { return IQBudget{}, nil }
 func (r *iqRunnerRepoStub) EnsureIdentity(context.Context, []int64) (*IQIdentity, error) {
 	r.mu.Lock()

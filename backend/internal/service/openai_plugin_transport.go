@@ -1,6 +1,9 @@
 package service
 
-import "net/http"
+import (
+	"errors"
+	"net/http"
+)
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
@@ -10,7 +13,7 @@ func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 // 插件返回标准 http.Response，响应解析、错误映射、SSE 和计费仍由现有核心链处理。
 func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	if s.pluginManager != nil {
-		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
+		response, handled, err := observeOpenAIPluginRoundTrip(s.httpUpstream, s.pluginManager, request, proxyURL, account)
 		if handled {
 			return response, err
 		}
@@ -27,7 +30,7 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	useTLSFallback bool,
 ) (*http.Response, error) {
 	if s.pluginManager != nil {
-		response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(request.Context(), request, proxyURL, account)
+		response, handled, err := observeOpenAIPluginRoundTrip(s.httpUpstream, s.pluginManager, request, proxyURL, account)
 		if handled {
 			return response, err
 		}
@@ -42,4 +45,28 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 		)
 	}
 	return s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+}
+
+func observeOpenAIPluginRoundTrip(upstream HTTPUpstream, manager *PluginManager, request *http.Request, proxyURL string, account *Account) (*http.Response, bool, error) {
+	observed, enabled := upstream.(*observedHTTPUpstream)
+	var attempt *UpstreamAttempt
+	response, handled, err := manager.roundTripOpenAIOAuth(request.Context(), request, proxyURL, account, func() error {
+		// Check after the manager has captured and admitted the actual route.
+		// A preflight ShouldRoute check could race with a route replacement.
+		if IsChannelMonitorV3Request(request.Context()) {
+			return errors.New("channel monitor v3 does not admit OAuth plugin transport")
+		}
+		if enabled {
+			attempt = observed.start(request, account.ID)
+		}
+		return nil
+	})
+	var transportError *PluginTransportError
+	if response == nil && errors.As(err, &transportError) && !transportError.RequestSent {
+		return response, handled, err
+	}
+	if handled && attempt != nil {
+		response, err = observed.observe(request, attempt, response, err)
+	}
+	return response, handled, err
 }

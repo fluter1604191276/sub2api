@@ -932,6 +932,11 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	NewUpstreamAttemptCostCalculator,
+	NewUpstreamAttemptRecorder,
+	ProvideChannelMonitorV3QualityService,
+	NewChannelMonitorV3Service,
+	ProvideChannelMonitorV3ProbeRunner,
 	// Core services
 	ProvideAuthService,
 	NewPasskeyService,

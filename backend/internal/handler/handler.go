@@ -25,6 +25,7 @@ type AdminHandlers struct {
 	Promo                  *admin.PromoHandler
 	Setting                *admin.SettingHandler
 	Ops                    *admin.OpsHandler
+	UpstreamAttempts       *admin.UpstreamAttemptHandler
 	System                 *admin.SystemHandler
 	Subscription           *admin.SubscriptionHandler
 	Usage                  *admin.UsageHandler
@@ -57,6 +58,7 @@ type Handlers struct {
 	Announcement     *AnnouncementHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
 	ChannelMonitorV2 *ChannelMonitorV2Handler
+	ChannelMonitorV3 *ChannelMonitorV3Handler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
